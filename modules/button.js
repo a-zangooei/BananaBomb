@@ -85,9 +85,10 @@ export const buttonModule = {
     }
 
     if (action === 'release') {
-      const releaseDigit = parseInt(data?.releaseDigit, 10);
+      const rawDigit = data?.releaseDigit !== undefined ? data.releaseDigit : ctx?.lastDigit;
+      const releaseDigit = parseInt(rawDigit, 10);
       if (state.actionType === 'hold') {
-        if (releaseDigit === state.targetReleaseDigit) {
+        if (!isNaN(releaseDigit) && releaseDigit === state.targetReleaseDigit) {
           state.solved = true;
           return {
             solved: true,

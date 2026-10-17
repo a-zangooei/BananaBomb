@@ -1,6 +1,8 @@
 /**
  * Server-side Cipher Keypad Module
  */
+import { fisherYatesShuffle } from './utils.js';
+
 const SYMBOL_POOL = ['⚡', '★', 'Ω', 'Ψ', '▲', '◆', '✦', '⚙'];
 
 export const keypadModule = {
@@ -8,7 +10,9 @@ export const keypadModule = {
   title: 'نمادهای رمزی',
 
   create(rng, ctx) {
-    const shuffledSymbols = [...SYMBOL_POOL].sort(() => rng() - 0.5).slice(0, 4);
+    // Unbiased Fisher-Yates shuffle of the symbol pool
+    const shuffledPool = fisherYatesShuffle(SYMBOL_POOL, rng);
+    const shuffledSymbols = shuffledPool.slice(0, 4);
     const correctOrder = [...shuffledSymbols].sort(
       (a, b) => SYMBOL_POOL.indexOf(a) - SYMBOL_POOL.indexOf(b)
     );
@@ -18,6 +22,7 @@ export const keypadModule = {
       symbols: shuffledSymbols,
       correctOrder,
       enteredOrder: [],
+      enteredSlots: [],
       solved: false
     };
   },
@@ -30,6 +35,7 @@ export const keypadModule = {
         id: 'keypad',
         slotCount: state.symbols.length,
         enteredCount: state.enteredOrder.length,
+        enteredSlots: state.enteredSlots || [],
         solved: state.solved
       };
     }
@@ -38,6 +44,7 @@ export const keypadModule = {
         id: 'keypad',
         symbols: state.symbols,
         enteredCount: state.enteredOrder.length,
+        enteredSlots: state.enteredSlots || [],
         solved: state.solved
       };
     }
@@ -53,7 +60,12 @@ export const keypadModule = {
 
     if (action === 'press') {
       const slotIndex = parseInt(data?.slotIndex, 10);
-      if (isNaN(slotIndex) || slotIndex < 0 || slotIndex >= state.symbols.length) {
+      if (
+        isNaN(slotIndex) ||
+        slotIndex < 0 ||
+        slotIndex >= state.symbols.length ||
+        state.enteredSlots?.includes(slotIndex)
+      ) {
         return { solved: false, strike: false };
       }
 
@@ -62,6 +74,7 @@ export const keypadModule = {
 
       if (symbolPressed === expectedNext) {
         state.enteredOrder.push(symbolPressed);
+        state.enteredSlots.push(slotIndex);
         if (state.enteredOrder.length === state.correctOrder.length) {
           state.solved = true;
           return { solved: true, strike: false, reason: 'کد امنیتی نمادها با موفقیت تکمیل شد!' };
@@ -70,6 +83,7 @@ export const keypadModule = {
       }
 
       state.enteredOrder = [];
+      state.enteredSlots = [];
       return {
         solved: false,
         strike: true,

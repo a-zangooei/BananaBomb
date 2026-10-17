@@ -66,7 +66,12 @@ export const wiresModule = {
 
     if (action === 'cut') {
       const wireIndex = parseInt(data?.wireIndex, 10);
-      if (isNaN(wireIndex) || state.cutWires.includes(wireIndex)) {
+      if (
+        isNaN(wireIndex) ||
+        wireIndex < 0 ||
+        wireIndex >= state.wires.length ||
+        state.cutWires.includes(wireIndex)
+      ) {
         return { solved: false, strike: false };
       }
 

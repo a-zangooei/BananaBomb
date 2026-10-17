@@ -110,7 +110,7 @@ export const keypadClientModule = {
 
     keyData.forEach((k) => {
       const idx = k.slotIndex;
-      const isEntered = idx < (state.enteredCount || 0);
+      const isEntered = state.enteredSlots?.includes(idx) ?? (idx < (state.enteredCount || 0));
 
       // Label text: Blind sees "1", "2", "3", "4"; Deaf sees actual symbols
       let symbolText = isBlind ? `${idx + 1}` : (state.symbols?.[idx] || '■');
@@ -146,7 +146,7 @@ export const keypadClientModule = {
     }
 
     const slotIndex = targetMesh?.userData?.slotIndex ?? hit.object?.userData?.slotIndex;
-    if (slotIndex !== undefined && slotIndex >= (state.enteredCount || 0)) {
+    if (slotIndex !== undefined && !state.enteredSlots?.includes(slotIndex)) {
       send('action', {
         moduleId: 'keypad',
         action: 'press',
