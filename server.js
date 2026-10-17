@@ -59,9 +59,9 @@ function printNetworkInterfaces(port) {
 const ROLES = ['blind', 'deaf', 'mute'];
 
 const roleMeta = {
-  blind: { title: 'نابینا (Blind)', subtitle: 'چشمان بسته، راهنمای صوتی و شنیداری' },
-  deaf: { title: 'ناشنوا (Deaf)', subtitle: 'گوش‌های ناشنوا، تحلیل‌گر بصری و دفترچه راهنما' },
-  mute: { title: 'بی‌کلام (Mute)', subtitle: 'زبان بسته، تکنسین خنثی‌ساز با دستان آزاد' }
+  blind: { title: 'نابینا (Blind)', subtitle: 'تنها تعامل‌گر با بمب؛ ظاهر مونوکروم و تنها نقش دارای صدا' },
+  deaf: { title: 'ناشنوا (Deaf)', subtitle: 'مشاهده کامل رنگ‌ها و سریال بمب؛ بدون امکان لمس و بدون صدا' },
+  mute: { title: 'بی‌کلام (Mute)', subtitle: 'دفترچه راهنمای قوانین رمزگشایی؛ فقط مطالعه قوانین بدون لمس و صدا' }
 };
 
 let roles = {
@@ -79,8 +79,8 @@ let gameState = {
   strikes: 0,
   maxStrikes: 3,
   serialNumber: '',
-  endReason: null,      // 'time_out' | 'max_strikes' | 'all_modules_defused'
-  modules: {}
+  endReason: null,      // 'time_out' | 'max_strikes' | 'defused'
+  modules: {}           // Authoritative modules data (contains secrets, NEVER sent raw)
 };
 
 let gameTimerInterval = null;
@@ -88,7 +88,7 @@ let gameTimerInterval = null;
 // Track active WebSocket connections: ws -> { playerId, role }
 const activeSockets = new Map();
 
-// Helper: Seeded pseudo-random generator
+// --- Fixed Seeded RNG with correct bitwise operator precedence ---
 function createRng(seedStr) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < seedStr.length; i++) {
@@ -99,7 +99,7 @@ function createRng(seedStr) {
     h ^= h >>> 7;
     h += h << 3;
     h ^= h >>> 17;
-    return (h += h << 5) >>> 0 / 4294967296;
+    return ((h += h << 5) >>> 0) / 4294967296;
   };
 }
 
@@ -112,7 +112,7 @@ function initializeModules(seed) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const digits = '0123456789';
 
-  // Generate Bomb Serial Number: e.g., 'B7-49-X2'
+  // Generate Bomb Serial Number: e.g. 'B7-49-X2'
   const serial = `${chars[Math.floor(rng() * chars.length)]}${digits[Math.floor(rng() * digits.length)]}-${digits[Math.floor(rng() * digits.length)]}${digits[Math.floor(rng() * digits.length)]}-${chars[Math.floor(rng() * chars.length)]}${digits[Math.floor(rng() * digits.length)]}`;
   const lastSerialDigit = parseInt(serial[serial.length - 1], 10);
   const isSerialEven = lastSerialDigit % 2 === 0;
@@ -126,11 +126,6 @@ function initializeModules(seed) {
   const holdStripColor = stripColors[Math.floor(rng() * stripColors.length)];
 
   // Logical rules for button:
-  // - If button is White: single press immediately
-  // - If button is Red and serial last digit is odd: single press immediately
-  // - If button is Blue: hold and release when timer last digit equals 4
-  // - If button is Yellow: hold and release when timer last digit equals 7
-  // - Otherwise: hold and release when timer last digit equals 1
   let actionType = 'hold';
   let targetReleaseDigit = 1;
 
@@ -158,11 +153,6 @@ function initializeModules(seed) {
     wires.push(availableColors[Math.floor(rng() * availableColors.length)]);
   }
 
-  // Wire Rules:
-  // - If more than one Red wire: cut the 2nd wire (index 1)
-  // - Else if last wire is Yellow: cut the 1st wire (index 0)
-  // - Else if exactly one Blue wire: cut the 3rd wire (index 2)
-  // - Otherwise: cut the 4th wire (index 3)
   const redCount = wires.filter((c) => c === 'red').length;
   const blueCount = wires.filter((c) => c === 'blue').length;
   let correctWireIndex = 3;
@@ -178,9 +168,7 @@ function initializeModules(seed) {
 
   // Module 3: The Cipher Keypad (صفحه کلید رمزی)
   const symbolPool = ['⚡', '★', 'Ω', 'Ψ', '▲', '◆', '✦', '⚙'];
-  // Pick 4 unique symbols
   const shuffledSymbols = [...symbolPool].sort(() => rng() - 0.5).slice(0, 4);
-  // Standard priority order for defusal is based on their appearance in symbolPool
   const correctOrder = [...shuffledSymbols].sort((a, b) => symbolPool.indexOf(a) - symbolPool.indexOf(b));
 
   return {
@@ -223,29 +211,154 @@ function checkDefused() {
   return m.button?.solved && m.wires?.solved && m.keypad?.solved;
 }
 
-// Broadcast game state to all connected clients
-function broadcast(data) {
+// --- Role-filtered state generation (Secrets are NEVER leaked) ---
+function getFilteredStateForRole(role) {
+  const common = {
+    status: gameState.status,
+    seed: gameState.seed,
+    startTime: gameState.startTime,
+    duration: gameState.duration,
+    remainingSeconds: gameState.remainingSeconds,
+    strikes: gameState.strikes,
+    maxStrikes: gameState.maxStrikes,
+    endReason: gameState.endReason,
+    roles: {
+      blind: { playerId: roles.blind.playerId, connected: roles.blind.connected, title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
+      deaf: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, title: roleMeta.deaf.title, subtitle: roleMeta.deaf.subtitle },
+      mute: { playerId: roles.mute.playerId, connected: roles.mute.connected, title: roleMeta.mute.title, subtitle: roleMeta.mute.subtitle }
+    },
+    serverTimestamp: Date.now()
+  };
+
+  if (gameState.status !== 'running' && gameState.status !== 'exploded' && gameState.status !== 'defused') {
+    return {
+      ...common,
+      serialNumber: null,
+      modules: null,
+      canInteract: false
+    };
+  }
+
+  const m = gameState.modules;
+  if (!m || !m.button) {
+    return { ...common, serialNumber: null, modules: null, canInteract: false };
+  }
+
+  // 1. Blind: Interacts with bomb, sees monochrome/no-color, no serial, generic keypad slots, has audio
+  if (role === 'blind') {
+    return {
+      ...common,
+      serialNumber: null, // Blind cannot see serial number
+      canInteract: true,
+      hasAudio: true,
+      isMonochrome: true,
+      modules: {
+        button: {
+          id: 'button',
+          label: 'دکمه',
+          color: 'monochrome',
+          holdStripColor: m.button.solved ? null : 'monochrome',
+          solved: m.button.solved
+        },
+        wires: {
+          id: 'wires',
+          count: m.wires.wires.length,
+          cutWires: m.wires.cutWires,
+          solved: m.wires.solved
+        },
+        keypad: {
+          id: 'keypad',
+          slotCount: m.keypad.symbols.length,
+          enteredCount: m.keypad.enteredOrder.length,
+          solved: m.keypad.solved
+        }
+      }
+    };
+  }
+
+  // 2. Deaf: Sees colorful bomb (colors, serial, keypad symbols), but CANNOT interact and NO audio
+  if (role === 'deaf') {
+    return {
+      ...common,
+      serialNumber: gameState.serialNumber, // Deaf sees serial
+      canInteract: false,
+      hasAudio: false,
+      isMonochrome: false,
+      modules: {
+        button: {
+          id: 'button',
+          label: m.button.label,
+          color: m.button.color,
+          holdStripColor: m.button.holdStripColor,
+          solved: m.button.solved
+        },
+        wires: {
+          id: 'wires',
+          wires: m.wires.wires, // Deaf sees the wire colors
+          cutWires: m.wires.cutWires,
+          solved: m.wires.solved
+        },
+        keypad: {
+          id: 'keypad',
+          symbols: m.keypad.symbols, // Deaf sees the exact symbols
+          enteredCount: m.keypad.enteredOrder.length,
+          solved: m.keypad.solved
+        }
+      }
+    };
+  }
+
+  // 3. Mute: Sees the rulebook (manual) statically in client; only gets progress/solved status, no bomb view, no audio
+  if (role === 'mute') {
+    return {
+      ...common,
+      serialNumber: null,
+      canInteract: false,
+      hasAudio: false,
+      modules: {
+        button: { solved: m.button.solved },
+        wires: { solved: m.wires.solved },
+        keypad: { solved: m.keypad.solved }
+      }
+    };
+  }
+
+  // Spectator or lobby
+  return {
+    ...common,
+    serialNumber: null,
+    canInteract: false,
+    hasAudio: false,
+    modules: null
+  };
+}
+
+// Send filtered state to a specific client
+function sendStateToClient(ws) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  const clientInfo = activeSockets.get(ws);
+  const role = clientInfo ? clientInfo.role : null;
+  const filteredState = getFilteredStateForRole(role);
+  ws.send(JSON.stringify({ type: 'state_update', state: filteredState }));
+}
+
+// Broadcast filtered states to all connected clients
+function broadcastFullState() {
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      sendStateToClient(client);
+    }
+  }
+}
+
+// Broadcast general event (like strike alert or game started)
+function broadcastEvent(data) {
   const msg = JSON.stringify(data);
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg);
     }
   }
-}
-
-function broadcastFullState() {
-  broadcast({
-    type: 'state_update',
-    state: {
-      ...gameState,
-      roles: {
-        blind: { ...roles.blind, title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
-        deaf: { ...roles.deaf, title: roleMeta.deaf.title, subtitle: roleMeta.deaf.subtitle },
-        mute: { ...roles.mute, title: roleMeta.mute.title, subtitle: roleMeta.mute.subtitle }
-      },
-      serverTimestamp: Date.now()
-    }
-  });
 }
 
 function checkReadyStatus() {
@@ -279,7 +392,7 @@ function startGame() {
   gameState.startTime = Date.now();
   gameState.status = 'running';
 
-  broadcast({
+  broadcastEvent({
     type: 'game_started',
     seed,
     startTime: gameState.startTime,
@@ -338,7 +451,7 @@ function triggerDefusal() {
 
 function registerStrike(reason) {
   gameState.strikes += 1;
-  broadcast({
+  broadcastEvent({
     type: 'strike',
     strikes: gameState.strikes,
     maxStrikes: gameState.maxStrikes,
@@ -354,27 +467,13 @@ function registerStrike(reason) {
 
 // --- WebSocket Event Router ---
 wss.on('connection', (ws) => {
-  // Connection ping/pong keepalive
   ws.isAlive = true;
   ws.on('pong', () => {
     ws.isAlive = true;
   });
 
-  // Immediately send initial state on connect
-  ws.send(
-    JSON.stringify({
-      type: 'state_update',
-      state: {
-        ...gameState,
-        roles: {
-          blind: { ...roles.blind, title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
-          deaf: { ...roles.deaf, title: roleMeta.deaf.title, subtitle: roleMeta.deaf.subtitle },
-          mute: { ...roles.mute, title: roleMeta.mute.title, subtitle: roleMeta.mute.subtitle }
-        },
-        serverTimestamp: Date.now()
-      }
-    })
-  );
+  // Send initial state to newly connected client
+  sendStateToClient(ws);
 
   ws.on('message', (raw) => {
     try {
@@ -495,9 +594,20 @@ function handleClientEvent(ws, msg) {
     return;
   }
 
-  // 6. Bomb Defusal Action
+  // 6. Bomb Defusal Action (STRICTLY allowed ONLY for 'blind' role)
   if (type === 'action') {
     if (gameState.status !== 'running') {
+      return;
+    }
+
+    const clientInfo = activeSockets.get(ws);
+    if (!clientInfo || clientInfo.role !== 'blind') {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          message: 'تنها بازیکن نابینا (Blind) مجاز به تعامل فیزیکی با ماژول‌های بمب است!'
+        })
+      );
       return;
     }
 
@@ -528,22 +638,22 @@ function handleButtonAction(action, data) {
   if (action === 'press') {
     if (btn.actionType === 'press') {
       btn.solved = true;
-      broadcast({ type: 'module_solved', moduleId: 'button', message: 'دکمه کاتالیزور با موفقیت فشرده شد!' });
+      broadcastEvent({ type: 'module_solved', moduleId: 'button', message: 'دکمه کاتالیزور با موفقیت فشرده شد!' });
     } else {
-      registerStrike('فشار ناگهانی روی دکمه در حالتی که نیاز به نگه داشتن بود!');
+      registerStrike('فشار ناگهانی روی دکمه در حالتی که نیاز به نگه‌داشتن و رهاسازی بود!');
     }
   } else if (action === 'release') {
     const { releaseDigit } = data || {};
     if (btn.actionType === 'hold') {
       if (parseInt(releaseDigit, 10) === btn.targetReleaseDigit) {
         btn.solved = true;
-        broadcast({
+        broadcastEvent({
           type: 'module_solved',
           moduleId: 'button',
-          message: `دکمه با موفقیت در ثانیه با رقم ${btn.targetReleaseDigit} رها شد!`
+          message: `دکمه با موفقیت در ثانیه‌ای با رقم ${btn.targetReleaseDigit} رها شد!`
         });
       } else {
-        registerStrike(`رهاسازی دکمه در ثانیه‌ی اشتباه! (رقم مورد انتظار: ${btn.targetReleaseDigit} بود)`);
+        registerStrike(`رهاسازی دکمه در ثانیه‌ی اشتباه!`);
       }
     } else {
       registerStrike('نگه داشتن دکمه در حالتی که نیاز به فشردن سریع بود!');
@@ -562,7 +672,7 @@ function handleWiresAction(action, data) {
 
   if (wireIndex === w.correctWireIndex) {
     w.solved = true;
-    broadcast({ type: 'module_solved', moduleId: 'wires', message: 'سیم صحیح قطع شد و مدار خنثی گشت!' });
+    broadcastEvent({ type: 'module_solved', moduleId: 'wires', message: 'سیم صحیح قطع شد و مدار خنثی گشت!' });
   } else {
     registerStrike(`سیم نادرست شماره ${wireIndex + 1} قطع شد! مدار بار اضافی دریافت کرد.`);
   }
@@ -572,16 +682,17 @@ function handleKeypadAction(action, data) {
   const kp = gameState.modules.keypad;
   if (!kp || kp.solved) return;
 
-  const symbol = data?.symbol;
-  if (!symbol) return;
+  const slotIndex = parseInt(data?.slotIndex, 10);
+  if (isNaN(slotIndex) || slotIndex < 0 || slotIndex >= kp.symbols.length) return;
 
+  const symbolPressed = kp.symbols[slotIndex];
   const expectedNextSymbol = kp.correctOrder[kp.enteredOrder.length];
 
-  if (symbol === expectedNextSymbol) {
-    kp.enteredOrder.push(symbol);
+  if (symbolPressed === expectedNextSymbol) {
+    kp.enteredOrder.push(symbolPressed);
     if (kp.enteredOrder.length === kp.correctOrder.length) {
       kp.solved = true;
-      broadcast({ type: 'module_solved', moduleId: 'keypad', message: 'کد امنیتی با موفقیت وارد شد!' });
+      broadcastEvent({ type: 'module_solved', moduleId: 'keypad', message: 'کد امنیتی با موفقیت وارد شد!' });
     }
   } else {
     kp.enteredOrder = [];

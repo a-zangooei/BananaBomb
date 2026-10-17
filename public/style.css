@@ -205,6 +205,43 @@ body {
   display: flex;
 }
 
+/* Role Banners */
+.role-roleplay-banner {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.blind-banner {
+  background: #18181b;
+  border: 1px solid #71717a;
+  color: #e4e4e7;
+}
+
+.deaf-banner {
+  background: #172554;
+  border: 1px solid #3b82f6;
+  color: #bfdbfe;
+}
+
+.mute-banner {
+  background: #2e1065;
+  border: 1px solid #a855f7;
+  color: #e9d5ff;
+}
+
+.role-assignment-info {
+  background: #0f172a;
+  border: 1px dashed #334155;
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
 /* Audio Unlock Banner */
 .audio-banner {
   background: linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%);
@@ -284,13 +321,13 @@ body {
 }
 
 .role-details h3 {
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: var(--text-main);
   margin-bottom: 2px;
 }
 
 .role-details p {
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
   line-height: 1.3;
 }
@@ -341,12 +378,6 @@ body {
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
 }
 
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
 .btn-danger {
   background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
@@ -358,102 +389,7 @@ body {
   border: 1px solid #334155;
 }
 
-/* Role Specific Views */
-
-/* 1. Blind View */
-.blind-viewport {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.radar-display {
-  background: #030712;
-  border: 2px solid #1f293d;
-  border-radius: 14px;
-  padding: 20px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.radar-circle {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  border: 2px dashed #3b82f6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.8rem;
-  position: relative;
-  animation: radar-spin 10s linear infinite;
-}
-
-@keyframes radar-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.audio-cue-card {
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 10px;
-  padding: 12px;
-  font-size: 0.85rem;
-  line-height: 1.6;
-}
-
-/* 2. Deaf View (Manual) */
-.deaf-viewport {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.manual-section {
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  padding: 14px;
-}
-
-.manual-section h4 {
-  font-size: 0.95rem;
-  color: var(--neon-amber);
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.rule-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-  margin-top: 6px;
-}
-
-.rule-table th, .rule-table td {
-  border: 1px solid #334155;
-  padding: 6px 8px;
-  text-align: right;
-}
-
-.rule-table th {
-  background: #1e293b;
-  color: #94a3b8;
-}
-
-/* 3. Mute View (Technician Cockpit) */
-.mute-viewport {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
+/* Cockpit Modules */
 .cockpit-module {
   background: #0f172a;
   border: 2px solid #334155;
@@ -462,9 +398,14 @@ body {
   position: relative;
 }
 
+.cockpit-module.monochrome-panel {
+  background: #18181b;
+  border-color: #52525b;
+}
+
 .cockpit-module.solved {
-  border-color: var(--neon-green);
-  background: rgba(16, 185, 129, 0.05);
+  border-color: var(--neon-green) !important;
+  background: rgba(16, 185, 129, 0.05) !important;
 }
 
 .module-header {
@@ -484,6 +425,13 @@ body {
 .module-led.on {
   background: var(--neon-green);
   box-shadow: 0 0 10px var(--neon-green);
+}
+
+.module-hint {
+  font-size: 0.72rem;
+  text-align: center;
+  color: #94a3b8;
+  margin-top: 6px;
 }
 
 /* Reactor Button Element */
@@ -512,9 +460,21 @@ body {
   transition: all 0.1s;
 }
 
-.reactor-button:active {
+.reactor-button:active:not(.readonly) {
   transform: scale(0.94);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8), inset 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.reactor-button.monochrome {
+  background: #3f3f46;
+  border-color: #71717a;
+  color: #fafafa;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
+}
+
+.reactor-button.readonly {
+  cursor: default;
+  pointer-events: none;
 }
 
 .reactor-button.red { background: radial-gradient(circle at 35% 35%, #ef4444, #991b1b); }
@@ -529,6 +489,16 @@ body {
   border: 1px solid #475569;
   background: #1e293b;
   transition: all 0.2s;
+}
+
+.side-strip.monochrome {
+  background: #27272a;
+  border-color: #52525b;
+}
+
+.side-strip.active-monochrome {
+  background: #a1a1aa;
+  box-shadow: 0 0 8px #a1a1aa;
 }
 
 .side-strip.active-yellow { background: #facc15; box-shadow: 0 0 10px #facc15; }
@@ -553,6 +523,10 @@ body {
   border-radius: 8px;
 }
 
+.monochrome-panel .wire-row {
+  background: #27272a;
+}
+
 .wire-cable {
   flex: 1;
   height: 14px;
@@ -566,10 +540,19 @@ body {
   opacity: 0.3;
 }
 
+.wire-cable.gray { background: #71717a; box-shadow: none; }
 .wire-cable.red { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
 .wire-cable.blue { background: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.4); }
 .wire-cable.yellow { background: #eab308; box-shadow: 0 0 8px rgba(234, 179, 8, 0.4); }
 .wire-cable.green { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+
+.wire-color-tag {
+  font-size: 0.8rem;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 4px;
+  direction: ltr;
+}
 
 .snip-btn {
   background: #dc2626;
@@ -596,10 +579,11 @@ body {
 }
 
 .keypad-btn {
-  background: #1e293b;
-  border: 2px solid #334155;
-  color: var(--neon-blue);
-  font-size: 2rem;
+  background: #27272a;
+  border: 2px solid #52525b;
+  color: #f4f4f5;
+  font-size: 1.1rem;
+  font-weight: bold;
   padding: 16px 0;
   border-radius: 10px;
   cursor: pointer;
@@ -610,7 +594,7 @@ body {
 }
 
 .keypad-btn:active {
-  background: #3b82f6;
+  background: #52525b;
   color: white;
   transform: scale(0.95);
 }
@@ -618,8 +602,75 @@ body {
 .keypad-btn.entered {
   border-color: var(--neon-green);
   color: var(--neon-green);
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+.keypad-symbol-card {
+  background: #0f172a;
+  border: 2px solid #334155;
+  color: #38bdf8;
+  font-size: 2.2rem;
+  padding: 16px 0;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mute Static Rulebook Manual */
+.manual-section {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.manual-section h4 {
+  font-size: 0.95rem;
+  color: var(--neon-amber);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 6px;
+}
+
+.rule-table th, .rule-table td {
+  border: 1px solid #334155;
+  padding: 6px 8px;
+  text-align: right;
+}
+
+.rule-table th {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+.manual-checklist {
+  font-size: 0.8rem;
+  line-height: 1.7;
+  padding-right: 18px;
+  color: #cbd5e1;
+}
+
+.symbol-priority-ribbon {
+  font-size: 1.25rem;
+  letter-spacing: 4px;
+  text-align: center;
+  background: #020617;
+  padding: 10px;
+  border-radius: 8px;
+  color: #38bdf8;
+  direction: ltr;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 /* Game Over / Win Overlays */
@@ -667,21 +718,4 @@ body {
   color: var(--text-muted);
   line-height: 1.6;
   margin-bottom: 24px;
-}
-
-/* Mute Signaling Soundboard */
-.mute-bell-btn {
-  background: #334155;
-  border: 1px solid #475569;
-  border-radius: 8px;
-  padding: 10px;
-  color: #f1f5f9;
-  font-size: 0.85rem;
-  font-weight: bold;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
 }

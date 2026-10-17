@@ -60,21 +60,31 @@ const btnLeaveRole = document.getElementById('btnLeaveRole');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
-// Mute Cockpit Elements
-const bombReactorBtn = document.getElementById('bombReactorBtn');
-const btnSideStrip = document.getElementById('btnSideStrip');
-const wiresContainer = document.getElementById('wiresContainer');
-const keypadContainer = document.getElementById('keypadContainer');
-const ledButton = document.getElementById('ledButton');
-const ledWires = document.getElementById('ledWires');
-const ledKeypad = document.getElementById('ledKeypad');
-const btnMuteBell = document.getElementById('btnMuteBell');
-const btnBlindListen = document.getElementById('btnBlindListen');
+// Blind Interactive Elements
+const blindReactorBtn = document.getElementById('blindReactorBtn');
+const blindSideStrip = document.getElementById('blindSideStrip');
+const blindWiresContainer = document.getElementById('blindWiresContainer');
+const blindKeypadContainer = document.getElementById('blindKeypadContainer');
+const blindLedButton = document.getElementById('blindLedButton');
+const blindLedWires = document.getElementById('blindLedWires');
+const blindLedKeypad = document.getElementById('blindLedKeypad');
 
-// --- User Interaction & Audio Initialization ---
+// Deaf Read-Only Observation Elements
+const deafReactorBtn = document.getElementById('deafReactorBtn');
+const deafSideStrip = document.getElementById('deafSideStrip');
+const deafWiresContainer = document.getElementById('deafWiresContainer');
+const deafKeypadContainer = document.getElementById('deafKeypadContainer');
+const deafLedButton = document.getElementById('deafLedButton');
+const deafLedWires = document.getElementById('deafLedWires');
+const deafLedKeypad = document.getElementById('deafLedKeypad');
+
+// Audio activation
 function unlockAudio() {
   sound.init();
-  sound.playClick();
+  if (myRole === 'blind') {
+    sound.setEnabled(true);
+    sound.playClick();
+  }
   if (audioBanner) {
     audioBanner.style.display = 'none';
   }
@@ -105,12 +115,14 @@ transport.onEvent((eventType, data) => {
 
   if (eventType === '_time_synced') {
     pingVal.textContent = `(${data.latency} ms)`;
-    syncStatus.textContent = `اختلاف ساعت: ${Math.abs(data.serverOffset)}ms`;
+    syncStatus.textContent = `همگام‌سازی: ${Math.abs(data.serverOffset)}ms`;
     return;
   }
 
   if (eventType === 'state_update') {
     currentGameState = data.state;
+    // Audio is strictly enabled ONLY for 'blind' role
+    sound.setEnabled(myRole === 'blind');
     renderState(currentGameState);
     return;
   }
@@ -118,7 +130,10 @@ transport.onEvent((eventType, data) => {
   if (eventType === 'role_assigned') {
     myRole = data.role;
     sessionStorage.setItem('defusal_role', myRole);
-    sound.playClick();
+    sound.setEnabled(myRole === 'blind');
+    if (myRole === 'blind') {
+      sound.playClick();
+    }
     if (btnLeaveRole) btnLeaveRole.style.display = 'block';
     return;
   }
@@ -126,38 +141,41 @@ transport.onEvent((eventType, data) => {
   if (eventType === 'role_released') {
     myRole = null;
     sessionStorage.removeItem('defusal_role');
+    sound.setEnabled(false);
     if (btnLeaveRole) btnLeaveRole.style.display = 'none';
     return;
   }
 
   if (eventType === 'strike') {
-    sound.playStrike();
+    if (myRole === 'blind') {
+      sound.playStrike();
+    }
     triggerHaptic([100, 50, 100]);
     flashRedAlert();
     return;
   }
 
   if (eventType === 'module_solved') {
-    sound.playDefused();
+    if (myRole === 'blind') {
+      sound.playDefused();
+    }
     return;
   }
 
   if (eventType === 'error') {
-    alert(data.message || 'خطا در بازی');
+    alert(data.message || 'خطا در عملیات بازی');
     return;
   }
 });
 
-// --- Role Selection Interaction ---
+// --- Role Selection Buttons ---
 Object.keys(roleCards).forEach((roleKey) => {
   const card = roleCards[roleKey];
   if (!card) return;
 
   card.addEventListener('click', () => {
     sound.init();
-    sound.playClick();
-
-    if (myRole === roleKey) return; // Already in this role
+    if (myRole === roleKey) return;
 
     transport.send('join', {
       role: roleKey,
@@ -168,7 +186,6 @@ Object.keys(roleCards).forEach((roleKey) => {
 
 if (btnLeaveRole) {
   btnLeaveRole.addEventListener('click', () => {
-    sound.playClick();
     transport.send('leave');
   });
 }
@@ -182,14 +199,12 @@ if (btnStartGame) {
 
 if (btnRestartExploded) {
   btnRestartExploded.addEventListener('click', () => {
-    sound.playClick();
     transport.send('reset');
   });
 }
 
 if (btnRestartDefused) {
   btnRestartDefused.addEventListener('click', () => {
-    sound.playClick();
     transport.send('reset');
   });
 }
@@ -198,9 +213,11 @@ if (btnRestartDefused) {
 function renderState(state) {
   if (!state) return;
 
-  // 1. Serial Number Tag
-  if (state.serialNumber) {
-    serialTag.textContent = `SERIAL: ${state.serialNumber} | SEED: ${state.seed || '---'}`;
+  // 1. Serial Number Tag (Only Deaf sees serial, Blind & Mute see masked tag)
+  if (myRole === 'deaf' && state.serialNumber) {
+    serialTag.textContent = `SERIAL: ${state.serialNumber} (مشاهده اختصاصی ناشنوا)`;
+  } else if (state.status === 'running') {
+    serialTag.textContent = 'SERIAL: [مخدوش / فقط پیش ناشنوا]';
   } else {
     serialTag.textContent = 'SERIAL: STANDBY';
   }
@@ -241,7 +258,7 @@ function renderState(state) {
     });
   }
 
-  // 4. Overlays & Active Section Router
+  // 4. Overlays Management
   overlayExploded.classList.remove('active');
   overlayDefused.classList.remove('active');
 
@@ -250,71 +267,71 @@ function renderState(state) {
     if (state.endReason === 'time_out') {
       explodeReason.textContent = '⏰ زمان ۵ دقیقه‌ای بمب به اتمام رسید!';
     } else if (state.endReason === 'max_strikes') {
-      explodeReason.textContent = '💥 تعداد خطاها (Strikes) به سقف مجاز رسید!';
+      explodeReason.textContent = '💥 تعداد خطاها (Strikes) به ۳ رسید و مدار ترکید!';
     } else {
       explodeReason.textContent = 'بمب منفجر شد!';
     }
-    sound.playExplosion();
+    if (myRole === 'blind') {
+      sound.playExplosion();
+    }
     return;
   }
 
   if (state.status === 'defused') {
     overlayDefused.classList.add('active');
-    defusedStats.textContent = `تبریک! بمب با ${state.strikes} خطا و در زمان باقی‌مانده ${formatTime(state.remainingSeconds)} خنثی شد.`;
-    sound.playDefused();
+    defusedStats.textContent = `تبریک به تیم! بمب با ${state.strikes} خطا و در زمان ${formatTime(state.remainingSeconds)} با موفقیت خنثی شد.`;
+    if (myRole === 'blind') {
+      sound.playDefused();
+    }
     return;
   }
 
-  // View Sections Management
+  // 5. Active Section Router based on Role
   [lobbySection, blindSection, deafSection, muteSection].forEach((sec) => sec.classList.remove('active'));
 
   if (state.status === 'running') {
     if (myRole === 'blind') {
       blindSection.classList.add('active');
+      renderBlindCockpit(state.modules);
     } else if (myRole === 'deaf') {
       deafSection.classList.add('active');
+      renderDeafObservation(state.modules);
     } else if (myRole === 'mute') {
       muteSection.classList.add('active');
-      renderMuteCockpit(state.modules);
     } else {
-      // Spectator or player not yet picked role
       lobbySection.classList.add('active');
     }
   } else {
-    // Waiting or Ready state
     lobbySection.classList.add('active');
   }
 }
 
-// --- Mute Technician Cockpit Rendering ---
-function renderMuteCockpit(modules) {
+// --- 1. Blind Technician Cockpit (Monochrome, Interactive) ---
+function renderBlindCockpit(modules) {
   if (!modules) return;
 
-  // Module 1: Reactor Button
+  // Module 1: Reactor Button (Monochrome)
   const btn = modules.button;
   if (btn) {
-    bombReactorBtn.textContent = btn.label;
-    bombReactorBtn.className = `reactor-button ${btn.color}`;
-    ledButton.classList.toggle('on', btn.solved);
-    bombReactorBtn.disabled = btn.solved;
-
-    if (btn.solved) {
-      bombReactorBtn.textContent = 'خنثی شد ✓';
-    }
+    blindLedButton.classList.toggle('on', btn.solved);
+    blindReactorBtn.disabled = btn.solved;
+    blindReactorBtn.textContent = btn.solved ? 'خنثی شد ✓' : 'دکمه خنثی‌ساز';
   }
 
-  // Module 2: Wires
+  // Module 2: Wires (4 Gray Wires with Scissors)
   const w = modules.wires;
-  if (w && wiresContainer) {
-    ledWires.classList.toggle('on', w.solved);
-    wiresContainer.innerHTML = '';
-    w.wires.forEach((color, idx) => {
+  if (w && blindWiresContainer) {
+    blindLedWires.classList.toggle('on', w.solved);
+    blindWiresContainer.innerHTML = '';
+    const wireCount = w.count || 4;
+
+    for (let idx = 0; idx < wireCount; idx++) {
       const isCut = w.cutWires.includes(idx);
       const row = document.createElement('div');
       row.className = 'wire-row';
       row.innerHTML = `
-        <span style="font-size: 0.8rem; font-family: monospace; color: #94a3b8;">سیم #${idx + 1}</span>
-        <div class="wire-cable ${color} ${isCut ? 'cut' : ''}"></div>
+        <span style="font-size: 0.82rem; font-family: monospace; color: #a1a1aa; font-weight: bold;">سیم #${idx + 1}</span>
+        <div class="wire-cable gray ${isCut ? 'cut' : ''}"></div>
         <button class="snip-btn" data-index="${idx}" ${isCut || w.solved ? 'disabled' : ''}>
           ${isCut ? 'قطع شد ✗' : 'قیچی ✂'}
         </button>
@@ -331,20 +348,22 @@ function renderMuteCockpit(modules) {
         });
       });
 
-      wiresContainer.appendChild(row);
-    });
+      blindWiresContainer.appendChild(row);
+    }
   }
 
-  // Module 3: Keypad
+  // Module 3: Keypad (4 generic numbered buttons)
   const kp = modules.keypad;
-  if (kp && keypadContainer) {
-    ledKeypad.classList.toggle('on', kp.solved);
-    keypadContainer.innerHTML = '';
-    kp.symbols.forEach((sym) => {
-      const isEntered = kp.enteredOrder.includes(sym);
+  if (kp && blindKeypadContainer) {
+    blindLedKeypad.classList.toggle('on', kp.solved);
+    blindKeypadContainer.innerHTML = '';
+    const slotCount = kp.slotCount || 4;
+
+    for (let slotIdx = 0; slotIdx < slotCount; slotIdx++) {
+      const isEntered = slotIdx < (kp.enteredCount || 0);
       const keyBtn = document.createElement('button');
       keyBtn.className = `keypad-btn ${isEntered ? 'entered' : ''}`;
-      keyBtn.textContent = sym;
+      keyBtn.textContent = `کلید [ ${slotIdx + 1} ]`;
       keyBtn.disabled = isEntered || kp.solved;
 
       keyBtn.addEventListener('click', () => {
@@ -353,17 +372,79 @@ function renderMuteCockpit(modules) {
         transport.send('action', {
           moduleId: 'keypad',
           action: 'press',
-          data: { symbol: sym }
+          data: { slotIndex: slotIdx }
         });
       });
 
-      keypadContainer.appendChild(keyBtn);
+      blindKeypadContainer.appendChild(keyBtn);
+    }
+  }
+}
+
+// --- 2. Deaf Observation Cockpit (Real Colors, Read-Only, No Audio) ---
+function renderDeafObservation(modules) {
+  if (!modules) return;
+
+  // Module 1: Reactor Button (Real Colors)
+  const btn = modules.button;
+  if (btn) {
+    deafLedButton.classList.toggle('on', btn.solved);
+    deafReactorBtn.textContent = btn.solved ? 'خنثی شد ✓' : (btn.label || 'خنثی‌سازی');
+    deafReactorBtn.className = `reactor-button readonly ${btn.color || 'white'}`;
+    if (btn.holdStripColor) {
+      deafSideStrip.className = `side-strip active-${btn.holdStripColor}`;
+    } else {
+      deafSideStrip.className = 'side-strip';
+    }
+  }
+
+  // Module 2: Wires (Real Colors, No Scissors)
+  const w = modules.wires;
+  if (w && deafWiresContainer) {
+    deafLedWires.classList.toggle('on', w.solved);
+    deafWiresContainer.innerHTML = '';
+    const colorNames = { red: 'قرمز', blue: 'آبی', yellow: 'زرد', green: 'سبز' };
+
+    (w.wires || []).forEach((color, idx) => {
+      const isCut = w.cutWires.includes(idx);
+      const row = document.createElement('div');
+      row.className = 'wire-row';
+      row.innerHTML = `
+        <span class="wire-color-tag" style="color: ${getWireHex(color)}">#${idx + 1} (${colorNames[color] || color})</span>
+        <div class="wire-cable ${color} ${isCut ? 'cut' : ''}"></div>
+        <span style="font-size: 0.75rem; color: ${isCut ? '#ef4444' : '#10b981'}; font-weight: bold; min-width: 55px; text-align: left;">
+          ${isCut ? 'قطع شده' : 'سالم'}
+        </span>
+      `;
+      deafWiresContainer.appendChild(row);
+    });
+  }
+
+  // Module 3: Keypad (Real Symbols, Read-Only)
+  const kp = modules.keypad;
+  if (kp && deafKeypadContainer) {
+    deafLedKeypad.classList.toggle('on', kp.solved);
+    deafKeypadContainer.innerHTML = '';
+
+    (kp.symbols || []).forEach((sym, idx) => {
+      const card = document.createElement('div');
+      card.className = 'keypad-symbol-card';
+      card.innerHTML = `<span style="font-size: 0.75rem; color: #64748b; margin-left: 6px;">#${idx + 1}:</span> ${sym}`;
+      deafKeypadContainer.appendChild(card);
     });
   }
 }
 
-// --- Reactor Button Hold & Release Logic ---
-if (bombReactorBtn) {
+function getWireHex(color) {
+  if (color === 'red') return '#ef4444';
+  if (color === 'blue') return '#3b82f6';
+  if (color === 'yellow') return '#eab308';
+  if (color === 'green') return '#22c55e';
+  return '#cbd5e1';
+}
+
+// --- Blind Reactor Button Press / Hold Logic ---
+if (blindReactorBtn) {
   function startButtonHold(e) {
     e.preventDefault();
     sound.init();
@@ -373,13 +454,7 @@ if (bombReactorBtn) {
     if (!currentGameState?.modules?.button || currentGameState.modules.button.solved) return;
 
     buttonPressStartTime = Date.now();
-    btnSideStrip.className = 'side-strip active-yellow';
-
-    // Show side strip color after brief hold
-    buttonPressTimer = setTimeout(() => {
-      const stripColor = currentGameState.modules.button.holdStripColor || 'blue';
-      btnSideStrip.className = `side-strip active-${stripColor}`;
-    }, 250);
+    blindSideStrip.className = 'side-strip monochrome active-monochrome';
   }
 
   function endButtonHold(e) {
@@ -389,20 +464,17 @@ if (bombReactorBtn) {
     const duration = Date.now() - buttonPressStartTime;
     clearTimeout(buttonPressTimer);
     buttonPressStartTime = null;
-    btnSideStrip.className = 'side-strip';
+    blindSideStrip.className = 'side-strip monochrome';
 
-    // Get current synchronized seconds digit
     const remaining = getCurrentRemainingSeconds();
     const currentTimerLastDigit = Math.floor(remaining) % 10;
 
     if (duration < 350) {
-      // Quick click/tap
       transport.send('action', {
         moduleId: 'button',
         action: 'press'
       });
     } else {
-      // Released after hold
       transport.send('action', {
         moduleId: 'button',
         action: 'release',
@@ -411,33 +483,9 @@ if (bombReactorBtn) {
     }
   }
 
-  bombReactorBtn.addEventListener('pointerdown', startButtonHold);
-  bombReactorBtn.addEventListener('pointerup', endButtonHold);
-  bombReactorBtn.addEventListener('pointercancel', endButtonHold);
-}
-
-// --- Non-verbal Bell for Mute Player ---
-if (btnMuteBell) {
-  btnMuteBell.addEventListener('click', () => {
-    sound.init();
-    sound.playTone(880, 0.25);
-    triggerHaptic([50, 50, 50]);
-  });
-}
-
-// --- Blind Role Acoustic Cue Button ---
-if (btnBlindListen) {
-  btnBlindListen.addEventListener('click', () => {
-    sound.init();
-    if (!currentGameState?.modules?.button) {
-      sound.playTone(440, 0.3);
-      return;
-    }
-    const color = currentGameState.modules.button.color;
-    const toneMap = { red: 520, blue: 660, yellow: 440, white: 880 };
-    sound.playTone(toneMap[color] || 440, 0.4);
-    triggerHaptic([80]);
-  });
+  blindReactorBtn.addEventListener('pointerdown', startButtonHold);
+  blindReactorBtn.addEventListener('pointerup', endButtonHold);
+  blindReactorBtn.addEventListener('pointercancel', endButtonHold);
 }
 
 // --- Synchronized Timer Calculation ---
@@ -461,27 +509,25 @@ setInterval(() => {
   if (!currentGameState) return;
 
   const remaining = getCurrentRemainingSeconds();
-  const mins = Math.floor(remaining / 60);
-  const secs = Math.floor(remaining % 60);
-
   timerDisplay.textContent = formatTime(remaining);
 
   if (currentGameState.status === 'running') {
-    // Urgent pulse styling when time < 60s
     if (remaining <= 60) {
       timerDisplay.classList.add('urgent');
     } else {
       timerDisplay.classList.remove('urgent');
     }
 
-    // Audio ticking on whole second change
+    // Audio ticking strictly for Blind player
     const currentSec = Math.floor(remaining);
     if (currentSec !== lastTickSecond) {
       lastTickSecond = currentSec;
-      if (remaining <= 30) {
-        sound.playUrgentBeep();
-      } else {
-        sound.playTick(remaining <= 60 ? 1200 : 900);
+      if (myRole === 'blind') {
+        if (remaining <= 30) {
+          sound.playUrgentBeep();
+        } else {
+          sound.playTick(remaining <= 60 ? 1200 : 900);
+        }
       }
     }
   } else {

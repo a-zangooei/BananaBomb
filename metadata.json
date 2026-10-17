@@ -1,6 +1,0 @@
-{
-  "name": "Co-op Bomb Defusal Local 3-Player",
-  "description": "Local 3-player cooperative mobile bomb defusal game with Blind, Deaf, and Mute roles running over pure Node.js Express and WebSocket.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

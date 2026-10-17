@@ -1,13 +1,18 @@
 /**
  * Standalone Web Audio API Synthesizer
  * Generates all bomb sound effects procedurally without any external audio files.
- * Works 100% offline, on local hotspot, Termux, and mobile browsers.
+ * Role-gated: Only the 'blind' role has sound enabled.
  */
 
 class SoundEngine {
   constructor() {
     this.ctx = null;
     this.isUnlocked = false;
+    this.enabled = true; // Controlled by player role
+  }
+
+  setEnabled(enable) {
+    this.enabled = !!enable;
   }
 
   init() {
@@ -40,7 +45,7 @@ class SoundEngine {
   }
 
   playTick(pitch = 1000) {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -58,13 +63,11 @@ class SoundEngine {
 
       osc.start(now);
       osc.stop(now + 0.05);
-    } catch (err) {
-      // ignore
-    }
+    } catch (err) {}
   }
 
   playUrgentBeep() {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -86,7 +89,7 @@ class SoundEngine {
   }
 
   playClick() {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -108,7 +111,7 @@ class SoundEngine {
   }
 
   playWireCut() {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -130,10 +133,9 @@ class SoundEngine {
   }
 
   playStrike() {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
-      // Harsh distorted buzzer
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
 
@@ -153,7 +155,7 @@ class SoundEngine {
   }
 
   playExplosion() {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
       const bufferSize = this.ctx.sampleRate * 1.5;
@@ -185,9 +187,9 @@ class SoundEngine {
   }
 
   playDefused() {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
-      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6 major arpeggio
+      const notes = [523.25, 659.25, 783.99, 1046.5];
       notes.forEach((freq, idx) => {
         const now = this.ctx.currentTime + idx * 0.12;
         const osc = this.ctx.createOscillator();
@@ -209,7 +211,7 @@ class SoundEngine {
   }
 
   playTone(freq = 440, duration = 0.2) {
-    if (!this.ctx) return;
+    if (!this.enabled || !this.ctx) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
