@@ -1,0 +1,687 @@
+/* Mobile-first Cyber Bomb Defusal HUD Stylesheet */
+:root {
+  --bg-main: #0a0e17;
+  --bg-panel: #111827;
+  --bg-card: #1e293b;
+  --border-color: #334155;
+  --neon-red: #ef4444;
+  --neon-amber: #f59e0b;
+  --neon-green: #10b981;
+  --neon-blue: #3b82f6;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --font-digital: 'Courier New', Courier, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Vazirmatn', sans-serif;
+  direction: rtl;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  overflow-x: hidden;
+}
+
+/* Mobile Screen Container */
+.app-viewport {
+  width: 100%;
+  max-width: 480px;
+  min-height: 100vh;
+  background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0a0e17 85%);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+  border-left: 1px solid #1e293b;
+  border-right: 1px solid #1e293b;
+}
+
+/* Header & Status Bar */
+.status-bar {
+  background: #0d131f;
+  border-bottom: 2px solid #1e293b;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  direction: ltr;
+}
+
+.ping-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-digital);
+  color: var(--neon-green);
+  font-weight: bold;
+}
+
+.ping-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  box-shadow: 0 0 8px var(--neon-green);
+}
+
+.ping-dot.disconnected {
+  background: var(--neon-red);
+  box-shadow: 0 0 8px var(--neon-red);
+}
+
+.clock-offset-tag {
+  color: var(--text-muted);
+  font-family: var(--font-digital);
+  font-size: 0.72rem;
+}
+
+/* Bomb Timer Panel */
+.timer-panel {
+  background: #05080e;
+  border: 3px solid #1f293d;
+  border-radius: 12px;
+  margin: 12px;
+  padding: 14px 16px;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.serial-tag {
+  align-self: flex-start;
+  font-family: var(--font-digital);
+  font-size: 0.75rem;
+  color: #64748b;
+  letter-spacing: 1.5px;
+  direction: ltr;
+}
+
+.timer-digits {
+  font-family: var(--font-digital);
+  font-size: 3.4rem;
+  font-weight: 900;
+  color: var(--neon-red);
+  letter-spacing: 4px;
+  text-shadow: 0 0 16px rgba(239, 68, 68, 0.6);
+  direction: ltr;
+  line-height: 1.1;
+  margin: 6px 0;
+}
+
+.timer-digits.urgent {
+  animation: pulse-red 0.8s infinite alternate;
+}
+
+@keyframes pulse-red {
+  from {
+    color: #ef4444;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  }
+  to {
+    color: #ff8b8b;
+    text-shadow: 0 0 25px rgba(255, 68, 68, 0.95);
+  }
+}
+
+/* Strikes Indicator */
+.strikes-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.strikes-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: bold;
+}
+
+.strike-boxes {
+  display: flex;
+  gap: 8px;
+}
+
+.strike-box {
+  width: 26px;
+  height: 26px;
+  border: 2px solid #334155;
+  background: #0f172a;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 0.9rem;
+  color: transparent;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.strike-box.active {
+  border-color: var(--neon-red);
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--neon-red);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.8);
+  animation: strike-shake 0.3s;
+}
+
+@keyframes strike-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* Main Content Area */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 18px 12px;
+  overflow-y: auto;
+}
+
+/* Sections */
+.view-section {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.view-section.active {
+  display: flex;
+}
+
+/* Audio Unlock Banner */
+.audio-banner {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%);
+  border: 1px solid #3b82f6;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.audio-btn {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Role Selector Grid */
+.role-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.role-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: right;
+  position: relative;
+  overflow: hidden;
+}
+
+.role-card:active {
+  transform: scale(0.98);
+}
+
+.role-card.selected {
+  border-color: var(--neon-blue);
+  background: #172554;
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+}
+
+.role-card.taken:not(.selected) {
+  opacity: 0.6;
+  border-color: #475569;
+  cursor: not-allowed;
+}
+
+.role-card-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.role-icon {
+  font-size: 2rem;
+  min-width: 44px;
+  height: 44px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.role-details h3 {
+  font-size: 1rem;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.role-details p {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.role-status-badge {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #334155;
+  color: #cbd5e1;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.role-status-badge.ready {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--neon-green);
+  border: 1px solid var(--neon-green);
+}
+
+.role-status-badge.offline {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--neon-red);
+  border: 1px solid var(--neon-red);
+}
+
+/* Action Button Style */
+.btn-primary {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 20px;
+  font-size: 1.05rem;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.btn-primary:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+}
+
+.btn-secondary {
+  background: #1e293b;
+  color: #cbd5e1;
+  border: 1px solid #334155;
+}
+
+/* Role Specific Views */
+
+/* 1. Blind View */
+.blind-viewport {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.radar-display {
+  background: #030712;
+  border: 2px solid #1f293d;
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.radar-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px dashed #3b82f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.8rem;
+  position: relative;
+  animation: radar-spin 10s linear infinite;
+}
+
+@keyframes radar-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.audio-cue-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* 2. Deaf View (Manual) */
+.deaf-viewport {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.manual-section {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.manual-section h4 {
+  font-size: 0.95rem;
+  color: var(--neon-amber);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 6px;
+}
+
+.rule-table th, .rule-table td {
+  border: 1px solid #334155;
+  padding: 6px 8px;
+  text-align: right;
+}
+
+.rule-table th {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+/* 3. Mute View (Technician Cockpit) */
+.mute-viewport {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cockpit-module {
+  background: #0f172a;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  padding: 14px;
+  position: relative;
+}
+
+.cockpit-module.solved {
+  border-color: var(--neon-green);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.module-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.module-led {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #475569;
+}
+
+.module-led.on {
+  background: var(--neon-green);
+  box-shadow: 0 0 10px var(--neon-green);
+}
+
+/* Reactor Button Element */
+.reactor-btn-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.reactor-button {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: 6px solid #374151;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6), inset 0 3px 6px rgba(255, 255, 255, 0.4);
+  transition: all 0.1s;
+}
+
+.reactor-button:active {
+  transform: scale(0.94);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8), inset 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.reactor-button.red { background: radial-gradient(circle at 35% 35%, #ef4444, #991b1b); }
+.reactor-button.blue { background: radial-gradient(circle at 35% 35%, #3b82f6, #1e40af); }
+.reactor-button.yellow { background: radial-gradient(circle at 35% 35%, #facc15, #854d0e); color: #000; }
+.reactor-button.white { background: radial-gradient(circle at 35% 35%, #ffffff, #94a3b8); color: #000; }
+
+.side-strip {
+  width: 160px;
+  height: 12px;
+  border-radius: 6px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  transition: all 0.2s;
+}
+
+.side-strip.active-yellow { background: #facc15; box-shadow: 0 0 10px #facc15; }
+.side-strip.active-blue { background: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
+.side-strip.active-white { background: #ffffff; box-shadow: 0 0 10px #ffffff; }
+
+/* Wire Cutting Module */
+.wires-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.wire-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #1e293b;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.wire-cable {
+  flex: 1;
+  height: 14px;
+  border-radius: 7px;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.wire-cable.cut {
+  background: repeating-linear-gradient(45deg, #1e293b, #1e293b 8px, #0f172a 8px, #0f172a 16px) !important;
+  opacity: 0.3;
+}
+
+.wire-cable.red { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+.wire-cable.blue { background: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.4); }
+.wire-cable.yellow { background: #eab308; box-shadow: 0 0 8px rgba(234, 179, 8, 0.4); }
+.wire-cable.green { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+
+.snip-btn {
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.snip-btn:disabled {
+  background: #475569;
+  cursor: not-allowed;
+}
+
+/* Keypad Module */
+.keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.keypad-btn {
+  background: #1e293b;
+  border: 2px solid #334155;
+  color: var(--neon-blue);
+  font-size: 2rem;
+  padding: 16px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.keypad-btn:active {
+  background: #3b82f6;
+  color: white;
+  transform: scale(0.95);
+}
+
+.keypad-btn.entered {
+  border-color: var(--neon-green);
+  color: var(--neon-green);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Game Over / Win Overlays */
+.overlay-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(10, 14, 23, 0.96);
+  backdrop-filter: blur(6px);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.overlay-screen.active {
+  display: flex;
+}
+
+.overlay-icon {
+  font-size: 4.5rem;
+  margin-bottom: 12px;
+}
+
+.overlay-title {
+  font-size: 2rem;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.overlay-title.danger {
+  color: var(--neon-red);
+  text-shadow: 0 0 20px rgba(239, 68, 68, 0.7);
+}
+
+.overlay-title.success {
+  color: var(--neon-green);
+  text-shadow: 0 0 20px rgba(16, 185, 129, 0.7);
+}
+
+.overlay-desc {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+/* Mute Signaling Soundboard */
+.mute-bell-btn {
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 10px;
+  color: #f1f5f9;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
