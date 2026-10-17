@@ -112,9 +112,36 @@ transport.onEvent((eventType, data) => {
     return;
   }
 
+  if (eventType === 'session_replaced') {
+    alert(data.message || 'نشست شما در دستگاه یا تب دیگری فعال شد.');
+    return;
+  }
+
   if (eventType === 'state_update') {
     const prevState = currentGameState;
     currentGameState = data.state;
+
+    // Synchronize local role state with server authoritative role ownership
+    let serverAssignedRole = null;
+    if (currentGameState.roles) {
+      for (const [rKey, rInfo] of Object.entries(currentGameState.roles)) {
+        if (rInfo.playerId === playerId) {
+          serverAssignedRole = rKey;
+          break;
+        }
+      }
+    }
+
+    if (serverAssignedRole !== myRole) {
+      myRole = serverAssignedRole;
+      if (myRole) {
+        sessionStorage.setItem('defusal_role', myRole);
+      } else {
+        sessionStorage.removeItem('defusal_role');
+      }
+      if (btnLeaveRole) btnLeaveRole.style.display = myRole ? 'block' : 'none';
+      if (bombScene) bombScene.setRole(myRole);
+    }
 
     // Strictly gate audio: Only Blind role hears any audio
     sound.setEnabled(myRole === 'blind');
@@ -170,6 +197,14 @@ transport.onEvent((eventType, data) => {
   }
 
   if (eventType === 'error') {
+    if (data.code === 'ROLE_TAKEN') {
+      // Revert local role choice if server rejected it
+      if (myRole && currentGameState?.roles?.[myRole]?.playerId !== playerId) {
+        myRole = null;
+        sessionStorage.removeItem('defusal_role');
+        if (btnLeaveRole) btnLeaveRole.style.display = 'none';
+      }
+    }
     alert(data.message || 'خطا در عملیات بازی');
     return;
   }
@@ -220,6 +255,8 @@ if (btnRestartDefused) {
 function renderState(state) {
   if (!state) return;
 
+  const isHost = (state.hostPlayerId === playerId);
+
   // 1. Serial Number Tag
   if (myRole === 'deaf' && state.serialNumber) {
     serialTag.textContent = `SERIAL: ${state.serialNumber} (پلاک پشت بمب را بخوانید)`;
@@ -247,16 +284,19 @@ function renderState(state) {
       if (!card || !badge) return;
 
       const isMine = rInfo.playerId === playerId;
+      const isRoleHost = (rInfo.playerId && rInfo.playerId === state.hostPlayerId);
+      const hostIcon = isRoleHost ? ' 👑' : '';
+
       card.classList.toggle('selected', isMine);
 
       if (rInfo.connected) {
         card.classList.add('taken');
         badge.className = 'role-status-badge ready';
-        badge.textContent = isMine ? 'شما (متصل)' : 'بازیکن متصل';
+        badge.textContent = isMine ? `شما (متصل)${hostIcon}` : `متصل${hostIcon}`;
       } else if (rInfo.playerId) {
         card.classList.add('taken');
         badge.className = 'role-status-badge offline';
-        badge.textContent = isMine ? 'شما (قطع شده)' : 'قطع ارتباط';
+        badge.textContent = isMine ? `شما (قطع شده)${hostIcon}` : `قطع ارتباط${hostIcon}`;
       } else {
         card.classList.remove('taken');
         badge.className = 'role-status-badge';
@@ -265,20 +305,28 @@ function renderState(state) {
     });
   }
 
-  // 4. Start Button Readiness Guard
+  // 4. Start Button Readiness & Host Authority Guard
   if (btnStartGame) {
     const isReady = state.status === 'ready';
-    btnStartGame.disabled = !isReady;
+
     if (isReady) {
-      btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (تیم آماده است)';
+      if (isHost) {
+        btnStartGame.disabled = false;
+        btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (شما میزبان هستید)';
+      } else {
+        btnStartGame.disabled = true;
+        btnStartGame.textContent = '💣 تیم آماده است (منتظر شروع توسط میزبان...)';
+      }
     } else if (state.status === 'waiting') {
+      btnStartGame.disabled = true;
       btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (منتظر ۳ بازیکن)';
     } else {
+      btnStartGame.disabled = true;
       btnStartGame.textContent = 'عملیات در جریان است...';
     }
   }
 
-  // 5. Overlays Management
+  // 5. Overlays Management (Reset Button with Host Guard)
   overlayExploded.classList.remove('active');
   overlayDefused.classList.remove('active');
 
@@ -291,12 +339,22 @@ function renderState(state) {
     } else {
       explodeReason.textContent = 'بمب منفجر شد!';
     }
+
+    if (btnRestartExploded) {
+      btnRestartExploded.disabled = !isHost;
+      btnRestartExploded.textContent = isHost ? '🔄 تلاش دوباره (میزبان)' : 'منتظر ریست توسط میزبان...';
+    }
     return;
   }
 
   if (state.status === 'defused') {
     overlayDefused.classList.add('active');
     defusedStats.textContent = `تبریک به تیم! بمب با ${state.strikes} خطا و در زمان ${formatTime(state.remainingSeconds)} با موفقیت خنثی شد.`;
+
+    if (btnRestartDefused) {
+      btnRestartDefused.disabled = !isHost;
+      btnRestartDefused.textContent = isHost ? '⭐ بازی جدید (میزبان)' : 'منتظر بازی جدید توسط میزبان...';
+    }
     return;
   }
 

@@ -77,6 +77,24 @@ const roleMeta = {
   mute: { title: 'بی‌کلام (Mute)', subtitle: 'دفترچه راهنمای قوانین رمزگشایی ۲D (فقط مطالعه، بدون لمس و بدون صدا)' }
 };
 
+// Monotonic counter to uniquely identify socket connections
+let nextSocketId = 1;
+
+const log = (...args) => {
+  if (process.env.NODE_ENV !== 'test') {
+    console.log(...args);
+  }
+};
+
+// Central session registry: playerId -> { playerId, socket, socketId, role, connected, joinedAt }
+const sessions = new Map();
+
+// Map of active WebSocket instances: ws -> { playerId, socketId }
+const activeSockets = new Map();
+
+// Designated host for room control (starts and resets)
+let hostPlayerId = null;
+
 let roles = {
   blind: { playerId: null, connected: false, joinedAt: null },
   deaf: { playerId: null, connected: false, joinedAt: null },
@@ -97,9 +115,6 @@ let gameState = {
 };
 
 let gameTimerInterval = null;
-
-// Track active WebSocket connections: ws -> { playerId, role }
-const activeSockets = new Map();
 
 // --- Fixed Seeded RNG with correct bitwise operator precedence ---
 function createRng(seedStr) {
@@ -126,6 +141,74 @@ function generateSerialNumber(rng) {
   return `${chars[Math.floor(rng() * chars.length)]}${digits[Math.floor(rng() * digits.length)]}-${digits[Math.floor(rng() * digits.length)]}${digits[Math.floor(rng() * digits.length)]}-${chars[Math.floor(rng() * chars.length)]}${digits[Math.floor(rng() * digits.length)]}`;
 }
 
+// Find role currently owned by a player ID
+function getRoleByPlayerId(playerId) {
+  if (!playerId) return null;
+  for (const r of ROLES) {
+    if (roles[r].playerId === playerId) return r;
+  }
+  return null;
+}
+
+// Release a specific role cleanly
+function releaseRole(roleName) {
+  if (!roles[roleName]) return;
+  const pId = roles[roleName].playerId;
+  roles[roleName].playerId = null;
+  roles[roleName].connected = false;
+  roles[roleName].joinedAt = null;
+
+  if (pId) {
+    const sess = sessions.get(pId);
+    if (sess && sess.role === roleName) {
+      sess.role = null;
+    }
+  }
+}
+
+// Release current role of player if any
+function releasePlayerCurrentRole(playerId) {
+  const currentRole = getRoleByPlayerId(playerId);
+  if (currentRole) {
+    releaseRole(currentRole);
+    return currentRole;
+  }
+  return null;
+}
+
+// Ensure host is assigned deterministically to the first connected active player
+function updateHost() {
+  // If current host is still connected with an active role, maintain authority
+  if (hostPlayerId) {
+    const currentHostSession = sessions.get(hostPlayerId);
+    if (currentHostSession && currentHostSession.connected && currentHostSession.role) {
+      return hostPlayerId;
+    }
+  }
+
+  // Fallback 1: First connected player holding an active role
+  for (const r of ROLES) {
+    if (roles[r].playerId && roles[r].connected) {
+      const sess = sessions.get(roles[r].playerId);
+      if (sess && sess.connected) {
+        hostPlayerId = roles[r].playerId;
+        return hostPlayerId;
+      }
+    }
+  }
+
+  // Fallback 2: Any connected player session
+  for (const [pId, sess] of sessions.entries()) {
+    if (sess.connected) {
+      hostPlayerId = pId;
+      return hostPlayerId;
+    }
+  }
+
+  hostPlayerId = null;
+  return null;
+}
+
 // Check whether all active modules are defused
 function checkDefused() {
   return activeModules.every((mod) => mod.isSolved(gameState.modules[mod.id]));
@@ -141,6 +224,7 @@ function getFilteredStateForRole(role) {
     strikes: gameState.strikes,
     maxStrikes: gameState.maxStrikes,
     endReason: gameState.endReason,
+    hostPlayerId: hostPlayerId,
     moduleIds: activeModules.map((m) => m.id),
     roles: {
       blind: { playerId: roles.blind.playerId, connected: roles.blind.connected, title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
@@ -197,6 +281,7 @@ function getFilteredStateForRole(role) {
     };
   }
 
+  // Spectator or unassigned connection
   return {
     ...common,
     serialNumber: null,
@@ -209,8 +294,9 @@ function getFilteredStateForRole(role) {
 // Send filtered state to a specific client
 function sendStateToClient(ws) {
   if (ws.readyState !== WebSocket.OPEN) return;
-  const clientInfo = activeSockets.get(ws);
-  const role = clientInfo ? clientInfo.role : null;
+  const socketInfo = activeSockets.get(ws);
+  const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
+  const role = session ? session.role : null;
   const filteredState = getFilteredStateForRole(role);
   ws.send(JSON.stringify({ type: 'state_update', state: filteredState }));
 }
@@ -234,10 +320,10 @@ function broadcastEvent(data) {
 }
 
 function checkReadyStatus() {
-  const allRolesAssigned = ROLES.every((r) => roles[r].playerId && roles[r].connected);
-  if (gameState.status === 'waiting' && allRolesAssigned) {
+  const allRolesAssignedAndConnected = ROLES.every((r) => roles[r].playerId && roles[r].connected);
+  if (gameState.status === 'waiting' && allRolesAssignedAndConnected) {
     gameState.status = 'ready';
-  } else if (gameState.status === 'ready' && !allRolesAssigned) {
+  } else if (gameState.status === 'ready' && !allRolesAssignedAndConnected) {
     gameState.status = 'waiting';
   }
 }
@@ -300,7 +386,7 @@ function startGame() {
   }, 500);
 }
 
-function resetGame() {
+function resetGame(clearDisconnectedRoles = true) {
   stopGameTimer();
   gameState.status = 'waiting';
   gameState.seed = null;
@@ -312,6 +398,22 @@ function resetGame() {
   gameState.serialNumber = '';
   gameState.modules = {};
 
+  if (clearDisconnectedRoles) {
+    // Purge any stale role claims from disconnected players
+    for (const r of ROLES) {
+      if (!roles[r].connected) {
+        releaseRole(r);
+      }
+    }
+    // Clean up any session references to cleared roles
+    for (const [pId, sess] of sessions.entries()) {
+      if (sess.role && (!roles[sess.role] || roles[sess.role].playerId !== pId)) {
+        sess.role = null;
+      }
+    }
+  }
+
+  updateHost();
   checkReadyStatus();
   broadcastFullState();
 }
@@ -346,9 +448,12 @@ function registerStrike(reason) {
   }
 }
 
-// --- WebSocket Event Router ---
+// --- WebSocket Connection Lifecycle ---
 wss.on('connection', (ws) => {
   ws.isAlive = true;
+  const socketId = nextSocketId++;
+  ws.socketId = socketId;
+
   ws.on('pong', () => {
     ws.isAlive = true;
   });
@@ -366,16 +471,28 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    const info = activeSockets.get(ws);
-    if (info) {
-      const { role, playerId } = info;
-      if (role && roles[role] && roles[role].playerId === playerId) {
-        roles[role].connected = false;
-        console.log(`🔌 بازیکن نقش [${role}] قطع شد.`);
+    const socketInfo = activeSockets.get(ws);
+    if (!socketInfo) return;
+    activeSockets.delete(ws);
+
+    const { playerId } = socketInfo;
+    const session = sessions.get(playerId);
+
+    // CRITICAL: Ensure an old socket closing after a reconnect cannot accidentally remove the new active session!
+    if (session && session.socketId === socketId) {
+      session.connected = false;
+      session.socket = null;
+
+      if (session.role && roles[session.role] && roles[session.role].playerId === playerId) {
+        roles[session.role].connected = false;
+        log(`🔌 بازیکن ${playerId.substring(0, 6)} نقش [${session.role}] قطع شد.`);
       }
-      activeSockets.delete(ws);
+
+      updateHost();
       checkReadyStatus();
       broadcastFullState();
+    } else {
+      log(`Stale socket ${socketId} closed for player ${playerId}; active session unaffected.`);
     }
   });
 });
@@ -395,23 +512,70 @@ function handleClientEvent(ws, msg) {
     return;
   }
 
-  // 2. Join / Reconnect role
+  // 2. Join / Reconnect / Role Selection
   if (type === 'join') {
     const { role, playerId } = payload || {};
+
+    // Validate inputs strictly
+    if (!playerId || typeof playerId !== 'string' || !playerId.trim() || playerId.length > 64) {
+      ws.send(JSON.stringify({ type: 'error', code: 'INVALID_PLAYER_ID', message: 'شناسه بازیکن نامعتبر است.' }));
+      return;
+    }
+    const cleanPlayerId = playerId.trim();
+
     if (!ROLES.includes(role)) {
-      ws.send(JSON.stringify({ type: 'error', message: 'نقش انتخاب شده نامعتبر است.' }));
+      ws.send(JSON.stringify({ type: 'error', code: 'INVALID_ROLE', message: 'نقش انتخاب شده نامعتبر است.' }));
       return;
     }
 
-    if (!playerId) {
-      ws.send(JSON.stringify({ type: 'error', message: 'شناسه بازیکن نامعتبر است.' }));
-      return;
+    // Check for duplicate active connection with same playerId
+    let session = sessions.get(cleanPlayerId);
+    if (!session) {
+      session = {
+        playerId: cleanPlayerId,
+        socket: ws,
+        socketId: ws.socketId,
+        role: null,
+        connected: true,
+        joinedAt: Date.now()
+      };
+      sessions.set(cleanPlayerId, session);
+    } else {
+      // Deterministic policy for duplicate sessions:
+      // Newer connection replaces older connection; older socket is closed cleanly.
+      if (session.socket && session.socket !== ws && session.connected) {
+        log(`Duplicate session detected for player ${cleanPlayerId}. Terminating older socket.`);
+        const oldSocket = session.socket;
+        try {
+          oldSocket.send(JSON.stringify({
+            type: 'session_replaced',
+            message: 'نشست شما در دستگاه یا تب دیگری فعال شد.'
+          }));
+          oldSocket.close();
+        } catch (e) {}
+      }
+      session.socket = ws;
+      session.socketId = ws.socketId;
+      session.connected = true;
     }
+
+    activeSockets.set(ws, { playerId: cleanPlayerId, socketId: ws.socketId });
 
     const currentRole = roles[role];
+    const previousRole = getRoleByPlayerId(cleanPlayerId);
 
-    // If already taken by ANOTHER connected player
-    if (currentRole.playerId && currentRole.playerId !== playerId && currentRole.connected) {
+    // If game is running, disallow switching roles mid-game
+    if (gameState.status === 'running' && previousRole && previousRole !== role) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'CANNOT_SWITCH_MIDGAME',
+        message: 'تغییر نقش در حین انجام عملیات خنثی‌سازی مجاز نیست.'
+      }));
+      return;
+    }
+
+    // Check if target role is currently taken by ANOTHER active connected player
+    if (currentRole.playerId && currentRole.playerId !== cleanPlayerId && currentRole.connected) {
       ws.send(
         JSON.stringify({
           type: 'error',
@@ -422,70 +586,119 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    currentRole.playerId = playerId;
+    // 1. Role replacement: When a player changes roles, safely release their previous role!
+    if (previousRole && previousRole !== role) {
+      releaseRole(previousRole);
+      log(`Player ${cleanPlayerId.substring(0, 6)} safely released previous role [${previousRole}]`);
+    }
+
+    // If target role was previously assigned to a disconnected player, transfer it cleanly
+    if (currentRole.playerId && currentRole.playerId !== cleanPlayerId && !currentRole.connected) {
+      const formerSess = sessions.get(currentRole.playerId);
+      if (formerSess && formerSess.role === role) {
+        formerSess.role = null;
+      }
+      releaseRole(role);
+    }
+
+    // Assign target role to this player
+    currentRole.playerId = cleanPlayerId;
     currentRole.connected = true;
     currentRole.joinedAt = currentRole.joinedAt || Date.now();
+    session.role = role;
 
-    activeSockets.set(ws, { playerId, role });
+    updateHost();
     checkReadyStatus();
 
     ws.send(
       JSON.stringify({
         type: 'role_assigned',
         role,
-        playerId,
+        playerId: cleanPlayerId,
         meta: roleMeta[role]
       })
     );
 
-    console.log(`✅ بازیکن ${playerId.substring(0, 6)} به نقش [${role}] پیوست.`);
+    log(`✅ بازیکن ${cleanPlayerId.substring(0, 6)} نقش [${role}] را برگزید.`);
     broadcastFullState();
     return;
   }
 
   // 3. Leave Role
   if (type === 'leave') {
-    const info = activeSockets.get(ws);
-    if (info && info.role) {
-      const r = info.role;
-      roles[r].playerId = null;
-      roles[r].connected = false;
-      roles[r].joinedAt = null;
-      activeSockets.delete(ws);
-      checkReadyStatus();
-      ws.send(JSON.stringify({ type: 'role_released' }));
-      broadcastFullState();
+    const socketInfo = activeSockets.get(ws);
+    if (socketInfo) {
+      const { playerId } = socketInfo;
+      const released = releasePlayerCurrentRole(playerId);
+      if (released) {
+        updateHost();
+        checkReadyStatus();
+        ws.send(JSON.stringify({ type: 'role_released' }));
+        broadcastFullState();
+      }
     }
     return;
   }
 
-  // 4. Start Game (Accepted ONLY when gameState.status === 'ready')
+  // 4. Start Game (Must be ready AND initiated by host)
   if (type === 'start') {
-    if (gameState.status !== 'ready') {
+    const socketInfo = activeSockets.get(ws);
+    const playerId = socketInfo ? socketInfo.playerId : null;
+
+    if (!playerId || playerId !== hostPlayerId) {
       ws.send(
         JSON.stringify({
           type: 'error',
-          message: 'بازی تنها زمانی شروع می‌شود که هر ۳ نقش انتخاب شده باشند (وضعیت: آماده).'
+          code: 'UNAUTHORIZED',
+          message: 'تنها میزبان بازی مجاز به شروع عملیات است.'
         })
       );
       return;
     }
+
+    if (gameState.status !== 'ready') {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'NOT_READY',
+          message: 'بازی تنها زمانی شروع می‌شود که هر ۳ نقش انتخاب شده و متصل باشند.'
+        })
+      );
+      return;
+    }
+
     startGame();
     return;
   }
 
-  // 5. Reset Game (Accepted ONLY in 'waiting', 'exploded', or 'defused' states)
+  // 5. Reset Game (Must be in valid state AND initiated by host)
   if (type === 'reset') {
     if (!['waiting', 'exploded', 'defused'].includes(gameState.status)) {
       ws.send(
         JSON.stringify({
           type: 'error',
+          code: 'INVALID_STATE',
           message: 'ریست کردن بازی فقط پس از اتمام بازی یا در لابی امکان‌پذیر است.'
         })
       );
       return;
     }
-    resetGame();
+
+    const socketInfo = activeSockets.get(ws);
+    const playerId = socketInfo ? socketInfo.playerId : null;
+
+    if (!playerId || playerId !== hostPlayerId) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'تنها میزبان بازی مجاز به ریست کردن است.'
+        })
+      );
+      return;
+    }
+
+    resetGame(true);
     return;
   }
 
@@ -495,11 +708,13 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    const clientInfo = activeSockets.get(ws);
-    if (!clientInfo || clientInfo.role !== 'blind') {
+    const socketInfo = activeSockets.get(ws);
+    const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
+    if (!session || session.role !== 'blind') {
       ws.send(
         JSON.stringify({
           type: 'error',
+          code: 'UNAUTHORIZED_ACTION',
           message: 'تنها بازیکن نابینا (Blind) مجاز به تعامل فیزیکی با ماژول‌های بمب است!'
         })
       );
@@ -540,7 +755,31 @@ function handleClientEvent(ws, msg) {
   }
 }
 
-// Start HTTP and WebSocket Server
-server.listen(PORT, '0.0.0.0', () => {
-  printNetworkInterfaces(PORT);
-});
+// Start HTTP and WebSocket Server only when executed as the main application entry point
+import { pathToFileURL } from 'url';
+const isMain = process.argv[1] && (
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+);
+
+if (isMain && process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, '0.0.0.0', () => {
+    printNetworkInterfaces(PORT);
+  });
+}
+
+export {
+  app,
+  server,
+  wss,
+  gameState,
+  roles,
+  sessions,
+  activeSockets,
+  ROLES,
+  startGame,
+  resetGame,
+  getRoleByPlayerId,
+  releaseRole,
+  updateHost,
+  getFilteredStateForRole
+};
