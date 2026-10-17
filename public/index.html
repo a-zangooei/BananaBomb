@@ -3,8 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>پروتکل ۳: بازی خنثی‌سازی بمب (۳ نفره)</title>
+  <title>پروتکل ۳: بازی خنثی‌سازی بمب (۳D)</title>
   <link rel="stylesheet" href="/style.css">
+
+  <!-- Offline Local Import Map for Three.js (No Internet / CDN needed) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/three.module.js",
+      "/vendor/three/three.module.min.js": "/vendor/three/three.module.js",
+      "three/addons/": "/vendor/three-addons/"
+    }
+  }
+  </script>
 </head>
 <body>
   <div class="app-viewport">
@@ -34,6 +45,11 @@
       </div>
     </section>
 
+    <!-- WebGL Error Fallback Banner -->
+    <div id="webglErrorBanner" class="webgl-error-box" style="display: none;">
+      ⚠️ مرورگر دستگاه شما از WebGL پشتیبانی نمی‌کند. لطفاً مرورگر Chrome یا Firefox را به‌روزرسانی کرده یا شتاب سخت‌افزاری را فعال کنید.
+    </div>
+
     <!-- Main Viewport Area -->
     <main class="main-content">
 
@@ -43,7 +59,7 @@
         <div class="audio-banner" id="audioBanner">
           <div>
             <strong>🔊 فعال‌سازی صدا (مخصوص نقش نابینا)</strong>
-            <p style="font-size: 0.72rem; color: #cbd5e1; margin-top: 2px;">برای فعال شدن بوق هشدار و تیک‌تاک تایمر ضربه بزنید.</p>
+            <p style="font-size: 0.72rem; color: #cbd5e1; margin-top: 2px;">برای فعال شدن بوق اخطار، افکت‌های صوتی و تیک‌تاک ضربه بزنید.</p>
           </div>
           <button class="audio-btn" id="btnUnlockAudio">فعال‌سازی</button>
         </div>
@@ -56,8 +72,8 @@
             <div class="role-card-content">
               <div class="role-icon">👁️</div>
               <div class="role-details">
-                <h3>نابینا (Blind) — دستان و گوش‌های تیم</h3>
-                <p>تنها کسی که با بمب تعامل فیزیکی دارد. بمب را سیاه‌وسفید می‌بیند و تنها کسی است که صدا را می‌شنود.</p>
+                <h3>نابینا (Blind) — تعامل‌گر ۳D بمب</h3>
+                <p>تنها کسی که با لمس اجزای سه‌بعدی بمب تعامل دارد. صحنه سیاه‌وسفید است و تنها کسی است که صدا را می‌شنود.</p>
               </div>
             </div>
             <span class="role-status-badge" id="badgeBlind">خالی</span>
@@ -68,8 +84,8 @@
             <div class="role-card-content">
               <div class="role-icon">👂</div>
               <div class="role-details">
-                <h3>ناشنوا (Deaf) — چشمان تیم</h3>
-                <p>بمب رنگی، سریال، رنگ سیم‌ها و نمادها را می‌بیند؛ اما امکان لمس ندارد و هیچ صدایی نمی‌شنود.</p>
+                <h3>ناشنوا (Deaf) — ناظر ۳D رنگ‌ها و پلاک</h3>
+                <p>بمب رنگی ۳D، رنگ سیم‌ها، نمادها و پلاک پشت بمب را می‌بیند؛ اما امکان لمس ندارد و صدا کاملاً قطع است.</p>
               </div>
             </div>
             <span class="role-status-badge" id="badgeDeaf">خالی</span>
@@ -80,7 +96,7 @@
             <div class="role-card-content">
               <div class="role-icon">🤐</div>
               <div class="role-details">
-                <h3>بی‌کلام (Mute) — مغز و دفترچه راهنما</h3>
+                <h3>بی‌کلام (Mute) — دفترچه راهنما ۲D</h3>
                 <p>دفترچه قوانین خنثی‌سازی پیش اوست (نه جواب‌ها). در دنیای واقعی حق صحبت ندارد و صدا هم قطع است.</p>
               </div>
             </div>
@@ -89,8 +105,8 @@
         </div>
 
         <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 10px;">
-          <button class="btn-primary" id="btnStartGame">
-            💣 شروع عملیات خنثی‌سازی
+          <button class="btn-primary" id="btnStartGame" disabled>
+            💣 شروع عملیات خنثی‌سازی (منتظر ۳ بازیکن)
           </button>
           
           <button class="btn-secondary" id="btnLeaveRole" style="display: none; padding: 10px; border-radius: 8px; cursor: pointer;">
@@ -100,107 +116,43 @@
 
         <div class="role-assignment-info">
           <strong>تقسیم کار تیم ۳ نفره:</strong>
-          <br>• <strong>ناشنوا</strong> بمب رنگی را می‌بیند و وضعیت را توصیف می‌کند.
-          <br>• <strong>بی‌کلام</strong> دفترچه را بررسی کرده و با ایما و اشاره قوانین را تعیین می‌کند.
-          <br>• <strong>نابینا</strong> بمب را در دست دارد و دستورات را روی بمب اجرا می‌کند!
+          <br>• <strong>ناشنوا</strong> بمب سه‌بعدی را می‌چرخاند، پلاک پشت بمب و رنگ‌ها را می‌خواند.
+          <br>• <strong>بی‌کلام</strong> دفترچه را بررسی کرده و بدون صحبت، قوانین را هدایت می‌کند.
+          <br>• <strong>نابینا</strong> بمب را در دست دارد و با لمس ۳D دستورات را اجرا می‌کند!
         </div>
       </section>
 
-      <!-- View 2: Blind Player (Monochrome Interactive Bomb + Audio) -->
-      <section class="view-section" id="blindSection">
-        <div class="role-roleplay-banner blind-banner">
-          👁️ <strong>نقش نابینا:</strong> بمب پیش شماست! به دستورات گوش دهید و دکمه‌ها و سیم‌ها را کنترل کنید.
+      <!-- View 2: 3D Bomb Viewport (Active for Blind and Deaf) -->
+      <section class="view-section" id="bomb3dSection">
+        
+        <div class="role-roleplay-banner" id="bomb3dRoleBanner">
+          <!-- Populated dynamically based on Blind vs Deaf -->
         </div>
 
-        <!-- Blind Module 1: Reactor Button (Monochrome) -->
-        <div class="cockpit-module monochrome-panel" id="blindModButton">
-          <div class="module-header">
-            <span style="font-weight: bold; font-size: 0.9rem;">ماژول ۱: دکمه کاتالیزور (سیاه‌وسفید)</span>
-            <div class="module-led" id="blindLedButton"></div>
-          </div>
+        <div class="bomb-3d-wrapper">
+          <div id="bomb3dContainer" class="bomb-3d-canvas-container"></div>
           
-          <div class="reactor-btn-wrapper">
-            <button class="reactor-button monochrome" id="blindReactorBtn">دکمه</button>
-            <div class="side-strip monochrome" id="blindSideStrip"></div>
-          </div>
-          <div class="module-hint">
-            کلیک سریع / یا نگه‌داشتن و رهاسازی در ثانیه تعیین‌شده توسط تیم
+          <div class="bomb-3d-hint">
+            <span>🔄 با کشیدن انگشت بمب را ۳۶۰ درجه بچرخانید</span>
+            <span>🔍 با دو انگشت زوم کنید</span>
           </div>
         </div>
 
-        <!-- Blind Module 2: Wires (Monochrome with Cut Scissors) -->
-        <div class="cockpit-module monochrome-panel" id="blindModWires">
-          <div class="module-header">
-            <span style="font-weight: bold; font-size: 0.9rem;">ماژول ۲: فیوزهای سیم‌کشی (۴ سیم بدون رنگ)</span>
-            <div class="module-led" id="blindLedWires"></div>
-          </div>
-
-          <div class="wires-deck" id="blindWiresContainer">
-            <!-- Rendered dynamically as 4 grayscale wires with scissor buttons -->
-          </div>
+        <div id="blindTactileHelper" style="display: none;" class="tactile-instructions">
+          <strong>کنترل‌های لمسی نابینا:</strong>
+          <br>• <strong>دکمه کاتالیزور:</strong> لمس کوتاه برای کلیک، یا نگه‌داشتن و رهاسازی در ثانیه تعیین‌شده.
+          <br>• <strong>سیم‌ها:</strong> روی سیم مورد نظر ضربه بزنید تا با قیچی بریده شود.
+          <br>• <strong>کلیدهای ۱ تا ۴:</strong> به ترتیبی که بی‌کلام/ناشنوا می‌گویند کلیدها را لمس کنید.
         </div>
 
-        <!-- Blind Module 3: Keypad (Monochrome Slots) -->
-        <div class="cockpit-module monochrome-panel" id="blindModKeypad">
-          <div class="module-header">
-            <span style="font-weight: bold; font-size: 0.9rem;">ماژول ۳: کلیدهای رمزی (۴ کلید بی‌نام)</span>
-            <div class="module-led" id="blindLedKeypad"></div>
-          </div>
-
-          <div class="keypad-grid" id="blindKeypadContainer">
-            <!-- 4 numbered slot buttons -->
-          </div>
+        <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
+          <strong>راهنمای ناشنوا:</strong>
+          <br>• بمب را به پشت بچرخانید تا <strong>پلاک سریال بمب</strong> را بخوانید.
+          <br>• رنگ دکمه، رنگ ۴ سیم و نمادهای صفحه کلید را به هم‌تیمی‌هایتان اعلام کنید.
         </div>
       </section>
 
-      <!-- View 3: Deaf Player (Color Observation Bomb, Read-Only, Silent) -->
-      <section class="view-section" id="deafSection">
-        <div class="role-roleplay-banner deaf-banner">
-          👂 <strong>نقش ناشنوا (صدا قطع):</strong> بمب را بادقت نگاه کنید؛ رنگ‌ها و نمادها را به تیم اعلام کنید. (شما امکان لمس ندارید).
-        </div>
-
-        <!-- Deaf Module 1: Reactor Button (Real Colors) -->
-        <div class="cockpit-module" id="deafModButton">
-          <div class="module-header">
-            <span style="font-weight: bold; font-size: 0.9rem;">ماژول ۱: دکمه کاتالیزور</span>
-            <div class="module-led" id="deafLedButton"></div>
-          </div>
-          
-          <div class="reactor-btn-wrapper">
-            <div class="reactor-button readonly" id="deafReactorBtn">خنثی‌سازی</div>
-            <div class="side-strip" id="deafSideStrip"></div>
-          </div>
-          <div class="module-hint">
-            فقط مشاهده: رنگ دکمه و متن روی آن را گزارش کنید
-          </div>
-        </div>
-
-        <!-- Deaf Module 2: Wires (Real Colors, Read-Only) -->
-        <div class="cockpit-module" id="deafModWires">
-          <div class="module-header">
-            <span style="font-weight: bold; font-size: 0.9rem;">ماژول ۲: فیوزهای ۴گانه (مشاهده رنگ‌ها)</span>
-            <div class="module-led" id="deafLedWires"></div>
-          </div>
-
-          <div class="wires-deck" id="deafWiresContainer">
-            <!-- Real colored wires rendered read-only -->
-          </div>
-        </div>
-
-        <!-- Deaf Module 3: Keypad (Real Symbols, Read-Only) -->
-        <div class="cockpit-module" id="deafModKeypad">
-          <div class="module-header">
-            <span style="font-weight: bold; font-size: 0.9rem;">ماژول ۳: صفحه کلید نمادها</span>
-            <div class="module-led" id="deafLedKeypad"></div>
-          </div>
-
-          <div class="keypad-grid" id="deafKeypadContainer">
-            <!-- Real symbols rendered read-only -->
-          </div>
-        </div>
-      </section>
-
-      <!-- View 4: Mute Player (Static Rulebook Manual Only, Silent) -->
+      <!-- View 3: Mute Player (Static 2D Rulebook Manual Only, Silent) -->
       <section class="view-section" id="muteSection">
         <div class="role-roleplay-banner mute-banner">
           🤐 <strong>نقش بی‌کلام (صدا قطع):</strong> شما فقط دفترچه راهنما را می‌خوانید. صحبت نکنید! با اشاره تیم را هدایت کنید.

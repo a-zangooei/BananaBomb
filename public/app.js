@@ -1,5 +1,6 @@
 import { GameTransport } from './transport.js';
 import { sound } from './audio.js';
+import { Bomb3DScene, isWebGLAvailable } from './bomb3d.js';
 
 // --- Client Session & State ---
 let playerId = sessionStorage.getItem('defusal_player_id');
@@ -10,9 +11,9 @@ if (!playerId) {
 
 let myRole = sessionStorage.getItem('defusal_role') || null;
 let currentGameState = null;
+let lastGameStatus = null;
 let lastTickSecond = null;
-let buttonPressStartTime = null;
-let buttonPressTimer = null;
+let bombScene = null;
 
 // Initialize Transport Abstraction
 const transport = new GameTransport();
@@ -24,6 +25,7 @@ const pingVal = document.getElementById('pingVal');
 const syncStatus = document.getElementById('syncStatus');
 const serialTag = document.getElementById('serialTag');
 const timerDisplay = document.getElementById('timerDisplay');
+const webglErrorBanner = document.getElementById('webglErrorBanner');
 const strikeBoxes = [
   document.getElementById('strike1'),
   document.getElementById('strike2'),
@@ -32,13 +34,18 @@ const strikeBoxes = [
 
 // Views
 const lobbySection = document.getElementById('lobbySection');
-const blindSection = document.getElementById('blindSection');
-const deafSection = document.getElementById('deafSection');
+const bomb3dSection = document.getElementById('bomb3dSection');
 const muteSection = document.getElementById('muteSection');
 const overlayExploded = document.getElementById('overlayExploded');
 const overlayDefused = document.getElementById('overlayDefused');
 const explodeReason = document.getElementById('explodeReason');
 const defusedStats = document.getElementById('defusedStats');
+
+// 3D Viewport Controls & Banners
+const bomb3dContainer = document.getElementById('bomb3dContainer');
+const bomb3dRoleBanner = document.getElementById('bomb3dRoleBanner');
+const blindTactileHelper = document.getElementById('blindTactileHelper');
+const deafVisualHelper = document.getElementById('deafVisualHelper');
 
 // Role Cards
 const roleCards = {
@@ -52,7 +59,7 @@ const roleBadges = {
   mute: document.getElementById('badgeMute')
 };
 
-// Controls
+// Buttons
 const btnUnlockAudio = document.getElementById('btnUnlockAudio');
 const audioBanner = document.getElementById('audioBanner');
 const btnStartGame = document.getElementById('btnStartGame');
@@ -60,23 +67,10 @@ const btnLeaveRole = document.getElementById('btnLeaveRole');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
-// Blind Interactive Elements
-const blindReactorBtn = document.getElementById('blindReactorBtn');
-const blindSideStrip = document.getElementById('blindSideStrip');
-const blindWiresContainer = document.getElementById('blindWiresContainer');
-const blindKeypadContainer = document.getElementById('blindKeypadContainer');
-const blindLedButton = document.getElementById('blindLedButton');
-const blindLedWires = document.getElementById('blindLedWires');
-const blindLedKeypad = document.getElementById('blindLedKeypad');
-
-// Deaf Read-Only Observation Elements
-const deafReactorBtn = document.getElementById('deafReactorBtn');
-const deafSideStrip = document.getElementById('deafSideStrip');
-const deafWiresContainer = document.getElementById('deafWiresContainer');
-const deafKeypadContainer = document.getElementById('deafKeypadContainer');
-const deafLedButton = document.getElementById('deafLedButton');
-const deafLedWires = document.getElementById('deafLedWires');
-const deafLedKeypad = document.getElementById('deafLedKeypad');
+// Check WebGL availability
+if (!isWebGLAvailable()) {
+  if (webglErrorBanner) webglErrorBanner.style.display = 'block';
+}
 
 // Audio activation
 function unlockAudio() {
@@ -102,7 +96,6 @@ transport.onEvent((eventType, data) => {
     if (data.connected) {
       pingDot.classList.remove('disconnected');
       connStatus.textContent = 'آنلاین';
-      // Attempt auto-reconnect with stored role and playerId
       if (myRole && playerId) {
         transport.send('join', { role: myRole, playerId });
       }
@@ -120,9 +113,20 @@ transport.onEvent((eventType, data) => {
   }
 
   if (eventType === 'state_update') {
+    const prevState = currentGameState;
     currentGameState = data.state;
-    // Audio is strictly enabled ONLY for 'blind' role
+
+    // Strictly gate audio: Only Blind role hears any audio
     sound.setEnabled(myRole === 'blind');
+
+    // Trigger one-time explosion or defusal sounds upon state change
+    if (prevState?.status !== 'exploded' && currentGameState.status === 'exploded') {
+      if (myRole === 'blind') sound.playExplosion();
+    } else if (prevState?.status !== 'defused' && currentGameState.status === 'defused') {
+      if (myRole === 'blind') sound.playDefused();
+    }
+
+    lastGameStatus = currentGameState.status;
     renderState(currentGameState);
     return;
   }
@@ -135,6 +139,9 @@ transport.onEvent((eventType, data) => {
       sound.playClick();
     }
     if (btnLeaveRole) btnLeaveRole.style.display = 'block';
+    if (bombScene) {
+      bombScene.setRole(myRole);
+    }
     return;
   }
 
@@ -150,7 +157,7 @@ transport.onEvent((eventType, data) => {
     if (myRole === 'blind') {
       sound.playStrike();
     }
-    triggerHaptic([100, 50, 100]);
+    triggerHaptic([120, 60, 120]);
     flashRedAlert();
     return;
   }
@@ -213,11 +220,11 @@ if (btnRestartDefused) {
 function renderState(state) {
   if (!state) return;
 
-  // 1. Serial Number Tag (Only Deaf sees serial, Blind & Mute see masked tag)
+  // 1. Serial Number Tag
   if (myRole === 'deaf' && state.serialNumber) {
-    serialTag.textContent = `SERIAL: ${state.serialNumber} (مشاهده اختصاصی ناشنوا)`;
+    serialTag.textContent = `SERIAL: ${state.serialNumber} (پلاک پشت بمب را بخوانید)`;
   } else if (state.status === 'running') {
-    serialTag.textContent = 'SERIAL: [مخدوش / فقط پیش ناشنوا]';
+    serialTag.textContent = 'SERIAL: [پلاک محرمانه / فقط در دسترس ناشنوا]';
   } else {
     serialTag.textContent = 'SERIAL: STANDBY';
   }
@@ -258,7 +265,20 @@ function renderState(state) {
     });
   }
 
-  // 4. Overlays Management
+  // 4. Start Button Readiness Guard
+  if (btnStartGame) {
+    const isReady = state.status === 'ready';
+    btnStartGame.disabled = !isReady;
+    if (isReady) {
+      btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (تیم آماده است)';
+    } else if (state.status === 'waiting') {
+      btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (منتظر ۳ بازیکن)';
+    } else {
+      btnStartGame.textContent = 'عملیات در جریان است...';
+    }
+  }
+
+  // 5. Overlays Management
   overlayExploded.classList.remove('active');
   overlayDefused.classList.remove('active');
 
@@ -267,12 +287,9 @@ function renderState(state) {
     if (state.endReason === 'time_out') {
       explodeReason.textContent = '⏰ زمان ۵ دقیقه‌ای بمب به اتمام رسید!';
     } else if (state.endReason === 'max_strikes') {
-      explodeReason.textContent = '💥 تعداد خطاها (Strikes) به ۳ رسید و مدار ترکید!';
+      explodeReason.textContent = '💥 تعداد خطاها (Strikes) به ۳ رسید و بمب منفجر شد!';
     } else {
       explodeReason.textContent = 'بمب منفجر شد!';
-    }
-    if (myRole === 'blind') {
-      sound.playExplosion();
     }
     return;
   }
@@ -280,22 +297,44 @@ function renderState(state) {
   if (state.status === 'defused') {
     overlayDefused.classList.add('active');
     defusedStats.textContent = `تبریک به تیم! بمب با ${state.strikes} خطا و در زمان ${formatTime(state.remainingSeconds)} با موفقیت خنثی شد.`;
-    if (myRole === 'blind') {
-      sound.playDefused();
-    }
     return;
   }
 
-  // 5. Active Section Router based on Role
-  [lobbySection, blindSection, deafSection, muteSection].forEach((sec) => sec.classList.remove('active'));
+  // 6. Section Router
+  [lobbySection, bomb3dSection, muteSection].forEach((sec) => sec.classList.remove('active'));
 
   if (state.status === 'running') {
-    if (myRole === 'blind') {
-      blindSection.classList.add('active');
-      renderBlindCockpit(state.modules);
-    } else if (myRole === 'deaf') {
-      deafSection.classList.add('active');
-      renderDeafObservation(state.modules);
+    if (myRole === 'blind' || myRole === 'deaf') {
+      bomb3dSection.classList.add('active');
+
+      // Lazy initialize or update Three.js scene
+      if (!bombScene && bomb3dContainer && isWebGLAvailable()) {
+        bombScene = new Bomb3DScene(
+          bomb3dContainer,
+          myRole,
+          (event, payload) => transport.send(event, payload),
+          () => getCurrentRemainingSeconds()
+        );
+      }
+
+      if (bombScene) {
+        bombScene.setRole(myRole);
+        bombScene.updateState(state);
+        bombScene.resize();
+      }
+
+      // Banner & Helper text adjustments
+      if (myRole === 'blind') {
+        bomb3dRoleBanner.className = 'role-roleplay-banner blind-banner';
+        bomb3dRoleBanner.innerHTML = '👁️ <strong>نقش نابینا (صدا فعال):</strong> تنها شما دستان بمب هستید! با لمس اجزای ۳ بعدی ماژول‌ها را خنثی کنید.';
+        blindTactileHelper.style.display = 'block';
+        deafVisualHelper.style.display = 'none';
+      } else {
+        bomb3dRoleBanner.className = 'role-roleplay-banner deaf-banner';
+        bomb3dRoleBanner.innerHTML = '👂 <strong>نقش ناشنوا (صدا قطع):</strong> بمب را بچرخانید. پلاک سریال در پشت بمب است؛ رنگ‌ها و نمادها را گزارش دهید.';
+        blindTactileHelper.style.display = 'none';
+        deafVisualHelper.style.display = 'block';
+      }
     } else if (myRole === 'mute') {
       muteSection.classList.add('active');
     } else {
@@ -306,187 +345,12 @@ function renderState(state) {
   }
 }
 
-// --- 1. Blind Technician Cockpit (Monochrome, Interactive) ---
-function renderBlindCockpit(modules) {
-  if (!modules) return;
-
-  // Module 1: Reactor Button (Monochrome)
-  const btn = modules.button;
-  if (btn) {
-    blindLedButton.classList.toggle('on', btn.solved);
-    blindReactorBtn.disabled = btn.solved;
-    blindReactorBtn.textContent = btn.solved ? 'خنثی شد ✓' : 'دکمه خنثی‌ساز';
+// Window resize handler for 3D canvas
+window.addEventListener('resize', () => {
+  if (bombScene) {
+    bombScene.resize();
   }
-
-  // Module 2: Wires (4 Gray Wires with Scissors)
-  const w = modules.wires;
-  if (w && blindWiresContainer) {
-    blindLedWires.classList.toggle('on', w.solved);
-    blindWiresContainer.innerHTML = '';
-    const wireCount = w.count || 4;
-
-    for (let idx = 0; idx < wireCount; idx++) {
-      const isCut = w.cutWires.includes(idx);
-      const row = document.createElement('div');
-      row.className = 'wire-row';
-      row.innerHTML = `
-        <span style="font-size: 0.82rem; font-family: monospace; color: #a1a1aa; font-weight: bold;">سیم #${idx + 1}</span>
-        <div class="wire-cable gray ${isCut ? 'cut' : ''}"></div>
-        <button class="snip-btn" data-index="${idx}" ${isCut || w.solved ? 'disabled' : ''}>
-          ${isCut ? 'قطع شد ✗' : 'قیچی ✂'}
-        </button>
-      `;
-
-      const snipBtn = row.querySelector('.snip-btn');
-      snipBtn.addEventListener('click', () => {
-        sound.playWireCut();
-        triggerHaptic([60]);
-        transport.send('action', {
-          moduleId: 'wires',
-          action: 'cut',
-          data: { wireIndex: idx }
-        });
-      });
-
-      blindWiresContainer.appendChild(row);
-    }
-  }
-
-  // Module 3: Keypad (4 generic numbered buttons)
-  const kp = modules.keypad;
-  if (kp && blindKeypadContainer) {
-    blindLedKeypad.classList.toggle('on', kp.solved);
-    blindKeypadContainer.innerHTML = '';
-    const slotCount = kp.slotCount || 4;
-
-    for (let slotIdx = 0; slotIdx < slotCount; slotIdx++) {
-      const isEntered = slotIdx < (kp.enteredCount || 0);
-      const keyBtn = document.createElement('button');
-      keyBtn.className = `keypad-btn ${isEntered ? 'entered' : ''}`;
-      keyBtn.textContent = `کلید [ ${slotIdx + 1} ]`;
-      keyBtn.disabled = isEntered || kp.solved;
-
-      keyBtn.addEventListener('click', () => {
-        sound.playClick();
-        triggerHaptic([40]);
-        transport.send('action', {
-          moduleId: 'keypad',
-          action: 'press',
-          data: { slotIndex: slotIdx }
-        });
-      });
-
-      blindKeypadContainer.appendChild(keyBtn);
-    }
-  }
-}
-
-// --- 2. Deaf Observation Cockpit (Real Colors, Read-Only, No Audio) ---
-function renderDeafObservation(modules) {
-  if (!modules) return;
-
-  // Module 1: Reactor Button (Real Colors)
-  const btn = modules.button;
-  if (btn) {
-    deafLedButton.classList.toggle('on', btn.solved);
-    deafReactorBtn.textContent = btn.solved ? 'خنثی شد ✓' : (btn.label || 'خنثی‌سازی');
-    deafReactorBtn.className = `reactor-button readonly ${btn.color || 'white'}`;
-    if (btn.holdStripColor) {
-      deafSideStrip.className = `side-strip active-${btn.holdStripColor}`;
-    } else {
-      deafSideStrip.className = 'side-strip';
-    }
-  }
-
-  // Module 2: Wires (Real Colors, No Scissors)
-  const w = modules.wires;
-  if (w && deafWiresContainer) {
-    deafLedWires.classList.toggle('on', w.solved);
-    deafWiresContainer.innerHTML = '';
-    const colorNames = { red: 'قرمز', blue: 'آبی', yellow: 'زرد', green: 'سبز' };
-
-    (w.wires || []).forEach((color, idx) => {
-      const isCut = w.cutWires.includes(idx);
-      const row = document.createElement('div');
-      row.className = 'wire-row';
-      row.innerHTML = `
-        <span class="wire-color-tag" style="color: ${getWireHex(color)}">#${idx + 1} (${colorNames[color] || color})</span>
-        <div class="wire-cable ${color} ${isCut ? 'cut' : ''}"></div>
-        <span style="font-size: 0.75rem; color: ${isCut ? '#ef4444' : '#10b981'}; font-weight: bold; min-width: 55px; text-align: left;">
-          ${isCut ? 'قطع شده' : 'سالم'}
-        </span>
-      `;
-      deafWiresContainer.appendChild(row);
-    });
-  }
-
-  // Module 3: Keypad (Real Symbols, Read-Only)
-  const kp = modules.keypad;
-  if (kp && deafKeypadContainer) {
-    deafLedKeypad.classList.toggle('on', kp.solved);
-    deafKeypadContainer.innerHTML = '';
-
-    (kp.symbols || []).forEach((sym, idx) => {
-      const card = document.createElement('div');
-      card.className = 'keypad-symbol-card';
-      card.innerHTML = `<span style="font-size: 0.75rem; color: #64748b; margin-left: 6px;">#${idx + 1}:</span> ${sym}`;
-      deafKeypadContainer.appendChild(card);
-    });
-  }
-}
-
-function getWireHex(color) {
-  if (color === 'red') return '#ef4444';
-  if (color === 'blue') return '#3b82f6';
-  if (color === 'yellow') return '#eab308';
-  if (color === 'green') return '#22c55e';
-  return '#cbd5e1';
-}
-
-// --- Blind Reactor Button Press / Hold Logic ---
-if (blindReactorBtn) {
-  function startButtonHold(e) {
-    e.preventDefault();
-    sound.init();
-    sound.playClick();
-    triggerHaptic([30]);
-
-    if (!currentGameState?.modules?.button || currentGameState.modules.button.solved) return;
-
-    buttonPressStartTime = Date.now();
-    blindSideStrip.className = 'side-strip monochrome active-monochrome';
-  }
-
-  function endButtonHold(e) {
-    e.preventDefault();
-    if (!buttonPressStartTime) return;
-
-    const duration = Date.now() - buttonPressStartTime;
-    clearTimeout(buttonPressTimer);
-    buttonPressStartTime = null;
-    blindSideStrip.className = 'side-strip monochrome';
-
-    const remaining = getCurrentRemainingSeconds();
-    const currentTimerLastDigit = Math.floor(remaining) % 10;
-
-    if (duration < 350) {
-      transport.send('action', {
-        moduleId: 'button',
-        action: 'press'
-      });
-    } else {
-      transport.send('action', {
-        moduleId: 'button',
-        action: 'release',
-        data: { releaseDigit: currentTimerLastDigit }
-      });
-    }
-  }
-
-  blindReactorBtn.addEventListener('pointerdown', startButtonHold);
-  blindReactorBtn.addEventListener('pointerup', endButtonHold);
-  blindReactorBtn.addEventListener('pointercancel', endButtonHold);
-}
+});
 
 // --- Synchronized Timer Calculation ---
 function getCurrentRemainingSeconds() {
