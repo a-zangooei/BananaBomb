@@ -6,6 +6,8 @@ import { wiresModule } from '../modules/wires.js';
 import { keypadModule } from '../modules/keypad.js';
 import { fisherYatesShuffle } from '../modules/utils.js';
 
+import { BUTTON_RULES, WIRES_RULES, KEYPAD_RULES } from '../modules/rules-config.js';
+
 // Deterministic PRNG for reproducible tests
 function createLcgRng(seed = 123456789) {
   let s = seed >>> 0;
@@ -20,7 +22,7 @@ describe('Gameplay Rules Verification & Module Correctness', () => {
   describe('1. Button Module Rules & Logic', () => {
     test('Rule Branch 1: White button requires quick press in all conditions', () => {
       // Mock RNG that picks 'white'
-      const rng = () => 0.99; // buttonColors: ['red', 'blue', 'yellow', 'white'][3] = white
+      const rng = () => 0.05; // picks 'white' from ['white', 'red', 'blue', 'yellow']
       const ctx = { serialNumber: 'A1-22-B2', isSerialEven: true };
       const state = buttonModule.create(rng, ctx);
 
@@ -42,7 +44,8 @@ describe('Gameplay Rules Verification & Module Correctness', () => {
     });
 
     test('Rule Branch 2: Red button with odd serial requires quick press', () => {
-      const rng = () => 0.05; // picks 'red'
+      // Pick 'red'
+      const rng = () => 0.3; // picks 'red'
       const ctx = { serialNumber: 'A1-22-B3', isSerialEven: false };
       const state = buttonModule.create(rng, ctx);
 
@@ -55,75 +58,77 @@ describe('Gameplay Rules Verification & Module Correctness', () => {
       assert.equal(pressResult.strike, false);
     });
 
-    test('Rule Branch 3: Red button with even serial requires hold and release on 1', () => {
-      const rng = () => 0.05; // picks 'red'
-      const ctx = { serialNumber: 'A1-22-B4', isSerialEven: true };
-      const state = buttonModule.create(rng, ctx);
+    test('Rule Branch 3: Red button with even serial requires hold and release on strip digit', () => {
+      // Test all 4 strip colors for red button with even serial:
+      const stripTestCases = [
+        { stripColor: 'blue', expectedDigit: 4 },
+        { stripColor: 'yellow', expectedDigit: 5 },
+        { stripColor: 'white', expectedDigit: 1 },
+        { stripColor: 'red', expectedDigit: 7 }
+      ];
 
-      assert.equal(state.color, 'red');
-      assert.equal(state.actionType, 'hold');
-      assert.equal(state.targetReleaseDigit, 1);
+      for (const { stripColor, expectedDigit } of stripTestCases) {
+        const state = {
+          id: 'button',
+          color: 'red',
+          holdStripColor: stripColor,
+          ...BUTTON_RULES.evaluate('red', stripColor, true),
+          solved: false
+        };
 
-      // Pressing instead of holding produces strike
-      const pressResult = buttonModule.handleAction(state, 'press', {}, ctx);
-      assert.equal(pressResult.solved, false);
-      assert.equal(pressResult.strike, true);
+        assert.equal(state.actionType, 'hold');
+        assert.equal(state.targetReleaseDigit, expectedDigit);
 
-      // Releasing at wrong digit produces strike
-      const wrongRelease = buttonModule.handleAction(state, 'release', { releaseDigit: 4 }, ctx);
-      assert.equal(wrongRelease.solved, false);
-      assert.equal(wrongRelease.strike, true);
+        // Press produces strike
+        const pressRes = buttonModule.handleAction(state, 'press', {}, {});
+        assert.equal(pressRes.solved, false);
+        assert.equal(pressRes.strike, true);
 
-      // Releasing at target digit 1 defuses button
-      const correctRelease = buttonModule.handleAction(state, 'release', { releaseDigit: 1 }, ctx);
-      assert.equal(correctRelease.solved, true);
-      assert.equal(correctRelease.strike, false);
+        // Wrong digit release produces strike
+        const wrongDigit = (expectedDigit + 1) % 10;
+        const wrongRes = buttonModule.handleAction(state, 'release', { releaseDigit: wrongDigit }, {});
+        assert.equal(wrongRes.solved, false);
+        assert.equal(wrongRes.strike, true);
+
+        // Correct digit release solves button
+        const correctRes = buttonModule.handleAction(state, 'release', { releaseDigit: expectedDigit }, {});
+        assert.equal(correctRes.solved, true);
+        assert.equal(correctRes.strike, false);
+      }
     });
 
-    test('Rule Branch 4: Blue button requires hold and release on 4', () => {
-      const rng = () => 0.35; // picks 'blue'
-      const ctx = { serialNumber: 'A1-22-B1', isSerialEven: false };
-      const state = buttonModule.create(rng, ctx);
+    test('Rule Branch 4: Blue & Yellow buttons always require hold and release on strip digit', () => {
+      const colors = ['blue', 'yellow'];
+      const strips = ['blue', 'yellow', 'white', 'red'];
 
-      assert.equal(state.color, 'blue');
-      assert.equal(state.actionType, 'hold');
-      assert.equal(state.targetReleaseDigit, 4);
-
-      // Release at 4 succeeds
-      const res = buttonModule.handleAction(state, 'release', { releaseDigit: 4 }, ctx);
-      assert.equal(res.solved, true);
-      assert.equal(res.strike, false);
+      for (const c of colors) {
+        for (const s of strips) {
+          const evalResult = BUTTON_RULES.evaluate(c, s, false);
+          assert.equal(evalResult.actionType, 'hold');
+          assert.equal(evalResult.targetReleaseDigit, BUTTON_RULES.stripDigitMap[s]);
+        }
+      }
     });
 
-    test('Rule Branch 5: Yellow button requires hold and release on 7', () => {
-      const rng = () => 0.65; // picks 'yellow'
-      const ctx = { serialNumber: 'A1-22-B8', isSerialEven: true };
-      const state = buttonModule.create(rng, ctx);
-
-      assert.equal(state.color, 'yellow');
-      assert.equal(state.actionType, 'hold');
-      assert.equal(state.targetReleaseDigit, 7);
-
-      // Release at 7 succeeds
-      const res = buttonModule.handleAction(state, 'release', { releaseDigit: 7 }, ctx);
-      assert.equal(res.solved, true);
-      assert.equal(res.strike, false);
-    });
-
-    test('Button: Text labels and holdStripColor are decorative and do not alter rules', () => {
+    test('Button: Consistent strip-to-digit mapping across random bomb generations', () => {
       const lcg = createLcgRng(42);
       for (let i = 0; i < 50; i++) {
         const stateEven = buttonModule.create(lcg, { serialNumber: 'A0-00-B2', isSerialEven: true });
         const stateOdd = buttonModule.create(lcg, { serialNumber: 'A0-00-B3', isSerialEven: false });
 
-        // Verify rule mapping is strictly dependent on color and isSerialEven:
-        if (stateEven.color === 'white') assert.equal(stateEven.actionType, 'press');
-        if (stateEven.color === 'blue') assert.equal(stateEven.targetReleaseDigit, 4);
-        if (stateEven.color === 'yellow') assert.equal(stateEven.targetReleaseDigit, 7);
-        if (stateEven.color === 'red') assert.equal(stateEven.targetReleaseDigit, 1);
+        if (stateEven.color === 'white') {
+          assert.equal(stateEven.actionType, 'press');
+        } else {
+          assert.equal(stateEven.actionType, 'hold');
+          assert.equal(stateEven.targetReleaseDigit, BUTTON_RULES.stripDigitMap[stateEven.holdStripColor]);
+        }
 
-        if (stateOdd.color === 'white') assert.equal(stateOdd.actionType, 'press');
-        if (stateOdd.color === 'red') assert.equal(stateOdd.actionType, 'press');
+        if (stateOdd.color === 'white' || stateOdd.color === 'red') {
+          assert.equal(stateOdd.actionType, 'press');
+        } else {
+          assert.equal(stateOdd.actionType, 'hold');
+          assert.equal(stateOdd.targetReleaseDigit, BUTTON_RULES.stripDigitMap[stateOdd.holdStripColor]);
+        }
       }
     });
 
@@ -308,6 +313,50 @@ describe('Gameplay Rules Verification & Module Correctness', () => {
       assert.equal(muteView.correctWireIndex, undefined);
       assert.equal(muteView.wires, undefined);
     });
+
+    test('Wires: Exhaustive validation of all 256 wire combinations (4^4) confirms single unambiguous answer for every state', () => {
+      const colors = ['red', 'blue', 'yellow', 'green'];
+      let combinationsTested = 0;
+      const ruleHits = { rule1: 0, rule2: 0, rule3: 0, rule4: 0 };
+
+      for (const w0 of colors) {
+        for (const w1 of colors) {
+          for (const w2 of colors) {
+            for (const w3 of colors) {
+              const wires = [w0, w1, w2, w3];
+              combinationsTested++;
+
+              const resultIndex = WIRES_RULES.evaluate(wires);
+              assert.ok(resultIndex >= 0 && resultIndex <= 3, 'Result must be a valid wire index 0-3');
+
+              // Deduce manual rule directly:
+              const redCount = wires.filter((c) => c === 'red').length;
+              const blueCount = wires.filter((c) => c === 'blue').length;
+
+              if (redCount > 1) {
+                assert.equal(resultIndex, 1, `Wires ${wires.join(',')}: expected rule 1 (wire 2 / index 1)`);
+                ruleHits.rule1++;
+              } else if (wires[3] === 'yellow') {
+                assert.equal(resultIndex, 0, `Wires ${wires.join(',')}: expected rule 2 (wire 1 / index 0)`);
+                ruleHits.rule2++;
+              } else if (blueCount === 1) {
+                assert.equal(resultIndex, 2, `Wires ${wires.join(',')}: expected rule 3 (wire 3 / index 2)`);
+                ruleHits.rule3++;
+              } else {
+                assert.equal(resultIndex, 3, `Wires ${wires.join(',')}: expected rule 4 (wire 4 / index 3)`);
+                ruleHits.rule4++;
+              }
+            }
+          }
+        }
+      }
+
+      assert.equal(combinationsTested, 256, 'Must test exactly 4^4 = 256 wire combinations');
+      assert.ok(ruleHits.rule1 > 0, 'Rule 1 must be hit');
+      assert.ok(ruleHits.rule2 > 0, 'Rule 2 must be hit');
+      assert.ok(ruleHits.rule3 > 0, 'Rule 3 must be hit');
+      assert.ok(ruleHits.rule4 > 0, 'Rule 4 must be hit');
+    });
   });
 
   describe('3. Keypad Module Rules & Logic', () => {
@@ -460,15 +509,9 @@ describe('Gameplay Rules Verification & Module Correctness', () => {
         } else if (btn.color === 'red' && !isSerialEven) {
           expectedAction = 'press';
           expectedReleaseDigit = null;
-        } else if (btn.color === 'blue') {
-          expectedAction = 'hold';
-          expectedReleaseDigit = 4;
-        } else if (btn.color === 'yellow') {
-          expectedAction = 'hold';
-          expectedReleaseDigit = 7;
         } else {
           expectedAction = 'hold';
-          expectedReleaseDigit = 1;
+          expectedReleaseDigit = BUTTON_RULES.stripDigitMap[btn.holdStripColor];
         }
 
         assert.equal(btn.actionType, expectedAction, `Game ${gameIdx}: button actionType mismatch`);

@@ -2,8 +2,7 @@
  * Server-side Cipher Keypad Module
  */
 import { fisherYatesShuffle } from './utils.js';
-
-const SYMBOL_POOL = ['⚡', '★', 'Ω', 'Ψ', '▲', '◆', '✦', '⚙'];
+import { KEYPAD_RULES } from './rules-config.js';
 
 export const keypadModule = {
   id: 'keypad',
@@ -11,11 +10,9 @@ export const keypadModule = {
 
   create(rng, ctx) {
     // Unbiased Fisher-Yates shuffle of the symbol pool
-    const shuffledPool = fisherYatesShuffle(SYMBOL_POOL, rng);
+    const shuffledPool = fisherYatesShuffle(KEYPAD_RULES.symbolPool, rng);
     const shuffledSymbols = shuffledPool.slice(0, 4);
-    const correctOrder = [...shuffledSymbols].sort(
-      (a, b) => SYMBOL_POOL.indexOf(a) - SYMBOL_POOL.indexOf(b)
-    );
+    const correctOrder = KEYPAD_RULES.evaluate(shuffledSymbols);
 
     return {
       id: 'keypad',

@@ -1,3 +1,5 @@
+import { WIRES_RULES } from './rules-config.js';
+
 /**
  * Server-side Wire Sequencer Module
  */
@@ -6,25 +8,12 @@ export const wiresModule = {
   title: 'فیوزهای چهارگانه',
 
   create(rng, ctx) {
-    const availableColors = ['red', 'blue', 'yellow', 'green'];
     const wires = [];
     for (let i = 0; i < 4; i++) {
-      wires.push(availableColors[Math.floor(rng() * availableColors.length)]);
+      wires.push(WIRES_RULES.colors[Math.floor(rng() * WIRES_RULES.colors.length)]);
     }
 
-    const redCount = wires.filter((c) => c === 'red').length;
-    const blueCount = wires.filter((c) => c === 'blue').length;
-    let correctWireIndex = 3;
-
-    if (redCount > 1) {
-      correctWireIndex = 1;
-    } else if (wires[3] === 'yellow') {
-      correctWireIndex = 0;
-    } else if (blueCount === 1) {
-      correctWireIndex = 2;
-    } else {
-      correctWireIndex = 3;
-    }
+    const correctWireIndex = WIRES_RULES.evaluate(wires);
 
     return {
       id: 'wires',

@@ -168,12 +168,17 @@ export const buttonClientModule = {
       ctx.fillStyle = state.color === 'white' ? '#0f172a' : '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(state.solved ? 'خنثی شد' : (state.label || 'خنثی‌سازی'), 128, 128);
+      ctx.fillText(state.solved ? 'خنثی شد' : (state.label || 'کاتالیزور'), 128, 128);
       labelTexture.needsUpdate = true;
 
       // Side strip color for Deaf
       if (state.holdStripColor) {
-        const stripMap = { yellow: 0xfacc15, blue: 0x3b82f6, white: 0xffffff };
+        const stripMap = {
+          yellow: 0xfacc15,
+          blue: 0x3b82f6,
+          white: 0xffffff,
+          red: 0xef4444
+        };
         stripMesh.material.color.setHex(stripMap[state.holdStripColor] || 0x1e293b);
       }
     }

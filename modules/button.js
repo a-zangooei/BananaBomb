@@ -1,3 +1,5 @@
+import { BUTTON_RULES } from './rules-config.js';
+
 /**
  * Server-side Reactor Button Module
  */
@@ -6,33 +8,15 @@ export const buttonModule = {
   title: 'دکمه کاتالیزور',
 
   create(rng, ctx) {
-    const buttonColors = ['red', 'blue', 'yellow', 'white'];
-    const buttonLabels = ['خنثی‌سازی', 'نگه‌دار', 'انفجار', 'هشدار'];
-    const stripColors = ['yellow', 'blue', 'white'];
+    const color = BUTTON_RULES.colors[Math.floor(rng() * BUTTON_RULES.colors.length)];
+    const holdStripColor = BUTTON_RULES.stripColors[Math.floor(rng() * BUTTON_RULES.stripColors.length)];
+    const label = 'کاتالیزور';
 
-    const color = buttonColors[Math.floor(rng() * buttonColors.length)];
-    const label = buttonLabels[Math.floor(rng() * buttonLabels.length)];
-    const holdStripColor = stripColors[Math.floor(rng() * stripColors.length)];
-
-    let actionType = 'hold';
-    let targetReleaseDigit = 1;
-
-    if (color === 'white') {
-      actionType = 'press';
-      targetReleaseDigit = null;
-    } else if (color === 'red' && !ctx.isSerialEven) {
-      actionType = 'press';
-      targetReleaseDigit = null;
-    } else if (color === 'blue') {
-      actionType = 'hold';
-      targetReleaseDigit = 4;
-    } else if (color === 'yellow') {
-      actionType = 'hold';
-      targetReleaseDigit = 7;
-    } else {
-      actionType = 'hold';
-      targetReleaseDigit = 1;
-    }
+    const { actionType, targetReleaseDigit } = BUTTON_RULES.evaluate(
+      color,
+      holdStripColor,
+      ctx?.isSerialEven
+    );
 
     return {
       id: 'button',
