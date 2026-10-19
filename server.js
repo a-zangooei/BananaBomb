@@ -182,6 +182,7 @@ function updateHost() {
   if (hostPlayerId) {
     const currentHostSession = sessions.get(hostPlayerId);
     if (currentHostSession && currentHostSession.connected && currentHostSession.role) {
+      gameState.hostPlayerId = hostPlayerId;
       return hostPlayerId;
     }
   }
@@ -192,6 +193,7 @@ function updateHost() {
       const sess = sessions.get(roles[r].playerId);
       if (sess && sess.connected) {
         hostPlayerId = roles[r].playerId;
+        gameState.hostPlayerId = hostPlayerId;
         return hostPlayerId;
       }
     }
@@ -201,11 +203,13 @@ function updateHost() {
   for (const [pId, sess] of sessions.entries()) {
     if (sess.connected) {
       hostPlayerId = pId;
+      gameState.hostPlayerId = hostPlayerId;
       return hostPlayerId;
     }
   }
 
   hostPlayerId = null;
+  gameState.hostPlayerId = null;
   return null;
 }
 
@@ -722,6 +726,17 @@ function handleClientEvent(ws, msg) {
     }
 
     const { moduleId, action, data } = payload || {};
+    if (typeof moduleId !== 'string' || typeof action !== 'string') {
+      return;
+    }
+
+    // Flood protection / rate limiting (70ms between actions per player)
+    const now = Date.now();
+    if (session.lastActionTime && (now - session.lastActionTime < 70)) {
+      return;
+    }
+    session.lastActionTime = now;
+
     const mod = modulesById.get(moduleId);
     if (!mod || !gameState.modules[moduleId]) {
       return;

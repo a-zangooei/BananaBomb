@@ -55,7 +55,7 @@ function createSerialPlateTexture(serialNumber, isBlind) {
 }
 
 /**
- * Standalone 3D Bomb Scene Manager
+ * Standalone Responsive 3D Bomb Scene Manager
  */
 export class Bomb3DScene {
   constructor(containerEl, role, onActionSend, getTimerRemaining) {
@@ -70,22 +70,27 @@ export class Bomb3DScene {
     this.bombGroup = null;
     this.moduleViews = new Map();
     this.animFrameId = null;
+    this.resizeObserver = null;
 
-    // Rotation & Interaction state
+    // Camera Framing & Distance Adaptation
+    this.baseCameraDist = 3.6;
+    this.cameraDist = 3.6;
+    this.targetCameraDist = 3.6;
+
+    // Rotation state
     this.targetRotX = 0;
     this.targetRotY = 0;
     this.currentRotX = 0;
     this.currentRotY = 0;
-    this.cameraDist = 3.6;
-    this.targetCameraDist = 3.6;
 
+    // Pointer & Multi-touch Gesture tracking
     this.pointers = new Map();
     this.isDragging = false;
     this.dragStartPos = { x: 0, y: 0 };
     this.lastPointerPos = { x: 0, y: 0 };
     this.pinchStartDist = 0;
-    this.activePointerModule = null;
     this.hasMovedSignificantly = false;
+    this.candidateModule = null;
 
     this.raycaster = new THREE.Raycaster();
     this.mouseVec = new THREE.Vector2();
@@ -95,19 +100,31 @@ export class Bomb3DScene {
     this.serialPlateTexture = null;
     this.currentState = null;
 
+    // Bound event handlers for clean disposal
+    this.boundPointerDown = null;
+    this.boundPointerMove = null;
+    this.boundPointerUp = null;
+    this.boundPointerCancel = null;
+    this.boundWheel = null;
+    this.boundLostCapture = null;
+    this.boundWindowBlur = null;
+
     this.init();
   }
 
   init() {
-    const width = this.container.clientWidth || 360;
-    const height = this.container.clientHeight || 420;
+    const width = Math.max(100, this.container.clientWidth || 360);
+    const height = Math.max(100, this.container.clientHeight || 420);
+    const aspect = width / height;
 
     // 1. Scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x070b12);
 
-    // 2. Camera
-    this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 50);
+    // 2. Camera with Adaptive Framing
+    this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 50);
+    this.targetCameraDist = this.calcOptimalCameraDist(width, height);
+    this.cameraDist = this.targetCameraDist;
     this.camera.position.set(0, 0, this.cameraDist);
 
     // 3. Renderer with Mobile Optimizations
@@ -116,20 +133,20 @@ export class Bomb3DScene {
       powerPreference: 'high-performance'
     });
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // capped at 2
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // capped at 2 for mobile efficiency
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.container.innerHTML = '';
     this.container.appendChild(this.renderer.domElement);
 
     // 4. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
     this.scene.add(ambientLight);
 
     const dirLight = new THREE.DirectionalLight(0xfff5eb, 1.4);
     dirLight.position.set(3, 5, 4);
     this.scene.add(dirLight);
 
-    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.6);
+    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.65);
     fillLight.position.set(-3, -3, 2);
     this.scene.add(fillLight);
 
@@ -139,9 +156,61 @@ export class Bomb3DScene {
     // 6. Bind Native Pointer / Touch Events
     this.setupTouchControls();
 
-    // 7. Start Render Loop
+    // 7. Setup Container-Driven ResizeObserver
+    this.setupResizeObserver();
+
+    // 8. Start Render Loop
     this.animate = this.animate.bind(this);
     this.animate();
+  }
+
+  /**
+   * Calculates ideal camera distance based on viewport width & height.
+   * On tall/narrow aspect ratios (portrait mobile), scales distance inversely
+   * with aspect ratio so the horizontal edges of the bomb are never clipped.
+   */
+  calcOptimalCameraDist(width, height) {
+    const aspect = (width && height) ? (width / height) : 1;
+    if (aspect < 1.0) {
+      // In portrait: bomb width requires more distance to fit in narrower horizontal FOV
+      return this.baseCameraDist / Math.max(0.62, aspect);
+    }
+    return this.baseCameraDist;
+  }
+
+  setupResizeObserver() {
+    if (typeof ResizeObserver !== 'undefined' && this.container) {
+      this.resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            this.handleResize(width, height);
+          }
+        }
+      });
+      this.resizeObserver.observe(this.container);
+    }
+  }
+
+  handleResize(width, height) {
+    if (!this.container || !this.renderer || !this.camera) return;
+    const w = width || this.container.clientWidth;
+    const h = height || this.container.clientHeight;
+    if (w === 0 || h === 0) return;
+
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+
+    // Adapt camera framing smoothly if user hasn't zoomed manually far away
+    const idealDist = this.calcOptimalCameraDist(w, h);
+    if (Math.abs(this.targetCameraDist - this.cameraDist) < 0.3) {
+      this.targetCameraDist = idealDist;
+    }
+  }
+
+  resize() {
+    this.handleResize();
   }
 
   buildBombModel() {
@@ -250,9 +319,12 @@ export class Bomb3DScene {
   setupTouchControls() {
     const dom = this.renderer.domElement;
 
-    dom.addEventListener('pointerdown', (e) => {
+    this.boundPointerDown = (e) => {
       e.preventDefault();
-      dom.setPointerCapture(e.pointerId);
+      try {
+        dom.setPointerCapture(e.pointerId);
+      } catch (err) {}
+
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
       if (this.pointers.size === 1) {
@@ -260,16 +332,19 @@ export class Bomb3DScene {
         this.hasMovedSignificantly = false;
         this.dragStartPos = { x: e.clientX, y: e.clientY };
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
+        this.candidateModule = null;
 
-        // Raycasting touch target (Blind only)
+        // Interactive raycast check for Blind role
         if (this.role === 'blind') {
           const hit = this.raycast(e.clientX, e.clientY);
           if (hit) {
             const modInfo = this.findHitModule(hit.object);
             if (modInfo) {
-              this.activePointerModule = modInfo;
+              this.candidateModule = modInfo;
+              this.candidateHit = hit;
               const lastDigit = Math.floor(Math.max(0, this.getTimerRemaining())) % 10;
-              const handled = modInfo.moduleDef.onPointer(
+              // Notify module of pointerdown (e.g. for button visual depression)
+              modInfo.moduleDef.onPointer(
                 hit,
                 { type: 'pointerdown', lastTimerDigit: lastDigit },
                 this.send,
@@ -277,18 +352,18 @@ export class Bomb3DScene {
                 this.role,
                 this.currentState?.modules?.[modInfo.moduleDef.id]
               );
-              if (handled) return;
             }
           }
         }
       } else if (this.pointers.size === 2) {
-        // Pinch zoom start
+        // Multi-touch pinch zoom start: cancel any pending single-finger module candidate
+        this.cancelCandidateModule();
         const pts = Array.from(this.pointers.values());
         this.pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       }
-    });
+    };
 
-    dom.addEventListener('pointermove', (e) => {
+    this.boundPointerMove = (e) => {
       if (!this.pointers.has(e.pointerId)) return;
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -297,11 +372,14 @@ export class Bomb3DScene {
         const dy = e.clientY - this.lastPointerPos.y;
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
 
-        if (Math.hypot(e.clientX - this.dragStartPos.x, e.clientY - this.dragStartPos.y) > 8) {
+        const moveDist = Math.hypot(e.clientX - this.dragStartPos.x, e.clientY - this.dragStartPos.y);
+        if (moveDist > 10) {
           this.hasMovedSignificantly = true;
+          // Crucial fix: user is rotating camera, cancel any accidental module tap/press!
+          this.cancelCandidateModule();
         }
 
-        // Native drag-rotate around Y and X
+        // Smooth drag-rotate
         this.targetRotY += dx * 0.008;
         this.targetRotX = Math.max(-1.4, Math.min(1.4, this.targetRotX + dy * 0.008));
       } else if (this.pointers.size === 2) {
@@ -310,13 +388,13 @@ export class Bomb3DScene {
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (this.pinchStartDist > 0) {
           const scaleDelta = (this.pinchStartDist - dist) * 0.008;
-          this.targetCameraDist = Math.max(2.2, Math.min(5.5, this.targetCameraDist + scaleDelta));
+          this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + scaleDelta));
           this.pinchStartDist = dist;
         }
       }
-    });
+    };
 
-    const onPointerEnd = (e) => {
+    const handlePointerEnd = (e, isCancel = false) => {
       if (this.pointers.has(e.pointerId)) {
         this.pointers.delete(e.pointerId);
       }
@@ -324,35 +402,98 @@ export class Bomb3DScene {
       if (this.pointers.size === 0) {
         this.isDragging = false;
 
-        // Pointer up raycast (Blind hold/release button)
-        if (this.role === 'blind' && this.activePointerModule) {
-          const hit = this.raycast(e.clientX, e.clientY);
-          const lastDigit = Math.floor(Math.max(0, this.getTimerRemaining())) % 10;
-          this.activePointerModule.moduleDef.onPointer(
-            hit || { object: null },
-            { type: 'pointerup', lastTimerDigit: lastDigit },
-            this.send,
-            this.activePointerModule.group,
-            this.role,
-            this.currentState?.modules?.[this.activePointerModule.moduleDef.id]
-          );
-          this.activePointerModule = null;
+        if (isCancel) {
+          this.cancelCandidateModule();
+        } else if (this.role === 'blind' && this.candidateModule) {
+          // If the pointer didn't move significantly, it is a deliberate tap / release!
+          if (!this.hasMovedSignificantly) {
+            const hit = this.raycast(e.clientX, e.clientY);
+            const lastDigit = Math.floor(Math.max(0, this.getTimerRemaining())) % 10;
+            this.candidateModule.moduleDef.onPointer(
+              hit || this.candidateHit || { object: null },
+              { type: 'pointerup', lastTimerDigit: lastDigit },
+              this.send,
+              this.candidateModule.group,
+              this.role,
+              this.currentState?.modules?.[this.candidateModule.moduleDef.id]
+            );
+          } else {
+            this.cancelCandidateModule();
+          }
+          this.candidateModule = null;
         }
       }
     };
 
-    dom.addEventListener('pointerup', onPointerEnd);
-    dom.addEventListener('pointercancel', onPointerEnd);
+    this.boundPointerUp = (e) => handlePointerEnd(e, false);
+    this.boundPointerCancel = (e) => handlePointerEnd(e, true);
 
-    // Mouse wheel zoom
-    dom.addEventListener('wheel', (e) => {
+    this.boundLostCapture = (e) => {
+      handlePointerEnd(e, true);
+    };
+
+    this.boundWindowBlur = () => {
+      this.cancelCandidateModule();
+      this.pointers.clear();
+      this.isDragging = false;
+    };
+
+    this.boundWheel = (e) => {
       e.preventDefault();
-      this.targetCameraDist = Math.max(2.2, Math.min(5.5, this.targetCameraDist + e.deltaY * 0.003));
-    }, { passive: false });
+      this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + e.deltaY * 0.003));
+    };
+
+    dom.addEventListener('pointerdown', this.boundPointerDown);
+    dom.addEventListener('pointermove', this.boundPointerMove);
+    dom.addEventListener('pointerup', this.boundPointerUp);
+    dom.addEventListener('pointercancel', this.boundPointerCancel);
+    dom.addEventListener('lostpointercapture', this.boundLostCapture);
+    dom.addEventListener('wheel', this.boundWheel, { passive: false });
+    window.addEventListener('blur', this.boundWindowBlur);
+  }
+
+  cancelCandidateModule() {
+    if (this.candidateModule) {
+      try {
+        this.candidateModule.moduleDef.onPointer(
+          { object: null },
+          { type: 'pointercancel' },
+          this.send,
+          this.candidateModule.group,
+          this.role,
+          this.currentState?.modules?.[this.candidateModule.moduleDef.id]
+        );
+      } catch (err) {}
+      this.candidateModule = null;
+    }
+  }
+
+  /**
+   * Fast Programmatic Camera Views
+   */
+  viewFront() {
+    this.targetRotX = 0;
+    this.targetRotY = 0;
+  }
+
+  viewBack() {
+    this.targetRotX = 0;
+    this.targetRotY = Math.PI; // Flip 180 degrees to back plate
+  }
+
+  resetView() {
+    this.targetRotX = 0;
+    this.targetRotY = 0;
+    const w = this.container ? this.container.clientWidth : 360;
+    const h = this.container ? this.container.clientHeight : 420;
+    this.targetCameraDist = this.calcOptimalCameraDist(w, h);
   }
 
   raycast(clientX, clientY) {
+    if (!this.renderer || !this.camera || !this.bombGroup) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+
     this.mouseVec.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     this.mouseVec.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -435,24 +576,13 @@ export class Bomb3DScene {
     }
   }
 
-  resize() {
-    if (!this.container || !this.renderer || !this.camera) return;
-    const width = this.container.clientWidth;
-    const height = this.container.clientHeight;
-    if (width === 0 || height === 0) return;
-
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
-  }
-
   animate() {
     this.animFrameId = requestAnimationFrame(this.animate);
 
-    // Smooth exponential damping on rotation
-    this.currentRotX += (this.targetRotX - this.currentRotX) * 0.12;
-    this.currentRotY += (this.targetRotY - this.currentRotY) * 0.12;
-    this.cameraDist += (this.targetCameraDist - this.cameraDist) * 0.12;
+    // Smooth exponential damping on rotation & zoom
+    this.currentRotX += (this.targetRotX - this.currentRotX) * 0.14;
+    this.currentRotY += (this.targetRotY - this.currentRotY) * 0.14;
+    this.cameraDist += (this.targetCameraDist - this.cameraDist) * 0.14;
 
     if (this.bombGroup) {
       this.bombGroup.rotation.x = this.currentRotX;
@@ -469,12 +599,54 @@ export class Bomb3DScene {
   dispose() {
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
     }
+
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
     if (this.renderer) {
+      const dom = this.renderer.domElement;
+      if (dom) {
+        if (this.boundPointerDown) dom.removeEventListener('pointerdown', this.boundPointerDown);
+        if (this.boundPointerMove) dom.removeEventListener('pointermove', this.boundPointerMove);
+        if (this.boundPointerUp) dom.removeEventListener('pointerup', this.boundPointerUp);
+        if (this.boundPointerCancel) dom.removeEventListener('pointercancel', this.boundPointerCancel);
+        if (this.boundLostCapture) dom.removeEventListener('lostpointercapture', this.boundLostCapture);
+        if (this.boundWheel) dom.removeEventListener('wheel', this.boundWheel);
+      }
+      window.removeEventListener('blur', this.boundWindowBlur);
+
+      // Deep dispose scene objects
+      if (this.scene) {
+        this.scene.traverse((obj) => {
+          if (obj.geometry) {
+            try { obj.geometry.dispose(); } catch (e) {}
+          }
+          if (obj.material) {
+            if (Array.isArray(obj.material)) {
+              obj.material.forEach((m) => {
+                try { if (m.map) m.map.dispose(); m.dispose(); } catch (e) {}
+              });
+            } else {
+              try { if (obj.material.map) obj.material.map.dispose(); obj.material.dispose(); } catch (e) {}
+            }
+          }
+        });
+      }
+
       this.renderer.dispose();
-      if (this.renderer.domElement && this.renderer.domElement.parentNode) {
-        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+      if (dom && dom.parentNode) {
+        dom.parentNode.removeChild(dom);
       }
     }
+
+    this.scene = null;
+    this.camera = null;
+    this.renderer = null;
+    this.bombGroup = null;
+    this.moduleViews.clear();
   }
 }

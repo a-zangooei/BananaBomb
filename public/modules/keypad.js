@@ -138,7 +138,7 @@ export const keypadClientModule = {
 
   onPointer(hit, event, send, moduleView, role, state) {
     if (role !== 'blind' || state?.solved) return false;
-    if (event.type !== 'pointerdown' && event.type !== 'click') return false;
+    const { keyData } = moduleView.userData;
 
     let targetMesh = hit.object;
     while (targetMesh && targetMesh.userData?.slotIndex === undefined && targetMesh.parent) {
@@ -146,13 +146,39 @@ export const keypadClientModule = {
     }
 
     const slotIndex = targetMesh?.userData?.slotIndex ?? hit.object?.userData?.slotIndex;
-    if (slotIndex !== undefined && !state.enteredSlots?.includes(slotIndex)) {
-      send('action', {
-        moduleId: 'keypad',
-        action: 'press',
-        data: { slotIndex }
-      });
+    if (slotIndex === undefined) return false;
+
+    const keyItem = keyData.find((k) => k.slotIndex === slotIndex);
+
+    if (event.type === 'pointerdown') {
+      if (keyItem && !state.enteredSlots?.includes(slotIndex)) {
+        keyItem.keyMesh.position.z = keyItem.defaultZ - 0.03;
+      }
       return true;
+    }
+
+    if (event.type === 'pointercancel') {
+      if (keyItem) {
+        const isEntered = state.enteredSlots?.includes(slotIndex);
+        keyItem.keyMesh.position.z = isEntered ? keyItem.defaultZ - 0.025 : keyItem.defaultZ;
+      }
+      return true;
+    }
+
+    if (event.type === 'pointerup' || event.type === 'click') {
+      if (keyItem) {
+        const isEntered = state.enteredSlots?.includes(slotIndex);
+        keyItem.keyMesh.position.z = isEntered ? keyItem.defaultZ - 0.025 : keyItem.defaultZ;
+      }
+
+      if (!state.enteredSlots?.includes(slotIndex)) {
+        send('action', {
+          moduleId: 'keypad',
+          action: 'press',
+          data: { slotIndex }
+        });
+        return true;
+      }
     }
 
     return false;

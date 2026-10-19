@@ -1,4 +1,4 @@
-/* Mobile-first Cyber Bomb Defusal HUD Stylesheet with 3D Viewport */
+/* Responsive Cyber Bomb Defusal HUD Stylesheet with Adaptive 3D Viewport */
 :root {
   --bg-main: #0a0e17;
   --bg-panel: #111827;
@@ -27,36 +27,41 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Vazirmatn', sans-serif;
   direction: rtl;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   justify-content: center;
   align-items: stretch;
   overflow-x: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* Mobile Screen Container */
+/* Master Application Container - Responsive across Phone, Tablet, Laptop, Desktop */
 .app-viewport {
   width: 100%;
-  max-width: 480px;
+  max-width: 1200px;
   min-height: 100vh;
+  min-height: 100dvh;
   background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0a0e17 85%);
   display: flex;
   flex-direction: column;
   position: relative;
-  box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.85);
   border-left: 1px solid #1e293b;
   border-right: 1px solid #1e293b;
+  transition: all 0.25s ease;
 }
 
 /* Header & Status Bar */
 .status-bar {
   background: #0d131f;
   border-bottom: 2px solid #1e293b;
-  padding: 10px 14px;
+  padding: 8px 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   direction: ltr;
+  flex-shrink: 0;
 }
 
 .ping-tag {
@@ -90,36 +95,38 @@ body {
 /* Bomb Timer Panel */
 .timer-panel {
   background: #05080e;
-  border: 3px solid #1f293d;
+  border: 2px solid #1f293d;
   border-radius: 12px;
-  margin: 10px 12px 6px 12px;
-  padding: 12px 16px;
+  margin: 8px 12px 6px 12px;
+  padding: 10px 16px;
   box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.9);
   display: flex;
   flex-direction: column;
   align-items: center;
   position: relative;
+  flex-shrink: 0;
+  transition: box-shadow 0.3s;
 }
 
 .serial-tag {
   align-self: flex-start;
   font-family: var(--font-digital);
-  font-size: 0.75rem;
+  font-size: 0.76rem;
   color: #64748b;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.2px;
   direction: ltr;
 }
 
 .timer-digits {
   font-family: var(--font-digital);
-  font-size: 3.2rem;
+  font-size: 3rem;
   font-weight: 900;
   color: var(--neon-red);
   letter-spacing: 4px;
   text-shadow: 0 0 16px rgba(239, 68, 68, 0.6);
   direction: ltr;
   line-height: 1.1;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .timer-digits.urgent {
@@ -141,7 +148,7 @@ body {
 .strikes-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-top: 2px;
 }
 
@@ -190,15 +197,17 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 6px 12px 16px 12px;
+  padding: 6px 12px 14px 12px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 /* Sections */
 .view-section {
   display: none;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  flex: 1;
 }
 
 .view-section.active {
@@ -222,7 +231,7 @@ body {
 .role-roleplay-banner {
   border-radius: 10px;
   padding: 10px 14px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   line-height: 1.5;
 }
 
@@ -244,6 +253,29 @@ body {
   color: #e9d5ff;
 }
 
+/* Orientation Hint for Portrait Phone Users (Non-intrusive) */
+.orientation-hint {
+  display: none;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  color: #93c5fd;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.orientation-hint button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 4px;
+}
+
 /* 3D Bomb Viewport Container */
 .bomb-3d-wrapper {
   background: #030712;
@@ -252,24 +284,65 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.85);
   position: relative;
+  flex: 1;
+  min-height: 300px;
 }
 
 .bomb-3d-canvas-container {
   width: 100%;
-  height: 380px;
+  flex: 1;
+  min-height: 280px;
   touch-action: none;
   display: block;
   cursor: grab;
+  position: relative;
 }
 
 .bomb-3d-canvas-container:active {
   cursor: grabbing;
 }
 
+/* Canvas Toolbar / Quick View Shortcuts */
+.bomb-view-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.view-btn {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #334155;
+  color: #cbd5e1;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.view-btn:hover {
+  background: #1e293b;
+  border-color: #64748b;
+  color: #fff;
+}
+
+.view-btn:active {
+  transform: scale(0.96);
+}
+
 .bomb-3d-hint {
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.92);
   border-top: 1px solid #1e293b;
   padding: 6px 12px;
   display: flex;
@@ -277,6 +350,7 @@ body {
   align-items: center;
   font-size: 0.72rem;
   color: #94a3b8;
+  flex-shrink: 0;
 }
 
 .tactile-instructions {
@@ -429,8 +503,8 @@ body {
   color: white;
   border: none;
   border-radius: 10px;
-  padding: 14px 20px;
-  font-size: 1.05rem;
+  padding: 13px 20px;
+  font-size: 1rem;
   font-weight: bold;
   cursor: pointer;
   box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
@@ -564,4 +638,216 @@ body {
   color: var(--text-muted);
   line-height: 1.6;
   margin-bottom: 24px;
+}
+
+/* ========================================================
+   RESPONSIVE DESIGN BREAKPOINTS: Mobile Landscape, Tablet, Desktop
+   ======================================================== */
+
+/* 1. MOBILE LANDSCAPE MODE: Max-height <= 520px with landscape orientation */
+@media (orientation: landscape) and (max-height: 540px) {
+  body {
+    overflow-y: hidden;
+  }
+
+  .app-viewport {
+    max-width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .status-bar {
+    padding: 4px 12px;
+    font-size: 0.72rem;
+  }
+
+  /* Two-column split for running 3D bomb game */
+  #bomb3dSection.active {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 1fr;
+    gap: 8px;
+    height: calc(100vh - 40px);
+    height: calc(100dvh - 40px);
+    overflow: hidden;
+  }
+
+  .bomb-landscape-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .timer-panel {
+    margin: 0;
+    padding: 6px 10px;
+  }
+
+  .timer-digits {
+    font-size: 2.1rem;
+    margin: 0;
+  }
+
+  .strikes-container {
+    gap: 6px;
+  }
+
+  .strike-box {
+    width: 20px;
+    height: 20px;
+    font-size: 0.75rem;
+  }
+
+  .role-roleplay-banner {
+    padding: 6px 10px;
+    font-size: 0.74rem;
+  }
+
+  .tactile-instructions, .visual-instructions {
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  .bomb-3d-wrapper {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .bomb-3d-canvas-container {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .bomb-3d-hint {
+    padding: 3px 8px;
+    font-size: 0.68rem;
+  }
+
+  /* Mute section in landscape: 2-column rulebook */
+  #muteSection.active {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    overflow-y: auto;
+    max-height: calc(100vh - 120px);
+  }
+
+  #muteSection .manual-section:last-child {
+    grid-column: span 2;
+  }
+
+  /* Lobby in landscape */
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .role-card {
+    padding: 8px;
+  }
+
+  .role-icon {
+    font-size: 1.5rem;
+    min-width: 36px;
+    height: 36px;
+  }
+}
+
+/* 2. TABLETS & DESKTOPS: Viewport Width >= 768px */
+@media (min-width: 768px) {
+  .app-viewport {
+    max-width: 1050px;
+    margin: 16px auto;
+    border-radius: 16px;
+    border: 1px solid #334155;
+    min-height: calc(100vh - 32px);
+    overflow: hidden;
+  }
+
+  /* Spacious Lobby for Tablets & Desktop */
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+
+  .role-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .role-status-badge {
+    align-self: flex-end;
+  }
+
+  /* 3D Bomb Arena layout on Desktop / Tablet */
+  #bomb3dSection.active {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+    align-items: stretch;
+    height: calc(100vh - 160px);
+    min-height: 520px;
+  }
+
+  .bomb-sidebar-desktop {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .bomb-3d-wrapper {
+    height: 100%;
+    min-height: 500px;
+  }
+
+  .bomb-3d-canvas-container {
+    height: 100%;
+    min-height: 460px;
+  }
+
+  /* Mute Rulebook on Tablet/Desktop: Grid Cards */
+  #muteSection.active {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+
+  #muteSection .manual-section:last-child {
+    grid-column: span 2;
+  }
+}
+
+/* 3. WIDE DESKTOPS: Viewport Width >= 1200px */
+@media (min-width: 1200px) {
+  .app-viewport {
+    max-width: 1240px;
+  }
+
+  #bomb3dSection.active {
+    grid-template-columns: 380px 1fr;
+    min-height: 580px;
+  }
+
+  .timer-digits {
+    font-size: 3.6rem;
+  }
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

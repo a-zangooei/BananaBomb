@@ -75,6 +75,13 @@ export const wiresClientModule = {
       rightCutMesh.visible = false;
       wireGroup.add(rightCutMesh);
 
+      // Generous invisible touch hitbox for mobile & touchscreens (3x wire radius)
+      const hitBoxGeo = new THREE.BoxGeometry(wireSpan * 0.95, 0.13, 0.12);
+      const hitBoxMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+      const hitBoxMesh = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+      hitBoxMesh.userData = { wireIndex: idx, isWire: true };
+      wireGroup.add(hitBoxMesh);
+
       group.add(wireGroup);
 
       wireMeshes.push({
@@ -137,7 +144,8 @@ export const wiresClientModule = {
 
   onPointer(hit, event, send, moduleView, role, state) {
     if (role !== 'blind' || state?.solved) return false;
-    if (event.type !== 'pointerdown' && event.type !== 'click') return false;
+    // Execute wire cut on clean tap (pointerup or click)
+    if (event.type !== 'pointerup' && event.type !== 'click') return false;
 
     // Identify which wire was hit
     let targetMesh = hit.object;

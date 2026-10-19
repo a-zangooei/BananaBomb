@@ -67,6 +67,50 @@ const btnLeaveRole = document.getElementById('btnLeaveRole');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
+// Quick Camera Views Toolbar
+const btnViewFront = document.getElementById('btnViewFront');
+const btnViewBack = document.getElementById('btnViewBack');
+const btnResetView = document.getElementById('btnResetView');
+const orientationHint = document.getElementById('orientationHint');
+const btnCloseOrientationHint = document.getElementById('btnCloseOrientationHint');
+const desktopKeyboardHint = document.getElementById('desktopKeyboardHint');
+
+if (btnViewFront) {
+  btnViewFront.addEventListener('click', () => {
+    if (bombScene) bombScene.viewFront();
+  });
+}
+if (btnViewBack) {
+  btnViewBack.addEventListener('click', () => {
+    if (bombScene) bombScene.viewBack();
+  });
+}
+if (btnResetView) {
+  btnResetView.addEventListener('click', () => {
+    if (bombScene) bombScene.resetView();
+  });
+}
+
+if (btnCloseOrientationHint) {
+  btnCloseOrientationHint.addEventListener('click', () => {
+    if (orientationHint) orientationHint.style.display = 'none';
+    sessionStorage.setItem('dismissed_orientation_hint', 'true');
+  });
+}
+
+function updateOrientationHint() {
+  if (!orientationHint) return;
+  const isPortraitPhone = window.innerHeight > window.innerWidth && window.innerWidth <= 600;
+  const dismissed = sessionStorage.getItem('dismissed_orientation_hint') === 'true';
+  if (isPortraitPhone && !dismissed && currentGameState?.status === 'running') {
+    orientationHint.style.display = 'flex';
+  } else {
+    orientationHint.style.display = 'none';
+  }
+}
+window.addEventListener('resize', updateOrientationHint);
+window.addEventListener('orientationchange', updateOrientationHint);
+
 // Check WebGL availability
 if (!isWebGLAvailable()) {
   if (webglErrorBanner) webglErrorBanner.style.display = 'block';
@@ -401,6 +445,8 @@ function renderState(state) {
   } else {
     lobbySection.classList.add('active');
   }
+
+  updateOrientationHint();
 }
 
 // Window resize handler for 3D canvas
@@ -476,3 +522,117 @@ function flashRedAlert() {
     }, 400);
   }
 }
+
+// --- Keyboard Navigation & Accessibility Controls ---
+let isSpacePressed = false;
+let spacePressStartTime = 0;
+let isWKeyActive = false;
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  if (currentGameState?.status === 'running') {
+    // Arrow keys: Rotate 3D bomb
+    if (bombScene) {
+      if (e.key === 'ArrowLeft') {
+        bombScene.targetRotY += 0.25;
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        bombScene.targetRotY -= 0.25;
+        e.preventDefault();
+      } else if (e.key === 'ArrowUp') {
+        bombScene.targetRotX = Math.min(1.4, bombScene.targetRotX + 0.18);
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        bombScene.targetRotX = Math.max(-1.4, bombScene.targetRotX - 0.18);
+        e.preventDefault();
+      } else if (e.key === 'r' || e.key === 'R') {
+        bombScene.viewFront();
+      } else if (e.key === 'b' || e.key === 'B') {
+        bombScene.viewBack();
+      }
+    }
+
+    // Role Blind physical interactions via keyboard
+    if (myRole === 'blind') {
+      if (e.key === 'w' || e.key === 'W') {
+        isWKeyActive = true;
+      }
+
+      // Keys 1..4:
+      // If W is held/active: cut wire 0..3
+      // Else: press keypad 0..3
+      if (['1', '2', '3', '4'].includes(e.key)) {
+        const index = parseInt(e.key, 10) - 1;
+        if (isWKeyActive) {
+          transport.send('action', {
+            moduleId: 'wires',
+            action: 'cut',
+            data: { wireIndex: index }
+          });
+        } else {
+          transport.send('action', {
+            moduleId: 'keypad',
+            action: 'press',
+            data: { slotIndex: index }
+          });
+        }
+      }
+
+      // Spacebar: Button press / hold
+      if (e.code === 'Space' && !isSpacePressed) {
+        e.preventDefault();
+        isSpacePressed = true;
+        spacePressStartTime = Date.now();
+
+        const btnView = bombScene?.moduleViews?.get('button');
+        if (btnView) {
+          const { btnMesh, capMesh, defaultBtnZ, stripMesh } = btnView.group.userData;
+          btnMesh.position.z = defaultBtnZ - 0.04;
+          capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
+          stripMesh.material.color.setHex(0xa1a1aa);
+        }
+      }
+    }
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'w' || e.key === 'W') {
+    isWKeyActive = false;
+  }
+
+  if (e.code === 'Space' && isSpacePressed && myRole === 'blind') {
+    e.preventDefault();
+    isSpacePressed = false;
+    const duration = Date.now() - spacePressStartTime;
+    const lastDigit = Math.floor(Math.max(0, getCurrentRemainingSeconds())) % 10;
+
+    const btnView = bombScene?.moduleViews?.get('button');
+    if (btnView) {
+      const { btnMesh, capMesh, defaultBtnZ, stripMesh } = btnView.group.userData;
+      btnMesh.position.z = defaultBtnZ;
+      capMesh.position.z = defaultBtnZ + 0.075;
+      stripMesh.material.color.setHex(0x3f3f46);
+    }
+
+    if (duration < 350) {
+      transport.send('action', {
+        moduleId: 'button',
+        action: 'press'
+      });
+    } else {
+      transport.send('action', {
+        moduleId: 'button',
+        action: 'release',
+        data: { releaseDigit: lastDigit }
+      });
+    }
+  }
+});
+
+window.addEventListener('blur', () => {
+  isSpacePressed = false;
+  isWKeyActive = false;
+});
+

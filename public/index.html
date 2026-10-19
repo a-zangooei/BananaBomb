@@ -125,30 +125,50 @@
       <!-- View 2: 3D Bomb Viewport (Active for Blind and Deaf) -->
       <section class="view-section" id="bomb3dSection">
         
-        <div class="role-roleplay-banner" id="bomb3dRoleBanner">
-          <!-- Populated dynamically based on Blind vs Deaf -->
-        </div>
+        <div class="bomb-sidebar-desktop" id="bombSidebar">
+          <div class="role-roleplay-banner" id="bomb3dRoleBanner">
+            <!-- Populated dynamically based on Blind vs Deaf -->
+          </div>
 
-        <div class="bomb-3d-wrapper">
-          <div id="bomb3dContainer" class="bomb-3d-canvas-container"></div>
-          
-          <div class="bomb-3d-hint">
-            <span>🔄 با کشیدن انگشت بمب را ۳۶۰ درجه بچرخانید</span>
-            <span>🔍 با دو انگشت زوم کنید</span>
+          <div id="orientationHint" class="orientation-hint">
+            <span>📱 برای کنترل راحت‌تر و دید وسیع‌تر، می‌توانید دستگاه را افقی (Landscape) بچرخانید.</span>
+            <button id="btnCloseOrientationHint" aria-label="بستن راهنما">✕</button>
+          </div>
+
+          <div id="blindTactileHelper" style="display: none;" class="tactile-instructions">
+            <strong>کنترل‌های لمسی نابینا:</strong>
+            <br>• <strong>دکمه کاتالیزور:</strong> ضربه کوتاه برای کلیک، یا نگه‌داشتن و رهاسازی در ثانیه هدف.
+            <br>• <strong>سیم‌ها:</strong> روی سیم ضربه بزنید تا بریده شود.
+            <br>• <strong>کلیدهای ۱ تا ۴:</strong> کلیدها را با ضربه به ترتیب اعلامی لمس کنید.
+          </div>
+
+          <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
+            <strong>راهنمای ناشنوا:</strong>
+            <br>• با دکمه‌های «پشت» یا چرخش بمب، <strong>پلاک سریال</strong> را بخوانید.
+            <br>• رنگ دکمه، رنگ ۴ سیم و نمادهای صفحه کلید را به هم‌تیمی‌هایتان اعلام کنید.
+          </div>
+
+          <div class="desktop-keyboard-hint" id="desktopKeyboardHint" style="font-size: 0.72rem; color: #64748b; line-height: 1.5; padding: 6px 10px; background: rgba(15,23,42,0.6); border-radius: 8px;">
+            ⌨️ <strong>کلیدهای میانبر دسکتاپ:</strong>
+            <br>• جهت‌نما: چرخش بمب | R: روبرو | B: پشت
+            <br>• Space: دکمه | 1 تا 4: کیپد | W + 1-4: سیم‌ها
           </div>
         </div>
 
-        <div id="blindTactileHelper" style="display: none;" class="tactile-instructions">
-          <strong>کنترل‌های لمسی نابینا:</strong>
-          <br>• <strong>دکمه کاتالیزور:</strong> لمس کوتاه برای کلیک، یا نگه‌داشتن و رهاسازی در ثانیه تعیین‌شده.
-          <br>• <strong>سیم‌ها:</strong> روی سیم مورد نظر ضربه بزنید تا با قیچی بریده شود.
-          <br>• <strong>کلیدهای ۱ تا ۴:</strong> به ترتیبی که بی‌کلام/ناشنوا می‌گویند کلیدها را لمس کنید.
-        </div>
+        <div class="bomb-3d-wrapper">
+          <!-- Quick Camera Toolbar -->
+          <div class="bomb-view-toolbar" role="toolbar" aria-label="تنظیمات زاویه دید دوربین">
+            <button class="view-btn" id="btnViewFront" title="نمای روبروی ماژول‌ها">👀 روبرو</button>
+            <button class="view-btn" id="btnViewBack" title="نمای پشت و پلاک سریال">🔄 پشت (پلاک)</button>
+            <button class="view-btn" id="btnResetView" title="تنظیم مجدد زاویه و زوم">🎯 بازنشانی</button>
+          </div>
 
-        <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
-          <strong>راهنمای ناشنوا:</strong>
-          <br>• بمب را به پشت بچرخانید تا <strong>پلاک سریال بمب</strong> را بخوانید.
-          <br>• رنگ دکمه، رنگ ۴ سیم و نمادهای صفحه کلید را به هم‌تیمی‌هایتان اعلام کنید.
+          <div id="bomb3dContainer" class="bomb-3d-canvas-container" role="region" aria-label="محیط ۳ بعدی بمب"></div>
+          
+          <div class="bomb-3d-hint">
+            <span>🔄 با کشیدن ماوس یا لمس بچرخانید</span>
+            <span>🔍 اسکرول یا دو انگشت: زوم</span>
+          </div>
         </div>
       </section>
 

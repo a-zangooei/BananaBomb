@@ -50,6 +50,7 @@ export const buttonClientModule = {
     });
     const collarMesh = new THREE.Mesh(collarGeo, collarMat);
     collarMesh.position.set(0, -0.05, 0.07);
+    collarMesh.userData = { isButton: true };
     group.add(collarMesh);
 
     // 3. Reactor Button Mesh
@@ -173,6 +174,14 @@ export const buttonClientModule = {
       btnMesh.position.z = defaultBtnZ - 0.04;
       capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
       stripMesh.material.color.setHex(0xa1a1aa); // Monochrome active strip
+      return true;
+    }
+
+    if (event.type === 'pointercancel') {
+      moduleView.userData.pressStartTime = null;
+      btnMesh.position.z = defaultBtnZ;
+      capMesh.position.z = defaultBtnZ + 0.075;
+      stripMesh.material.color.setHex(0x3f3f46);
       return true;
     }
 
