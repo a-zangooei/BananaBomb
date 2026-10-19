@@ -80,12 +80,26 @@ export const keypadClientModule = {
       faceMesh.userData = { slotIndex: idx, isKey: true };
       keyMesh.add(faceMesh);
 
+      // Tactile Glow frame around key
+      const glowGeo = new THREE.PlaneGeometry(0.35, 0.31);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide
+      });
+      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+      glowMesh.position.set(pos.x, pos.y, 0.04);
+      glowMesh.visible = false;
+      group.add(glowMesh);
+
       group.add(keyMesh);
 
       keyData.push({
         slotIndex: idx,
         keyMesh,
         faceMesh,
+        glowMesh,
         labelCanvas,
         labelTexture,
         defaultZ: 0.07
@@ -153,6 +167,13 @@ export const keypadClientModule = {
     if (event.type === 'pointerdown') {
       if (keyItem && !state.enteredSlots?.includes(slotIndex)) {
         keyItem.keyMesh.position.z = keyItem.defaultZ - 0.03;
+        if (keyItem.glowMesh) {
+          keyItem.glowMesh.visible = true;
+          keyItem.glowMesh.material.opacity = 0.85;
+        }
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate(25); } catch (e) {}
+        }
       }
       return true;
     }
@@ -161,6 +182,10 @@ export const keypadClientModule = {
       if (keyItem) {
         const isEntered = state.enteredSlots?.includes(slotIndex);
         keyItem.keyMesh.position.z = isEntered ? keyItem.defaultZ - 0.025 : keyItem.defaultZ;
+        if (keyItem.glowMesh) {
+          keyItem.glowMesh.visible = false;
+          keyItem.glowMesh.material.opacity = 0;
+        }
       }
       return true;
     }
@@ -169,9 +194,16 @@ export const keypadClientModule = {
       if (keyItem) {
         const isEntered = state.enteredSlots?.includes(slotIndex);
         keyItem.keyMesh.position.z = isEntered ? keyItem.defaultZ - 0.025 : keyItem.defaultZ;
+        if (keyItem.glowMesh) {
+          keyItem.glowMesh.visible = false;
+          keyItem.glowMesh.material.opacity = 0;
+        }
       }
 
       if (!state.enteredSlots?.includes(slotIndex)) {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate(20); } catch (e) {}
+        }
         send('action', {
           moduleId: 'keypad',
           action: 'press',

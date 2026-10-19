@@ -67,10 +67,12 @@ const btnLeaveRole = document.getElementById('btnLeaveRole');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
-// Quick Camera Views Toolbar
+// Quick Camera Views & Sensitivity Toolbar
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
 const btnResetView = document.getElementById('btnResetView');
+const cameraSensitivity = document.getElementById('cameraSensitivity');
+const sensitivityValue = document.getElementById('sensitivityValue');
 const orientationHint = document.getElementById('orientationHint');
 const btnCloseOrientationHint = document.getElementById('btnCloseOrientationHint');
 const desktopKeyboardHint = document.getElementById('desktopKeyboardHint');
@@ -88,6 +90,21 @@ if (btnViewBack) {
 if (btnResetView) {
   btnResetView.addEventListener('click', () => {
     if (bombScene) bombScene.resetView();
+  });
+}
+
+if (cameraSensitivity) {
+  const savedSens = localStorage.getItem('bomb_camera_sensitivity') || '1.0';
+  cameraSensitivity.value = savedSens;
+  if (sensitivityValue) sensitivityValue.textContent = `${parseFloat(savedSens).toFixed(1)}x`;
+
+  cameraSensitivity.addEventListener('input', (e) => {
+    const val = e.target.value;
+    if (sensitivityValue) sensitivityValue.textContent = `${parseFloat(val).toFixed(1)}x`;
+    localStorage.setItem('bomb_camera_sensitivity', val);
+    if (bombScene) {
+      bombScene.setSensitivity(val);
+    }
   });
 }
 
@@ -417,6 +434,8 @@ function renderState(state) {
           (event, payload) => transport.send(event, payload),
           () => getCurrentRemainingSeconds()
         );
+        const savedSens = localStorage.getItem('bomb_camera_sensitivity') || '1.0';
+        bombScene.setSensitivity(savedSens);
       }
 
       if (bombScene) {
@@ -565,12 +584,16 @@ window.addEventListener('keydown', (e) => {
       if (['1', '2', '3', '4'].includes(e.key)) {
         const index = parseInt(e.key, 10) - 1;
         if (isWKeyActive) {
+          triggerHaptic([35, 25]);
+          sound.playWireCut();
           transport.send('action', {
             moduleId: 'wires',
             action: 'cut',
             data: { wireIndex: index }
           });
         } else {
+          triggerHaptic(25);
+          sound.playClick();
           transport.send('action', {
             moduleId: 'keypad',
             action: 'press',
@@ -584,13 +607,19 @@ window.addEventListener('keydown', (e) => {
         e.preventDefault();
         isSpacePressed = true;
         spacePressStartTime = Date.now();
+        triggerHaptic(30);
+        sound.playClick();
 
         const btnView = bombScene?.moduleViews?.get('button');
         if (btnView) {
-          const { btnMesh, capMesh, defaultBtnZ, stripMesh } = btnView.group.userData;
+          const { btnMesh, capMesh, defaultBtnZ, stripMesh, glowRing } = btnView.group.userData;
           btnMesh.position.z = defaultBtnZ - 0.04;
           capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
           stripMesh.material.color.setHex(0xa1a1aa);
+          if (glowRing) {
+            glowRing.visible = true;
+            glowRing.material.opacity = 0.85;
+          }
         }
       }
     }
@@ -610,18 +639,26 @@ window.addEventListener('keyup', (e) => {
 
     const btnView = bombScene?.moduleViews?.get('button');
     if (btnView) {
-      const { btnMesh, capMesh, defaultBtnZ, stripMesh } = btnView.group.userData;
+      const { btnMesh, capMesh, defaultBtnZ, stripMesh, glowRing } = btnView.group.userData;
       btnMesh.position.z = defaultBtnZ;
       capMesh.position.z = defaultBtnZ + 0.075;
       stripMesh.material.color.setHex(0x3f3f46);
+      if (glowRing) {
+        glowRing.visible = false;
+        glowRing.material.opacity = 0;
+      }
     }
 
     if (duration < 350) {
+      triggerHaptic(35);
+      sound.playClick();
       transport.send('action', {
         moduleId: 'button',
         action: 'press'
       });
     } else {
+      triggerHaptic([40, 30, 40]);
+      sound.playClick();
       transport.send('action', {
         moduleId: 'button',
         action: 'release',

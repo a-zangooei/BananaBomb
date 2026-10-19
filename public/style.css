@@ -304,41 +304,90 @@ body {
   cursor: grabbing;
 }
 
-/* Canvas Toolbar / Quick View Shortcuts */
+/* Canvas Toolbar / Quick View Shortcuts & Sensitivity */
 .bomb-view-toolbar {
   position: absolute;
   top: 10px;
   left: 10px;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   z-index: 10;
   pointer-events: auto;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 10px;
+  padding: 4px 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .view-btn {
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(30, 41, 59, 0.85);
   border: 1px solid #334155;
   color: #cbd5e1;
-  padding: 5px 9px;
-  border-radius: 6px;
-  font-size: 0.72rem;
+  padding: 6px 10px;
+  min-height: 36px;
+  border-radius: 7px;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition: all 0.2s;
+  transition: all 0.15s ease;
   display: flex;
   align-items: center;
   gap: 4px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .view-btn:hover {
-  background: #1e293b;
-  border-color: #64748b;
-  color: #fff;
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #ffffff;
 }
 
 .view-btn:active {
-  transform: scale(0.96);
+  transform: scale(0.95);
+  background: #1d4ed8;
+}
+
+.camera-sensitivity-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: rgba(2, 6, 23, 0.6);
+  border-radius: 6px;
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  font-size: 0.72rem;
+  color: #94a3b8;
+  user-select: none;
+  min-height: 36px;
+}
+
+.camera-sensitivity-control label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.camera-sensitivity-control #sensitivityValue {
+  color: var(--neon-amber);
+  font-family: monospace;
+  font-weight: 700;
+  min-width: 28px;
+}
+
+.camera-sensitivity-control input[type="range"] {
+  width: 72px;
+  height: 5px;
+  accent-color: var(--neon-amber);
+  cursor: pointer;
 }
 
 .bomb-3d-hint {
@@ -664,23 +713,29 @@ body {
     font-size: 0.72rem;
   }
 
-  /* Two-column split for running 3D bomb game */
+  /* Two-column split for running 3D bomb game: Auto-fit viewport with compact HUD sidebar */
   #bomb3dSection.active {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 260px 1fr;
     grid-template-rows: 1fr;
     gap: 8px;
-    height: calc(100vh - 40px);
-    height: calc(100dvh - 40px);
+    height: calc(100vh - 42px);
+    height: calc(100dvh - 42px);
     overflow: hidden;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
   }
 
-  .bomb-landscape-sidebar {
+  #bombSidebar,
+  .bomb-landscape-sidebar,
+  .bomb-sidebar-desktop {
     display: flex;
     flex-direction: column;
     gap: 6px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding-right: 4px;
+    min-width: 0;
   }
 
   .timer-panel {

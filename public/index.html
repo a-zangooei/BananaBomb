@@ -125,7 +125,7 @@
       <!-- View 2: 3D Bomb Viewport (Active for Blind and Deaf) -->
       <section class="view-section" id="bomb3dSection">
         
-        <div class="bomb-sidebar-desktop" id="bombSidebar">
+        <div class="bomb-sidebar-desktop bomb-landscape-sidebar" id="bombSidebar">
           <div class="role-roleplay-banner" id="bomb3dRoleBanner">
             <!-- Populated dynamically based on Blind vs Deaf -->
           </div>
@@ -161,6 +161,10 @@
             <button class="view-btn" id="btnViewFront" title="نمای روبروی ماژول‌ها">👀 روبرو</button>
             <button class="view-btn" id="btnViewBack" title="نمای پشت و پلاک سریال">🔄 پشت (پلاک)</button>
             <button class="view-btn" id="btnResetView" title="تنظیم مجدد زاویه و زوم">🎯 بازنشانی</button>
+            <div class="camera-sensitivity-control" title="تنظیم سرعت چرخش دوربین">
+              <label for="cameraSensitivity"><span>سرعت:</span> <span id="sensitivityValue">1.0x</span></label>
+              <input type="range" id="cameraSensitivity" min="0.5" max="2.0" step="0.1" value="1.0" aria-label="سرعت چرخش دوربین">
+            </div>
           </div>
 
           <div id="bomb3dContainer" class="bomb-3d-canvas-container" role="region" aria-label="محیط ۳ بعدی بمب"></div>

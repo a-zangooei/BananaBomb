@@ -82,6 +82,7 @@ export class Bomb3DScene {
     this.targetRotY = 0;
     this.currentRotX = 0;
     this.currentRotY = 0;
+    this.sensitivity = 1.0;
 
     // Pointer & Multi-touch Gesture tracking
     this.pointers = new Map();
@@ -379,9 +380,10 @@ export class Bomb3DScene {
           this.cancelCandidateModule();
         }
 
-        // Smooth drag-rotate
-        this.targetRotY += dx * 0.008;
-        this.targetRotX = Math.max(-1.4, Math.min(1.4, this.targetRotX + dy * 0.008));
+        // Smooth drag-rotate with sensitivity scaling
+        const sens = this.sensitivity || 1.0;
+        this.targetRotY += dx * 0.008 * sens;
+        this.targetRotX = Math.max(-1.4, Math.min(1.4, this.targetRotX + dy * 0.008 * sens));
       } else if (this.pointers.size === 2) {
         // Pinch zoom
         const pts = Array.from(this.pointers.values());
@@ -487,6 +489,29 @@ export class Bomb3DScene {
     const w = this.container ? this.container.clientWidth : 360;
     const h = this.container ? this.container.clientHeight : 420;
     this.targetCameraDist = this.calcOptimalCameraDist(w, h);
+  }
+
+  setSensitivity(val) {
+    const num = parseFloat(val);
+    if (!isNaN(num) && num >= 0.1 && num <= 3.0) {
+      this.sensitivity = num;
+    }
+  }
+
+  triggerTactileFeedback(type = 'tap') {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try {
+        if (type === 'hold') {
+          navigator.vibrate([40, 30, 40]);
+        } else if (type === 'cut') {
+          navigator.vibrate([35, 25]);
+        } else if (type === 'key') {
+          navigator.vibrate(25);
+        } else {
+          navigator.vibrate(30);
+        }
+      } catch (e) {}
+    }
   }
 
   raycast(clientX, clientY) {

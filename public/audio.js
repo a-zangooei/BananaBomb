@@ -110,6 +110,28 @@ class SoundEngine {
     } catch (err) {}
   }
 
+  playTactileTick() {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(900, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.02);
+
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.025);
+    } catch (err) {}
+  }
+
   playWireCut() {
     if (!this.enabled || !this.ctx) return;
     try {

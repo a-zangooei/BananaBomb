@@ -144,8 +144,6 @@ export const wiresClientModule = {
 
   onPointer(hit, event, send, moduleView, role, state) {
     if (role !== 'blind' || state?.solved) return false;
-    // Execute wire cut on clean tap (pointerup or click)
-    if (event.type !== 'pointerup' && event.type !== 'click') return false;
 
     // Identify which wire was hit
     let targetMesh = hit.object;
@@ -154,7 +152,24 @@ export const wiresClientModule = {
     }
 
     const wireIndex = targetMesh?.userData?.wireIndex ?? hit.object?.userData?.wireIndex;
+
+    if (event.type === 'pointerdown') {
+      if (wireIndex !== undefined && !state.cutWires?.includes(wireIndex)) {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate(20); } catch (e) {}
+        }
+        return true;
+      }
+      return false;
+    }
+
+    // Execute wire cut on clean tap (pointerup or click)
+    if (event.type !== 'pointerup' && event.type !== 'click') return false;
+
     if (wireIndex !== undefined && !state.cutWires?.includes(wireIndex)) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([35, 25]); } catch (e) {}
+      }
       send('action', {
         moduleId: 'wires',
         action: 'cut',

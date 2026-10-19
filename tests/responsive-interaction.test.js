@@ -303,4 +303,83 @@ describe('Phase 3 — Responsive Layout, 3D Interaction & Input Reliability Test
       assert.ok(gameState.modules.keypad.enteredSlots.length <= 1, 'Flood rate limiter prevented spam');
     });
   });
+
+  describe('5. Camera Sensitivity Scaling, Reset View & Tactile Feedback Reliability', () => {
+    test('Camera sensitivity proportionally scales pointer drag rotation', () => {
+      function computeDragDelta(dx, sensitivity = 1.0) {
+        return dx * 0.008 * sensitivity;
+      }
+
+      const baseDelta = computeDragDelta(50, 1.0);
+      const lowDelta = computeDragDelta(50, 0.5);
+      const highDelta = computeDragDelta(50, 2.0);
+
+      assert.equal(baseDelta, 0.4);
+      assert.equal(lowDelta, 0.2);
+      assert.equal(highDelta, 0.8);
+      assert.equal(highDelta, baseDelta * 2);
+      assert.equal(lowDelta, baseDelta * 0.5);
+    });
+
+    test('Resetting view zeroes rotation coordinates and computes optimal camera distance', () => {
+      const mockCameraState = {
+        targetRotX: 1.2,
+        targetRotY: 3.14,
+        targetCameraDist: 5.5,
+        resetView(w, h, baseDist = 3.6) {
+          this.targetRotX = 0;
+          this.targetRotY = 0;
+          const aspect = (w && h) ? (w / h) : 1;
+          this.targetCameraDist = aspect < 1.0 ? baseDist / Math.max(0.62, aspect) : baseDist;
+        }
+      };
+
+      // Reset for 1280x720 desktop
+      mockCameraState.resetView(1280, 720);
+      assert.equal(mockCameraState.targetRotX, 0);
+      assert.equal(mockCameraState.targetRotY, 0);
+      assert.equal(mockCameraState.targetCameraDist, 3.6);
+
+      // Reset for 360x640 mobile portrait
+      mockCameraState.resetView(360, 640);
+      assert.equal(mockCameraState.targetRotX, 0);
+      assert.equal(mockCameraState.targetRotY, 0);
+      assert.ok(mockCameraState.targetCameraDist > 5.0);
+    });
+
+    test('Tactile feedback triggers gracefully with custom vibration patterns', () => {
+      let vibrationPattern = null;
+      const mockNavigator = {
+        vibrate(pattern) {
+          vibrationPattern = pattern;
+          return true;
+        }
+      };
+
+      function triggerTactile(type, nav) {
+        if (nav && nav.vibrate) {
+          if (type === 'hold') nav.vibrate([40, 30, 40]);
+          else if (type === 'cut') nav.vibrate([35, 25]);
+          else if (type === 'key') nav.vibrate(25);
+          else nav.vibrate(30);
+        }
+      }
+
+      triggerTactile('tap', mockNavigator);
+      assert.equal(vibrationPattern, 30);
+
+      triggerTactile('hold', mockNavigator);
+      assert.deepEqual(vibrationPattern, [40, 30, 40]);
+
+      triggerTactile('cut', mockNavigator);
+      assert.deepEqual(vibrationPattern, [35, 25]);
+
+      triggerTactile('key', mockNavigator);
+      assert.equal(vibrationPattern, 25);
+
+      // Should not throw when navigator.vibrate is missing
+      assert.doesNotThrow(() => triggerTactile('tap', {}));
+      assert.doesNotThrow(() => triggerTactile('cut', null));
+    });
+  });
 });

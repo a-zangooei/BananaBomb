@@ -53,6 +53,19 @@ export const buttonClientModule = {
     collarMesh.userData = { isButton: true };
     group.add(collarMesh);
 
+    // 2b. Tactile Feedback Glow Ring (Cyan/Emerald ring around button collar)
+    const glowGeo = new THREE.RingGeometry(0.39, 0.46, 32);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide
+    });
+    const glowRing = new THREE.Mesh(glowGeo, glowMat);
+    glowRing.position.set(0, -0.05, 0.08);
+    glowRing.visible = false;
+    group.add(glowRing);
+
     // 3. Reactor Button Mesh
     const btnRadius = 0.32;
     const btnHeight = 0.14;
@@ -101,6 +114,7 @@ export const buttonClientModule = {
     group.userData = {
       btnMesh,
       capMesh,
+      glowRing,
       ledMesh,
       stripMesh,
       labelCanvas,
@@ -167,13 +181,20 @@ export const buttonClientModule = {
 
   onPointer(hit, event, send, moduleView, role, state) {
     if (role !== 'blind' || state?.solved) return;
-    const { btnMesh, capMesh, stripMesh, defaultBtnZ } = moduleView.userData;
+    const { btnMesh, capMesh, stripMesh, glowRing, defaultBtnZ } = moduleView.userData;
 
     if (event.type === 'pointerdown') {
       moduleView.userData.pressStartTime = Date.now();
       btnMesh.position.z = defaultBtnZ - 0.04;
       capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
       stripMesh.material.color.setHex(0xa1a1aa); // Monochrome active strip
+      if (glowRing) {
+        glowRing.visible = true;
+        glowRing.material.opacity = 0.85;
+      }
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(30); } catch (e) {}
+      }
       return true;
     }
 
@@ -182,6 +203,10 @@ export const buttonClientModule = {
       btnMesh.position.z = defaultBtnZ;
       capMesh.position.z = defaultBtnZ + 0.075;
       stripMesh.material.color.setHex(0x3f3f46);
+      if (glowRing) {
+        glowRing.visible = false;
+        glowRing.material.opacity = 0;
+      }
       return true;
     }
 
@@ -190,17 +215,27 @@ export const buttonClientModule = {
       btnMesh.position.z = defaultBtnZ;
       capMesh.position.z = defaultBtnZ + 0.075;
       stripMesh.material.color.setHex(0x3f3f46);
+      if (glowRing) {
+        glowRing.visible = false;
+        glowRing.material.opacity = 0;
+      }
 
       if (!startTime) return false;
       const duration = Date.now() - startTime;
       moduleView.userData.pressStartTime = null;
 
       if (duration < 350) {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate(35); } catch (e) {}
+        }
         send('action', {
           moduleId: 'button',
           action: 'press'
         });
       } else {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate([40, 30, 40]); } catch (e) {}
+        }
         send('action', {
           moduleId: 'button',
           action: 'release',
