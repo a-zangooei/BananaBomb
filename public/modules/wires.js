@@ -158,6 +158,9 @@ export const wiresClientModule = {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           try { navigator.vibrate(20); } catch (e) {}
         }
+        if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
+          window.soundEngine.playTactileTick();
+        }
         return true;
       }
       return false;
@@ -169,6 +172,9 @@ export const wiresClientModule = {
     if (wireIndex !== undefined && !state.cutWires?.includes(wireIndex)) {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         try { navigator.vibrate([35, 25]); } catch (e) {}
+      }
+      if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
+        window.soundEngine.playClick();
       }
       send('action', {
         moduleId: 'wires',

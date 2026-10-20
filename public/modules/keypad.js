@@ -174,6 +174,9 @@ export const keypadClientModule = {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           try { navigator.vibrate(25); } catch (e) {}
         }
+        if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
+          window.soundEngine.playTactileTick();
+        }
       }
       return true;
     }
@@ -203,6 +206,9 @@ export const keypadClientModule = {
       if (!state.enteredSlots?.includes(slotIndex)) {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           try { navigator.vibrate(20); } catch (e) {}
+        }
+        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
+          window.soundEngine.playClick();
         }
         send('action', {
           moduleId: 'keypad',

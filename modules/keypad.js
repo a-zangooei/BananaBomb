@@ -9,10 +9,11 @@ export const keypadModule = {
   title: 'نمادهای رمزی',
 
   create(rng, ctx) {
+    const schema = ctx?.roundRules?.keypadSchema || KEYPAD_RULES.defaultSchema;
     // Unbiased Fisher-Yates shuffle of the symbol pool
     const shuffledPool = fisherYatesShuffle(KEYPAD_RULES.symbolPool, rng);
     const shuffledSymbols = shuffledPool.slice(0, 4);
-    const correctOrder = KEYPAD_RULES.evaluate(shuffledSymbols);
+    const correctOrder = KEYPAD_RULES.evaluate(shuffledSymbols, schema.priorityOrder);
 
     return {
       id: 'keypad',

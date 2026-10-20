@@ -2,6 +2,9 @@ import { GameTransport } from './transport.js';
 import { sound } from './audio.js';
 import { Bomb3DScene, isWebGLAvailable } from './bomb3d.js';
 
+// Expose sound engine for tactile audio feedback across modules
+window.soundEngine = sound;
+
 // --- Client Session & State ---
 let playerId = sessionStorage.getItem('defusal_player_id');
 if (!playerId) {

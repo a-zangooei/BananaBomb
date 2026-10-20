@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { activeModules, modulesById } from './modules/index.js';
+import { selectRoundRules } from './modules/rules-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,27 +96,6 @@ const activeSockets = new Map();
 // Designated host for room control (starts and resets)
 let hostPlayerId = null;
 
-let roles = {
-  blind: { playerId: null, connected: false, joinedAt: null },
-  deaf: { playerId: null, connected: false, joinedAt: null },
-  mute: { playerId: null, connected: false, joinedAt: null }
-};
-
-let gameState = {
-  status: 'waiting', // 'waiting' | 'ready' | 'running' | 'exploded' | 'defused'
-  seed: null,        // Server internal seed (never sent to client)
-  startTime: null,   // Server timestamp in ms
-  duration: 300,     // 5 minutes in seconds
-  remainingSeconds: 300,
-  strikes: 0,
-  maxStrikes: 3,
-  serialNumber: '',
-  endReason: null,   // 'time_out' | 'max_strikes' | 'defused'
-  modules: {}        // Authoritative module states
-};
-
-let gameTimerInterval = null;
-
 // --- Fixed Seeded RNG with correct bitwise operator precedence ---
 function createRng(seedStr) {
   let h = 2166136261 >>> 0;
@@ -134,6 +114,29 @@ function createRng(seedStr) {
 function generateRandomSeed() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
+
+let roles = {
+  blind: { playerId: null, connected: false, joinedAt: null },
+  deaf: { playerId: null, connected: false, joinedAt: null },
+  mute: { playerId: null, connected: false, joinedAt: null }
+};
+
+let gameState = {
+  status: 'waiting', // 'waiting' | 'ready' | 'running' | 'exploded' | 'defused'
+  seed: null,        // Server internal seed (never sent to client)
+  roundSeed: generateRandomSeed(), // Public room match seed
+  roundRules: null,  // Authoritative selected schemas & rulebook
+  startTime: null,   // Server timestamp in ms
+  duration: 300,     // 5 minutes in seconds
+  remainingSeconds: 300,
+  strikes: 0,
+  maxStrikes: 3,
+  serialNumber: '',
+  endReason: null,   // 'time_out' | 'max_strikes' | 'defused'
+  modules: {}        // Authoritative module states
+};
+
+let gameTimerInterval = null;
 
 function generateSerialNumber(rng) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -222,6 +225,7 @@ function checkDefused() {
 function getFilteredStateForRole(role) {
   const common = {
     status: gameState.status,
+    roundSeed: gameState.roundSeed,
     startTime: gameState.startTime,
     duration: gameState.duration,
     remainingSeconds: gameState.remainingSeconds,
@@ -243,6 +247,7 @@ function getFilteredStateForRole(role) {
       ...common,
       serialNumber: null,
       modules: null,
+      roundManual: role === 'mute' && gameState.roundRules ? gameState.roundRules.rulebook : null,
       canInteract: false
     };
   }
@@ -260,6 +265,7 @@ function getFilteredStateForRole(role) {
       canInteract: true,
       hasAudio: true,
       isMonochrome: true,
+      roundManual: null,  // Strictly null for blind
       modules: filteredModules
     };
   }
@@ -271,6 +277,7 @@ function getFilteredStateForRole(role) {
       canInteract: false,
       hasAudio: false,
       isMonochrome: false,
+      roundManual: null,  // Strictly null for deaf
       modules: filteredModules
     };
   }
@@ -281,6 +288,7 @@ function getFilteredStateForRole(role) {
       serialNumber: null,
       canInteract: false,
       hasAudio: false,
+      roundManual: gameState.roundRules ? gameState.roundRules.rulebook : null,
       modules: filteredModules
     };
   }
@@ -291,6 +299,7 @@ function getFilteredStateForRole(role) {
     serialNumber: null,
     canInteract: false,
     hasAudio: false,
+    roundManual: null,
     modules: null
   };
 }
@@ -339,18 +348,24 @@ function stopGameTimer() {
   }
 }
 
-function startGame() {
+function startGame(customSeed = null) {
   stopGameTimer();
-  const seed = generateRandomSeed();
+  const seed = (typeof customSeed === 'string' && customSeed.trim().length >= 3)
+    ? customSeed.trim().replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 16).toUpperCase()
+    : (gameState.roundSeed || generateRandomSeed());
+
   const rng = createRng(seed);
+  const roundRules = selectRoundRules(rng, seed);
+  gameState.roundRules = roundRules;
+  gameState.roundSeed = seed;
+  gameState.seed = seed;
 
   const serial = generateSerialNumber(rng);
   const lastSerialDigit = parseInt(serial[serial.length - 1], 10);
   const isSerialEven = lastSerialDigit % 2 === 0;
-  const ctx = { serialNumber: serial, isSerialEven, rng };
+  const ctx = { serialNumber: serial, isSerialEven, rng, roundRules };
 
-  // Dynamically initialize all active modules without hardcoded logic
-  gameState.seed = seed; // Kept internal, NEVER sent to client
+  // Dynamically initialize all active modules using roundRules
   gameState.serialNumber = serial;
   gameState.modules = {};
   for (const mod of activeModules) {
@@ -368,6 +383,7 @@ function startGame() {
     type: 'game_started',
     startTime: gameState.startTime,
     duration: gameState.duration,
+    roundSeed: gameState.roundSeed,
     serverTimestamp: Date.now()
   });
 
@@ -394,6 +410,8 @@ function resetGame(clearDisconnectedRoles = true) {
   stopGameTimer();
   gameState.status = 'waiting';
   gameState.seed = null;
+  gameState.roundSeed = generateRandomSeed();
+  gameState.roundRules = null;
   gameState.startTime = null;
   gameState.duration = 300;
   gameState.remainingSeconds = 300;
@@ -671,7 +689,34 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    startGame();
+    startGame(payload?.seed);
+    return;
+  }
+
+  // 4b. Set Custom Seed in Lobby (Host only)
+  if (type === 'set_seed') {
+    if (gameState.status !== 'waiting' && gameState.status !== 'ready') {
+      ws.send(JSON.stringify({ type: 'error', code: 'INVALID_STATE', message: 'تنظیم سید فقط در لابی امکان‌پذیر است.' }));
+      return;
+    }
+    const socketInfo = activeSockets.get(ws);
+    const playerId = socketInfo ? socketInfo.playerId : null;
+    if (!playerId || playerId !== hostPlayerId) {
+      ws.send(JSON.stringify({ type: 'error', code: 'UNAUTHORIZED', message: 'تنها میزبان مجاز به تغییر سید بازی است.' }));
+      return;
+    }
+    const rawSeed = payload?.seed;
+    if (typeof rawSeed !== 'string' || !rawSeed.trim()) {
+      ws.send(JSON.stringify({ type: 'error', code: 'INVALID_SEED', message: 'سید وارد شده معتبر نیست.' }));
+      return;
+    }
+    const cleanSeed = rawSeed.trim().replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 16).toUpperCase();
+    if (cleanSeed.length < 3) {
+      ws.send(JSON.stringify({ type: 'error', code: 'INVALID_SEED', message: 'سید بازی باید حداقل ۳ نویسه باشد.' }));
+      return;
+    }
+    gameState.roundSeed = cleanSeed;
+    broadcastFullState();
     return;
   }
 
@@ -796,5 +841,6 @@ export {
   getRoleByPlayerId,
   releaseRole,
   updateHost,
-  getFilteredStateForRole
+  getFilteredStateForRole,
+  createRng
 };

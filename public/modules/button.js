@@ -200,6 +200,9 @@ export const buttonClientModule = {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         try { navigator.vibrate(30); } catch (e) {}
       }
+      if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
+        window.soundEngine.playTactileTick();
+      }
       return true;
     }
 
@@ -233,6 +236,9 @@ export const buttonClientModule = {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           try { navigator.vibrate(35); } catch (e) {}
         }
+        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
+          window.soundEngine.playClick();
+        }
         send('action', {
           moduleId: 'button',
           action: 'press'
@@ -240,6 +246,9 @@ export const buttonClientModule = {
       } else {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           try { navigator.vibrate([40, 30, 40]); } catch (e) {}
+        }
+        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
+          window.soundEngine.playClick();
         }
         send('action', {
           moduleId: 'button',

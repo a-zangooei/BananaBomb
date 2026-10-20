@@ -8,12 +8,13 @@ export const wiresModule = {
   title: 'فیوزهای چهارگانه',
 
   create(rng, ctx) {
+    const schema = ctx?.roundRules?.wiresSchema || WIRES_RULES.defaultSchema;
     const wires = [];
     for (let i = 0; i < 4; i++) {
       wires.push(WIRES_RULES.colors[Math.floor(rng() * WIRES_RULES.colors.length)]);
     }
 
-    const correctWireIndex = WIRES_RULES.evaluate(wires);
+    const correctWireIndex = schema.evaluate(wires);
 
     return {
       id: 'wires',

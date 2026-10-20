@@ -8,11 +8,12 @@ export const buttonModule = {
   title: 'دکمه کاتالیزور',
 
   create(rng, ctx) {
+    const schema = ctx?.roundRules?.buttonSchema || BUTTON_RULES.defaultSchema;
     const color = BUTTON_RULES.colors[Math.floor(rng() * BUTTON_RULES.colors.length)];
     const holdStripColor = BUTTON_RULES.stripColors[Math.floor(rng() * BUTTON_RULES.stripColors.length)];
     const label = 'کاتالیزور';
 
-    const { actionType, targetReleaseDigit } = BUTTON_RULES.evaluate(
+    const { actionType, targetReleaseDigit } = schema.evaluate(
       color,
       holdStripColor,
       ctx?.isSerialEven
