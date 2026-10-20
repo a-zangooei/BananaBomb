@@ -70,6 +70,13 @@ const btnLeaveRole = document.getElementById('btnLeaveRole');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
+// Lobby Seed Controls & Dynamic Manual
+const lobbySeedDisplay = document.getElementById('lobbySeedDisplay');
+const hostSeedControls = document.getElementById('hostSeedControls');
+const inputCustomSeed = document.getElementById('inputCustomSeed');
+const btnApplySeed = document.getElementById('btnApplySeed');
+const muteManualContainer = document.getElementById('muteManualContainer');
+
 // Quick Camera Views & Sensitivity Toolbar
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
@@ -107,6 +114,24 @@ if (cameraSensitivity) {
     localStorage.setItem('bomb_camera_sensitivity', val);
     if (bombScene) {
       bombScene.setSensitivity(val);
+    }
+  });
+}
+
+// Host Custom Seed Input Handling
+if (btnApplySeed && inputCustomSeed) {
+  const submitCustomSeed = () => {
+    const raw = inputCustomSeed.value.trim();
+    if (raw) {
+      transport.send('set_seed', { seed: raw });
+      inputCustomSeed.value = '';
+    }
+  };
+
+  btnApplySeed.addEventListener('click', submitCustomSeed);
+  inputCustomSeed.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      submitCustomSeed();
     }
   });
 }
@@ -339,7 +364,15 @@ function renderState(state) {
     }
   });
 
-  // 3. Role Badges in Lobby
+  // 3. Lobby Seed Display & Host Controls
+  if (lobbySeedDisplay) {
+    lobbySeedDisplay.textContent = state.roundSeed || '------';
+  }
+  if (hostSeedControls) {
+    hostSeedControls.style.display = (isHost && (state.status === 'waiting' || state.status === 'ready')) ? 'flex' : 'none';
+  }
+
+  // 4. Role Badges in Lobby
   if (state.roles) {
     Object.keys(state.roles).forEach((rKey) => {
       const rInfo = state.roles[rKey];
@@ -369,7 +402,7 @@ function renderState(state) {
     });
   }
 
-  // 4. Start Button Readiness & Host Authority Guard
+  // 5. Start Button Readiness & Host Authority Guard
   if (btnStartGame) {
     const isReady = state.status === 'ready';
 
@@ -390,7 +423,7 @@ function renderState(state) {
     }
   }
 
-  // 5. Overlays Management (Reset Button with Host Guard)
+  // 6. Overlays Management (Reset Button with Host Guard)
   overlayExploded.classList.remove('active');
   overlayDefused.classList.remove('active');
 
@@ -422,7 +455,7 @@ function renderState(state) {
     return;
   }
 
-  // 6. Section Router
+  // 7. Section Router
   [lobbySection, bomb3dSection, muteSection].forEach((sec) => sec.classList.remove('active'));
 
   if (state.status === 'running') {
@@ -461,6 +494,7 @@ function renderState(state) {
       }
     } else if (myRole === 'mute') {
       muteSection.classList.add('active');
+      renderDynamicManual(state.roundManual);
     } else {
       lobbySection.classList.add('active');
     }
@@ -675,4 +709,103 @@ window.addEventListener('blur', () => {
   isSpacePressed = false;
   isWKeyActive = false;
 });
+
+// --- Dynamic Round Manual Renderer for Mute Role ---
+function renderDynamicManual(manual) {
+  if (!muteManualContainer) return;
+  if (!manual) {
+    muteManualContainer.innerHTML = `
+      <div class="manual-section" style="text-align: center; color: #94a3b8; padding: 24px;">
+        ⏳ در انتظار دریافت قوانین عملیات از مرکز فرماندهی...
+      </div>
+    `;
+    return;
+  }
+
+  const { seed, button, wires, keypad } = manual;
+
+  let buttonHtml = '';
+  if (button) {
+    const tapRows = (button.tapRows || []).map(r => `
+      <tr>
+        <td>${r.condition}</td>
+        <td>${r.action}</td>
+      </tr>
+    `).join('');
+
+    const stripRows = (button.stripRows || []).map(r => `
+      <li>نوار <strong>${r.colorName}</strong>: وقتی رقم یکان ثانیه‌شمار <strong>${r.digit}</strong> شد رها کن.</li>
+    `).join('');
+
+    buttonHtml = `
+      <div class="manual-section">
+        <h4>🔘 ماژول ۱: دکمه کاتالیزور — <span style="font-size: 0.8rem; color: #38bdf8;">${button.protocolName || ''}</span></h4>
+        <table class="rule-table">
+          <thead>
+            <tr>
+              <th>شرط رنگ دکمه و سریال</th>
+              <th>دستور اقدام نابینا</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tapRows}
+            <tr>
+              <td>${button.otherRow?.condition || 'سایر حالات دکمه'}</td>
+              <td><strong>${button.otherRow?.action || 'دکمه را نگه‌دار و نوار رنگی کناری را بخوان'}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.6); padding: 8px 10px; border-radius: 8px; border: 1px solid #334155;">
+          <strong style="font-size: 0.8rem; color: #38bdf8;">دستورالعمل رهاسازی در صورت نگه‌داشتن دکمه (بر اساس نوار رنگی کناری):</strong>
+          <ul style="font-size: 0.76rem; color: #cbd5e1; margin: 4px 0 0 16px; line-height: 1.6;">
+            ${stripRows}
+          </ul>
+        </div>
+        <p style="font-size: 0.72rem; color: #94a3b8; margin-top: 8px;">
+          📌 <em>${button.note || ''}</em>
+        </p>
+      </div>
+    `;
+  }
+
+  let wiresHtml = '';
+  if (wires) {
+    const steps = (wires.checklist || []).map(item => `
+      <li>${item.condition} <strong>${item.action}</strong> را قطع کن.</li>
+    `).join('');
+
+    wiresHtml = `
+      <div class="manual-section">
+        <h4>✂️ ماژول ۲: فیوزهای سیم‌کشی — <span style="font-size: 0.8rem; color: #38bdf8;">${wires.protocolName || ''}</span></h4>
+        <ul class="manual-checklist">
+          ${steps}
+        </ul>
+        <p style="font-size: 0.72rem; color: #94a3b8; margin-top: 8px;">
+          📌 <em>${wires.note || ''}</em>
+        </p>
+      </div>
+    `;
+  }
+
+  let keypadHtml = '';
+  if (keypad) {
+    keypadHtml = `
+      <div class="manual-section">
+        <h4>🔣 ماژول ۳: نمادهای رمزی صفحه‌کلید — <span style="font-size: 0.8rem; color: #38bdf8;">${keypad.protocolName || ''}</span></h4>
+        <p style="font-size: 0.78rem; color: #94a3b8; margin-bottom: 8px;">
+          ${keypad.note || 'از بین ۴ نمادی که ناشنوا گزارش می‌دهد، نابینا باید نمادها را از چپ به راست طبق روبان اولویت زیر لمس کند:'}
+        </p>
+        <div class="symbol-priority-ribbon">
+          ${keypad.priorityRibbon}
+        </div>
+        <p style="font-size: 0.72rem; color: #cbd5e1; margin-top: 6px;">
+          شناسه راند اختصاصی: <strong style="color: #f59e0b; font-family: monospace;">${seed || ''}</strong>
+        </p>
+      </div>
+    `;
+  }
+
+  muteManualContainer.innerHTML = buttonHtml + wiresHtml + keypadHtml;
+}
 
