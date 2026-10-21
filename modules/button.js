@@ -32,8 +32,11 @@ export const buttonModule = {
 
   filterForRole(role, state) {
     if (!state) return null;
+    const isOperator = role === 'operator' || role === 'blind';
+    const isObserver = role === 'observer' || role === 'deaf';
+
     // NEVER leak actionType or targetReleaseDigit
-    if (role === 'blind') {
+    if (isOperator) {
       return {
         id: 'button',
         solved: state.solved,
@@ -42,7 +45,7 @@ export const buttonModule = {
         holdStripColor: state.solved ? null : 'monochrome'
       };
     }
-    if (role === 'deaf') {
+    if (isObserver) {
       return {
         id: 'button',
         solved: state.solved,
@@ -51,7 +54,7 @@ export const buttonModule = {
         holdStripColor: state.holdStripColor
       };
     }
-    // mute
+    // Manual-holder (mute)
     return {
       id: 'button',
       solved: state.solved

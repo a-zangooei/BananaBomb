@@ -27,8 +27,11 @@ export const wiresModule = {
 
   filterForRole(role, state) {
     if (!state) return null;
+    const isOperator = role === 'operator' || role === 'blind';
+    const isObserver = role === 'observer' || role === 'deaf';
+
     // NEVER leak correctWireIndex
-    if (role === 'blind') {
+    if (isOperator) {
       return {
         id: 'wires',
         count: state.wires.length,
@@ -36,15 +39,16 @@ export const wiresModule = {
         solved: state.solved
       };
     }
-    if (role === 'deaf') {
+    if (isObserver) {
       return {
         id: 'wires',
         wires: state.wires,
+        colors: state.wires,
         cutWires: state.cutWires,
         solved: state.solved
       };
     }
-    // mute
+    // Manual-holder (mute)
     return {
       id: 'wires',
       solved: state.solved

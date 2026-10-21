@@ -1,101 +1,128 @@
-# Implementation Plan: Seed-Based Rule Generation System
+# Configurable Difficulty Presets & Fair Error-Cost System
 
-Implement a robust, seed-based rule-generation system for BananaBomb so players cannot memorize a small set of fixed solutions across rounds.
-
-## 1. User Decisions & Architectural Alignment
-
-Based on the clarifying answers:
-- **Rulebook Delivery**: The server transmits a structured round rulebook (`roundManual`) exclusively over WebSocket to the manual-holder (`mute` role) in the state update. The static HTML is cleaned of hardcoded answers so unauthorized roles cannot inspect secret rules.
-- **Seed Visibility & Control**: The active match seed is displayed in the lobby with an optional custom seed input for the host, allowing competitive replays and deterministic testing.
-- **Rule Variations**: Pick from multiple distinct curated rule schemas per seed for the button, wires, and keypad modules, ensuring every rule set is intuitive, unambiguous, and solvable.
+Comprehensive server-authoritative difficulty architecture and proportional error-cost penalty system for BananaBomb, providing three distinct gameplay tiers (**Easy**, **Normal**, **Hard**), duplicate-action rejection, lobby host controls, and anti-guessing game balance.
 
 ---
 
-## 2. Proposed Changes & Technical Architecture
+## User Review & Critical Decisions
 
-### A. Authoritative Curated Rule Schemas (`modules/rules-config.js`)
-Expand `modules/rules-config.js` into a dynamic schema engine:
-- **Deterministic Seeded Selection**:
-  - `selectRoundRules(rng)`: picks a curated schema for Button, Wires, and Keypad deterministically based on the round's seeded PRNG.
-- **Curated Button Schemas (3 Variants)**:
-  - **Protocol A (Standard Reactor)**:
-    - Tap: White button; or Red button + Odd serial last digit.
-    - Hold: Blue $\rightarrow$ 4, Yellow $\rightarrow$ 5, White $\rightarrow$ 1, Red $\rightarrow$ 7.
-  - **Protocol B (High-Frequency Capacitor)**:
-    - Tap: Yellow button; or Blue button + Even serial last digit.
-    - Hold: Red $\rightarrow$ 3, Blue $\rightarrow$ 6, White $\rightarrow$ 8, Yellow $\rightarrow$ 2.
-  - **Protocol C (Thermal Matrix)**:
-    - Tap: Red button; or White button + Even serial last digit.
-    - Hold: Yellow $\rightarrow$ 1, Red $\rightarrow$ 5, Blue $\rightarrow$ 9, White $\rightarrow$ 4.
-- **Curated Wires Schemas (3 Variants)** (each verified across all 256 wire arrangements):
-  - **Protocol A (Sequential Fuse)**:
-    - 1: If red > 1 $\rightarrow$ Wire 2.
-    - 2: Else if wire 4 is yellow $\rightarrow$ Wire 1.
-    - 3: Else if blue == 1 $\rightarrow$ Wire 3.
-    - 4: Otherwise $\rightarrow$ Wire 4.
-  - **Protocol B (Ground Bypass)**:
-    - 1: If no red wires $\rightarrow$ Wire 1.
-    - 2: Else if green > 1 $\rightarrow$ Wire 4.
-    - 3: Else if wire 4 is red $\rightarrow$ Wire 2.
-    - 4: Otherwise $\rightarrow$ Wire 3.
-  - **Protocol C (Dual Bus Distribution)**:
-    - 1: If blue > 1 $\rightarrow$ Wire 3.
-    - 2: Else if wire 1 is green $\rightarrow$ Wire 2.
-    - 3: Else if yellow > 1 $\rightarrow$ Wire 4.
-    - 4: Otherwise $\rightarrow$ Wire 1.
-- **Curated Keypad Priority Permutations**:
-  - Deterministically permutes canonical symbol priority using the round seed so symbol rankings change predictably across rounds.
-- **Structured Manual Generator**:
-  - `generateRulebook(roundRules)` generates a structured object (`{ button, wires, keypad }`) explaining the current round's exact rules in Persian for the manual-holder.
+> [!IMPORTANT]
+> The following design choices have been confirmed and integrated into this implementation plan:
+
+- **Confirmed Decision 1 (Penalty Scaling)**: Time penalties on strikes scale proportionally with difficulty:
+  - **Easy**: $-15\text{s}$ per error.
+  - **Normal**: $-30\text{s}$ per error.
+  - **Hard**: $-45\text{s}$ per error.
+- **Confirmed Decision 2 (Easy Mode Assistance)**: Easy mode equips the Observer with visual wire numbering indices ($1$ to $4$) and grants a $+30\text{s}$ timer grace buffer at round initiation.
+- **Confirmed Decision 3 (Lobby Control)**: The lobby provides a one-click preset selector (**آسان / متوسط / سخت**) with an expandable host override panel allowing fine-tuning of timer duration, allowed strikes, module counts, and penalty seconds before round launch.
 
 ---
 
-### B. Server Round Lifecycle & State Management (`server.js`)
-- **Round Seed Management**:
-  - `gameState.roundSeed`: initialized in lobby (e.g. `'B7K2X9'`), persistent across client reconnects during the round.
-  - New WebSocket message `{ type: 'set_seed', payload: { seed: '...' } }`: validated by server (alphanumeric, 3–12 chars) and only allowed in lobby by the host.
-  - `startGame(optionalSeed)`: initializes round rules once using `createRng(roundSeed)` and stores `gameState.roundRules`.
-  - Reconnecting players receive the existing active `roundRules` and `roundSeed` without re-randomizing or resetting timer.
-- **Role-Filtered State Isolation (`getFilteredStateForRole`)**:
-  - Include `roundSeed` in common lobby state so players see the match seed.
-  - Include `roundManual: gameState.roundRules.rulebook` **strictly if `role === 'mute'`**.
-  - For `blind`, `deaf`, and spectators: `roundManual` is `null`.
-  - Never leak `actionType`, `targetReleaseDigit`, `correctWireIndex`, or `correctOrder`.
+## 1. Overview & Core Concept
+
+- **What It Does**: Centralizes all difficulty, timing, module allocation, and penalty mechanics into a single server-authoritative configuration module. Enables the room host to toggle between curated presets or customize parameters in the lobby, while freezing settings upon game start. Penalties deduct both an error token (strike) and authoritative seconds without allowing double-penalization or negative time display.
+- **Target Audience**: Cooperative local trios ranging from first-time casual groups needing forgiving timers and visual aids (Easy) to coordinated competitive teams seeking tight time pressure and reduced error tolerance (Hard).
+- **Key Value**: Delivers replayability and balanced tension. Eliminates brute-force guessing as a viable strategy while ensuring honest UI mis-clicks or network packet retries never penalize players unfairly.
 
 ---
 
-### C. Client Manual Renderer & Lobby UI (`public/index.html`, `public/app.js`, `public/style.css`)
-- **Lobby Seed Control**:
-  - Add seed display tag and custom seed input field in the lobby section.
-  - Allow host to type a custom seed and click "تنظیم سید" (Apply Seed).
-- **Dynamic Rulebook Rendering in `#muteSection`**:
-  - Replace hardcoded static HTML tables with a dynamic container `#muteManualContainer`.
-  - In `public/app.js`: when `state.roundManual` is received, render the round's specific Button table, Wires checklist, and Keypad priority ribbon.
-  - If unauthorized role inspects DOM or devtools, no secret rules exist in their client memory or DOM.
+## 2. User Experience & Visual Design
+
+### Key User Flows
+1. **Lobby Configuration**:
+   - In the lobby, all connected players view the active difficulty card in the tactical HUD.
+   - The room host sees an interactive segmented preset control (`آسان | متوسط | سخت`) along with an accordion to unlock custom slider overrides. Non-hosts observe real-time updates with a "تنظیمات توسط میزبان" (Controlled by host) badge.
+2. **Round Transition & Setting Freeze**:
+   - When all 3 players are ready and the host clicks **شروع عملیات (Start Game)**, difficulty parameters freeze immediately.
+   - The server initializes the exact module count configured for that difficulty (e.g., 2 modules on Easy, 3 on Normal, 4 on Hard).
+3. **In-Game Error Feedback**:
+   - When an unauthorized or incorrect action occurs (e.g., wrong wire cut, invalid keypad symbol, premature button release, wrong beacon frequency TX):
+     - The Operator receives immediate audio-tactile haptic feedback and a red HUD flash.
+     - The timer authoritatively decrements by the scaled penalty ($-15\text{s}$, $-30\text{s}$, or $-45\text{s}$). A floating `−XXs` red penalty badge appears briefly beside the digital clock.
+     - The strike LED lights up across all screens.
+   - If the time deduction exhausts the remaining seconds, the bomb detonates with `time_out`; if strikes reach the limit, it detonates with `max_strikes`. Terminal states are strictly mutually exclusive.
+4. **Easy Mode Assistance View**:
+   - The Observer's 3D viewport displays numbered wire pins ($1$ through $4$) above the fuse strip, removing index ambiguity during early tutorials.
+
+### Visual Identity & Theme
+- **HUD Theme**: Obsidian base (`#0f172a`), tactical amber (`#f59e0b`), emerald disarm (`#10b981`), critical crimson alert (`#ef4444`), and tactical cyan (`#06b6d4`).
+- **Typography**: Angular tabular monospace numbers for digital timer and penalty indicators; bold geometric Persian typography (`Vazirmatn`, sans-serif) for status labels.
+- **Zero-Pill Restraint**: Status badges and metadata are rendered as clean unboxed typographic entries with dot separators (`·`).
 
 ---
 
-### D. Automated Test Suite (`tests/gameplay-rules.test.js`)
-1. **Seed Determinism**: Verify identical seed produces identical serial, module states, button schema, wire schema, and keypad order.
-2. **Seed Variance**: Verify different seeds produce different schemas and solutions.
-3. **Reconnect Stability**: Verify reconnecting does not alter active round rules or seed.
-4. **Exhaustive Wire Validation**: Test all 3 wire protocols across all 256 wire permutations ($3 \times 256 = 768$ combinations), proving 100% unambiguous single solutions.
-5. **Cross-Module Monte Carlo (1000 rounds)**: Generate 1,000 seeded bombs and verify every round is solvable and in 100% agreement with the generated rulebook.
-6. **Role Isolation & Anti-Leak**: Assert that non-mute clients never receive `roundManual` or private solution parameters.
-7. **Malformed & Edge-Case Seeds**: Test empty, non-alphanumeric, and long seeds handling.
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Authoritative Single-Source-of-Truth Module (`modules/difficulty-config.js`)**:
+  - *Chosen Approach*: Define `DIFFICULTY_PRESETS` and penalty calculation functions in one shared module imported by `server.js` and exported to clients.
+  - *Why*: Eliminates scattered constants, prevents client/server desynchronization, and simplifies automated unit testing.
+  - *Alternatives Considered*: Hardcoding difficulty branches inside `server.js` was rejected as brittle and hard to maintain.
+
+- **Decision 2: Deduplication & Idempotent Action IDs**:
+  - *Chosen Approach*: Actions carry a client-generated UUID / sequence nonce. The server maintains an action receipt ring-buffer.
+  - *Why*: Prevents network resends or rapid multi-clicks from subtracting $2\times 30\text{s}$ or burning multiple strikes for a single physical player mistake.
+
+- **Decision 3: Anti-Guessing Mathematical Balancing**:
+  - *Chosen Approach*: On Hard difficulty ($210\text{s}$, $2$ strikes, $-45\text{s}$ penalty, 4 modules), a single blind guess has an expected loss value of $-45\text{s}$ and burns 50% of the team's lifeline.
+  - *Why*: Wires ($1/4$ chance), Keypad ($1/24$ chance), Button ($1/10$ chance), and Beacon ($1/3$ chance) all yield negative expected utility for guessing compared to communicating.
 
 ---
 
-## 3. Verification Plan
+## 4. Technical Architecture & Data Strategy
 
-### Automated Tests
-- Run `npm test` covering:
-  - `tests/gameplay-rules.test.js` (including all new seed determinism, rulebook agreement, and schema permutation tests).
-  - `tests/responsive-interaction.test.js` (Phase 3 3D and responsive controls).
-  - `tests/session-lifecycle.test.js` (session persistence and host controls).
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 LOBBY & PRE-ROUND CONFIG                    │
+│  Host selects preset (Easy/Normal/Hard) or custom overrides │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               v
+┌─────────────────────────────────────────────────────────────┐
+│             modules/difficulty-config.js                     │
+│  • Single Source of Truth for presets & penalty scaling     │
+│  • Parameters: duration, maxStrikes, moduleCount, penalty   │
+│  • Features: wireIndexLabels, timerGraceSeconds             │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               v
+┌─────────────────────────────────────────────────────────────┐
+│                       server.js                             │
+│  • Host authority enforcement for set_difficulty            │
+│  • Frozen difficulty on gameState.status === 'running'      │
+│  • Idempotency ring-buffer (prevents double penalties)      │
+│  • Clamped timer decrements: Math.max(0, time - penalty)    │
+│  • Mutually exclusive terminal state transitions            │
+└──────────────┬───────────────────────────────┬──────────────┘
+               │                               │
+               v                               v
+┌──────────────────────────────┐ ┌────────────────────────────┐
+│   Observer View (3D/HUD)     │ │   Operator View (3D/HUD)   │
+│ • Full color viewport        │ │ • Monochrome 3D viewport   │
+│ • Easy mode wire numbering   │ │ • Tactile action executor  │
+│ • Read-only difficulty info  │ │ • Floating penalty HUD     │
+└──────────────────────────────┘ └────────────────────────────┘
+```
 
-### Manual / Browser Verification
-- Verify lobby shows current round seed with editable input for the host.
-- Start game as Mute: verify dynamic manual renders protocol title and custom rules.
-- Open second and third browser tabs as Deaf and Blind: verify 3D bomb works seamlessly, and inspect network/DOM to ensure `roundManual` is absent.
-- Defuse/explode and restart: verify seed updates for next round unless host pins a custom seed.
+### Difficulty Preset Specification Table
+
+| Preset | Time | Allowed Strikes | Modules | Error Time Penalty | Assistance Features |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Easy** | $300\text{s}$ ($+30\text{s}$ grace) | $3$ | $2$ (Wires + Button or Beacon) | $-15\text{s}$ | Observer wire index badges, generous timing |
+| **Normal** | $300\text{s}$ | $3$ | $3$ (3 of 4 active) | $-30\text{s}$ | Standard rules, standard cooldown |
+| **Hard** | $210\text{s}$ ($3.5\text{m}$) | $2$ | $4$ (All active) | $-45\text{s}$ | Tight timing, no assistance |
+
+---
+
+## 5. Verification Plan
+
+- **Automated Test Suite**:
+  - `difficulty-presets.test.js`:
+    - Validates preset schema constraints and default values.
+    - Tests server rejection of difficulty changes by non-hosts or mid-round.
+    - Tests error penalties: exact deduction ($-15\text{s}$, $-30\text{s}$, $-45\text{s}$) applied exactly once.
+    - Tests action deduplication: replayed actions with identical nonce do not trigger second penalty.
+    - Tests timer floor: penalties exceeding remaining seconds trigger `time_out` without negative values.
+    - Tests terminal exclusivity: simultaneous zero-timer and max-strikes resolve deterministically to exactly one outcome.
+    - 1,000-round Monte Carlo simulation across all three difficulty presets confirming 100% solvability.
+- **Applet Compilation & Linting**:
+  - Run `lint_applet` and `compile_applet` to ensure zero syntax or build regressions.

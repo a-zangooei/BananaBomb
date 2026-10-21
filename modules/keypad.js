@@ -27,8 +27,11 @@ export const keypadModule = {
 
   filterForRole(role, state) {
     if (!state) return null;
+    const isOperator = role === 'operator' || role === 'blind';
+    const isObserver = role === 'observer' || role === 'deaf';
+
     // NEVER leak correctOrder
-    if (role === 'blind') {
+    if (isOperator) {
       return {
         id: 'keypad',
         slotCount: state.symbols.length,
@@ -37,7 +40,7 @@ export const keypadModule = {
         solved: state.solved
       };
     }
-    if (role === 'deaf') {
+    if (isObserver) {
       return {
         id: 'keypad',
         symbols: state.symbols,
@@ -46,7 +49,7 @@ export const keypadModule = {
         solved: state.solved
       };
     }
-    // mute
+    // Manual-holder (mute)
     return {
       id: 'keypad',
       solved: state.solved

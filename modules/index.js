@@ -6,11 +6,13 @@
 import { buttonModule } from './button.js';
 import { wiresModule } from './wires.js';
 import { keypadModule } from './keypad.js';
+import { beaconModule } from './beacon.js';
 
 export const activeModules = [
   buttonModule,
   wiresModule,
-  keypadModule
+  keypadModule,
+  beaconModule
 ];
 
 export const modulesById = new Map(activeModules.map((m) => [m.id, m]));

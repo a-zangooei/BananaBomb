@@ -71,11 +71,22 @@ function printNetworkInterfaces(port) {
 
 // --- Authoritative Game State Engine ---
 const ROLES = ['blind', 'deaf', 'mute'];
+const ALL_ROLES = ['blind', 'deaf', 'mute', 'operator', 'observer', 'manual'];
+
+function canonicalRole(r) {
+  if (r === 'operator' || r === 'blind') return 'blind';
+  if (r === 'observer' || r === 'deaf') return 'deaf';
+  if (r === 'manual' || r === 'mute') return 'mute';
+  return r;
+}
 
 const roleMeta = {
-  blind: { title: 'نابینا (Blind)', subtitle: 'تنها تعامل‌گر سه‌بعدی بمب (مونوکروم و تنها نقش شنونده صدا)' },
-  deaf: { title: 'ناشنوا (Deaf)', subtitle: 'مشاهده کامل رنگ‌ها و سریال در صحنه ۳D (بدون لمس و بدون صدا)' },
-  mute: { title: 'بی‌کلام (Mute)', subtitle: 'دفترچه راهنمای قوانین رمزگشایی ۲D (فقط مطالعه، بدون لمس و بدون صدا)' }
+  operator: { title: 'اپراتور (Operator)', subtitle: 'تنها تعامل‌گر ۳ بعدی بمب؛ شنونده و تنظیم‌کننده فانوس صوتی (مونوکروم، صدا فعال، بدون کلام)' },
+  observer: { title: 'ناظر (Observer)', subtitle: 'مشاهده کامل رنگ‌ها، نمادها و پلاک پشت بمب؛ هدایت کلامی به اپراتور و اشاره به دفترچه (بدون لمس، بدون صدا)' },
+  manual: { title: 'دفترچه راهنما (Manual-holder)', subtitle: 'تحلیل‌گر دفترچه رمزگشایی و ماتریس انشعابی وضعیت (مطالعه و هدایت با اشاره، بدون لمس، بدون صدا)' },
+  blind: { title: 'اپراتور (Operator)', subtitle: 'تنها تعامل‌گر ۳ بعدی بمب؛ شنونده و تنظیم‌کننده فانوس صوتی (مونوکروم، صدا فعال، بدون کلام)' },
+  deaf: { title: 'ناظر (Observer)', subtitle: 'مشاهده کامل رنگ‌ها، نمادها و پلاک پشت بمب؛ هدایت کلامی به اپراتور و اشاره به دفترچه (بدون لمس، بدون صدا)' },
+  mute: { title: 'دفترچه راهنما (Manual-holder)', subtitle: 'تحلیل‌گر دفترچه رمزگشایی و ماتریس انشعابی وضعیت (مطالعه و هدایت با اشاره، بدون لمس، بدون صدا)' }
 };
 
 // Monotonic counter to uniquely identify socket connections
@@ -120,6 +131,9 @@ let roles = {
   deaf: { playerId: null, connected: false, joinedAt: null },
   mute: { playerId: null, connected: false, joinedAt: null }
 };
+roles.operator = roles.blind;
+roles.observer = roles.deaf;
+roles.manual = roles.mute;
 
 let gameState = {
   status: 'waiting', // 'waiting' | 'ready' | 'running' | 'exploded' | 'defused'
@@ -222,7 +236,15 @@ function checkDefused() {
 }
 
 // --- Role-filtered state generation (Secrets & Seed are NEVER sent) ---
-function getFilteredStateForRole(role) {
+function getFilteredStateForRole(rawRole) {
+  const role = canonicalRole(rawRole);
+  const isOperator = role === 'blind';
+  const isObserver = role === 'deaf';
+  const isManual = role === 'mute';
+
+  const modulesDefusedCount = Object.values(gameState.modules || {}).filter((m) => m?.solved).length;
+  const totalModulesCount = activeModules.length;
+
   const common = {
     status: gameState.status,
     roundSeed: gameState.roundSeed,
@@ -234,7 +256,12 @@ function getFilteredStateForRole(role) {
     endReason: gameState.endReason,
     hostPlayerId: hostPlayerId,
     moduleIds: activeModules.map((m) => m.id),
+    modulesDefusedCount,
+    totalModulesCount,
     roles: {
+      operator: { playerId: roles.blind.playerId, connected: roles.blind.connected, title: roleMeta.operator.title, subtitle: roleMeta.operator.subtitle },
+      observer: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, title: roleMeta.observer.title, subtitle: roleMeta.observer.subtitle },
+      manual: { playerId: roles.mute.playerId, connected: roles.mute.connected, title: roleMeta.manual.title, subtitle: roleMeta.manual.subtitle },
       blind: { playerId: roles.blind.playerId, connected: roles.blind.connected, title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
       deaf: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, title: roleMeta.deaf.title, subtitle: roleMeta.deaf.subtitle },
       mute: { playerId: roles.mute.playerId, connected: roles.mute.connected, title: roleMeta.mute.title, subtitle: roleMeta.mute.subtitle }
@@ -247,7 +274,7 @@ function getFilteredStateForRole(role) {
       ...common,
       serialNumber: null,
       modules: null,
-      roundManual: role === 'mute' && gameState.roundRules ? gameState.roundRules.rulebook : null,
+      roundManual: isManual && gameState.roundRules ? gameState.roundRules.rulebook : null,
       canInteract: false
     };
   }
@@ -258,31 +285,31 @@ function getFilteredStateForRole(role) {
     filteredModules[mod.id] = mod.filterForRole(role, gameState.modules[mod.id]);
   }
 
-  if (role === 'blind') {
+  if (isOperator) {
     return {
       ...common,
-      serialNumber: null, // Blind cannot see serial number
+      serialNumber: null, // Operator cannot see serial number
       canInteract: true,
       hasAudio: true,
       isMonochrome: true,
-      roundManual: null,  // Strictly null for blind
+      roundManual: null,  // Strictly null for Operator
       modules: filteredModules
     };
   }
 
-  if (role === 'deaf') {
+  if (isObserver) {
     return {
       ...common,
-      serialNumber: gameState.serialNumber, // Deaf observes serial plate
+      serialNumber: gameState.serialNumber, // Observer observes serial plate
       canInteract: false,
       hasAudio: false,
       isMonochrome: false,
-      roundManual: null,  // Strictly null for deaf
+      roundManual: null,  // Strictly null for Observer
       modules: filteredModules
     };
   }
 
-  if (role === 'mute') {
+  if (isManual) {
     return {
       ...common,
       serialNumber: null,
@@ -311,7 +338,7 @@ function sendStateToClient(ws) {
   const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
   const role = session ? session.role : null;
   const filteredState = getFilteredStateForRole(role);
-  ws.send(JSON.stringify({ type: 'state_update', state: filteredState }));
+  ws.send(JSON.stringify({ type: 'state_update', state: filteredState, data: filteredState }));
 }
 
 // Broadcast filtered states to all connected clients
@@ -536,7 +563,8 @@ function handleClientEvent(ws, msg) {
 
   // 2. Join / Reconnect / Role Selection
   if (type === 'join') {
-    const { role, playerId } = payload || {};
+    const role = payload?.role || msg.role;
+    const playerId = payload?.playerId || msg.playerId;
 
     // Validate inputs strictly
     if (!playerId || typeof playerId !== 'string' || !playerId.trim() || playerId.length > 64) {
@@ -545,7 +573,9 @@ function handleClientEvent(ws, msg) {
     }
     const cleanPlayerId = playerId.trim();
 
-    if (!ROLES.includes(role)) {
+    const targetRole = canonicalRole(role);
+
+    if (!ROLES.includes(targetRole)) {
       ws.send(JSON.stringify({ type: 'error', code: 'INVALID_ROLE', message: 'نقش انتخاب شده نامعتبر است.' }));
       return;
     }
@@ -583,11 +613,11 @@ function handleClientEvent(ws, msg) {
 
     activeSockets.set(ws, { playerId: cleanPlayerId, socketId: ws.socketId });
 
-    const currentRole = roles[role];
+    const currentRole = roles[targetRole];
     const previousRole = getRoleByPlayerId(cleanPlayerId);
 
     // If game is running, disallow switching roles mid-game
-    if (gameState.status === 'running' && previousRole && previousRole !== role) {
+    if (gameState.status === 'running' && previousRole && previousRole !== targetRole) {
       ws.send(JSON.stringify({
         type: 'error',
         code: 'CANNOT_SWITCH_MIDGAME',
@@ -602,14 +632,14 @@ function handleClientEvent(ws, msg) {
         JSON.stringify({
           type: 'error',
           code: 'ROLE_TAKEN',
-          message: `نقش «${roleMeta[role].title}» هم‌اکنون توسط بازیکن دیگری انتخاب شده است.`
+          message: `نقش «${(roleMeta[role] || roleMeta[targetRole]).title}» هم‌اکنون توسط بازیکن دیگری انتخاب شده است.`
         })
       );
       return;
     }
 
     // 1. Role replacement: When a player changes roles, safely release their previous role!
-    if (previousRole && previousRole !== role) {
+    if (previousRole && previousRole !== targetRole) {
       releaseRole(previousRole);
       log(`Player ${cleanPlayerId.substring(0, 6)} safely released previous role [${previousRole}]`);
     }
@@ -617,17 +647,17 @@ function handleClientEvent(ws, msg) {
     // If target role was previously assigned to a disconnected player, transfer it cleanly
     if (currentRole.playerId && currentRole.playerId !== cleanPlayerId && !currentRole.connected) {
       const formerSess = sessions.get(currentRole.playerId);
-      if (formerSess && formerSess.role === role) {
+      if (formerSess && formerSess.role === targetRole) {
         formerSess.role = null;
       }
-      releaseRole(role);
+      releaseRole(targetRole);
     }
 
     // Assign target role to this player
     currentRole.playerId = cleanPlayerId;
     currentRole.connected = true;
     currentRole.joinedAt = currentRole.joinedAt || Date.now();
-    session.role = role;
+    session.role = targetRole;
 
     updateHost();
     checkReadyStatus();
@@ -635,9 +665,10 @@ function handleClientEvent(ws, msg) {
     ws.send(
       JSON.stringify({
         type: 'role_assigned',
-        role,
+        role: targetRole,
+        roleRequested: role,
         playerId: cleanPlayerId,
-        meta: roleMeta[role]
+        meta: roleMeta[role] || roleMeta[targetRole]
       })
     );
 
@@ -689,7 +720,7 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    startGame(payload?.seed);
+    startGame(payload?.seed || msg.seed);
     return;
   }
 
@@ -705,7 +736,7 @@ function handleClientEvent(ws, msg) {
       ws.send(JSON.stringify({ type: 'error', code: 'UNAUTHORIZED', message: 'تنها میزبان مجاز به تغییر سید بازی است.' }));
       return;
     }
-    const rawSeed = payload?.seed;
+    const rawSeed = payload?.seed || msg.seed;
     if (typeof rawSeed !== 'string' || !rawSeed.trim()) {
       ws.send(JSON.stringify({ type: 'error', code: 'INVALID_SEED', message: 'سید وارد شده معتبر نیست.' }));
       return;
@@ -759,18 +790,20 @@ function handleClientEvent(ws, msg) {
 
     const socketInfo = activeSockets.get(ws);
     const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
-    if (!session || session.role !== 'blind') {
+    const isAuthorizedOperator = session && (session.role === 'blind' || session.role === 'operator');
+    if (!isAuthorizedOperator) {
       ws.send(
         JSON.stringify({
           type: 'error',
           code: 'UNAUTHORIZED_ACTION',
-          message: 'تنها بازیکن نابینا (Blind) مجاز به تعامل فیزیکی با ماژول‌های بمب است!'
+          message: 'تنها اپراتور بمب (Operator) مجاز به تعامل فیزیکی با ماژول‌های بمب است!'
         })
       );
       return;
     }
 
-    const { moduleId, action, data } = payload || {};
+    const actionData = payload || msg.data || msg;
+    const { moduleId, action, data } = actionData || {};
     if (typeof moduleId !== 'string' || typeof action !== 'string') {
       return;
     }

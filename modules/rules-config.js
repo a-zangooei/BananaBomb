@@ -185,6 +185,56 @@ export const KEYPAD_RULES = {
   }
 };
 
+// --- Acoustic Beacon Module Rules Engine ---
+export const BEACON_PATTERNS = [
+  { id: 'vector', name: 'پالس وکتور (Vector)', patternStr: '·· — ·', beats: [1, 1, 3, 1] },
+  { id: 'sigma', name: 'پالس سیگما (Sigma)', patternStr: '— · — ·', beats: [3, 1, 3, 1] },
+  { id: 'delta', name: 'پالس دلتا (Delta)', patternStr: '· — — ·', beats: [1, 3, 3, 1] },
+  { id: 'omega', name: 'پالس امگا (Omega)', patternStr: '— — · ·', beats: [3, 3, 1, 1] }
+];
+
+export const BEACON_SCHEMAS = [
+  {
+    id: 'alpha',
+    protocolName: 'پروتکل آلفا (کالیبراسیون فرکانس پایه)',
+    evenMap: { vector: 2, sigma: 1, delta: 3, omega: 1 },
+    oddMap: { vector: 1, sigma: 3, delta: 2, omega: 3 },
+    evaluate(patternId, isSerialEven) {
+      const map = isSerialEven ? this.evenMap : this.oddMap;
+      return map[patternId] ?? 1;
+    }
+  },
+  {
+    id: 'beta',
+    protocolName: 'پروتکل بتا (انعکاس فاز معکوس)',
+    evenMap: { vector: 3, sigma: 2, delta: 1, omega: 2 },
+    oddMap: { vector: 2, sigma: 1, delta: 3, omega: 1 },
+    evaluate(patternId, isSerialEven) {
+      const map = isSerialEven ? this.evenMap : this.oddMap;
+      return map[patternId] ?? 2;
+    }
+  },
+  {
+    id: 'gamma',
+    protocolName: 'پروتکل گاما (مالتی‌پلاکس تشدید موج)',
+    evenMap: { vector: 1, sigma: 3, delta: 2, omega: 3 },
+    oddMap: { vector: 3, sigma: 2, delta: 1, omega: 2 },
+    evaluate(patternId, isSerialEven) {
+      const map = isSerialEven ? this.evenMap : this.oddMap;
+      return map[patternId] ?? 3;
+    }
+  }
+];
+
+export const BEACON_RULES = {
+  patterns: BEACON_PATTERNS,
+  schemas: BEACON_SCHEMAS,
+  defaultSchema: BEACON_SCHEMAS[0],
+  evaluate(patternId, isSerialEven, schema = BEACON_SCHEMAS[0]) {
+    return schema.evaluate(patternId, isSerialEven);
+  }
+};
+
 /**
  * Selects round rules deterministically based on the round PRNG and seed,
  * generating the complete structured rulebook for the manual-holder.
@@ -193,10 +243,12 @@ export function selectRoundRules(rng, seed = 'DEFAULT') {
   const buttonIdx = Math.floor(rng() * BUTTON_SCHEMAS.length);
   const wiresIdx = Math.floor(rng() * WIRES_SCHEMAS.length);
   const keypadIdx = Math.floor(rng() * KEYPAD_SCHEMAS.length);
+  const beaconIdx = Math.floor(rng() * BEACON_SCHEMAS.length);
 
   const buttonSchema = BUTTON_SCHEMAS[buttonIdx];
   const wiresSchema = WIRES_SCHEMAS[wiresIdx];
   const keypadSchema = KEYPAD_SCHEMAS[keypadIdx];
+  const beaconSchema = BEACON_SCHEMAS[beaconIdx];
 
   const rulebook = {
     seed,
@@ -215,7 +267,7 @@ export function selectRoundRules(rng, seed = 'DEFAULT') {
         colorName: color === 'blue' ? 'آبی' : (color === 'yellow' ? 'زرد' : (color === 'white' ? 'سفید' : 'قرمز')),
         digit
       })),
-      note: 'ناشنوا رنگ دکمه و نوار کناری را می‌بیند؛ شما پس از بررسی شرایط بالا به نابینا کلیک یا زمان رهاسازی را بگویید.'
+      note: 'ناظر رنگ دکمه و نوار کناری را می‌بیند؛ شما پس از بررسی شرایط بالا به اپراتور کلیک یا زمان رهاسازی را بگویید.'
     },
     wires: {
       protocolName: wiresSchema.protocolName,
@@ -229,7 +281,24 @@ export function selectRoundRules(rng, seed = 'DEFAULT') {
     keypad: {
       protocolName: keypadSchema.protocolName,
       priorityRibbon: keypadSchema.priorityOrder.join(' ➜ '),
-      note: 'از بین ۴ نمادی که ناشنوا گزارش می‌دهد، نابینا باید نمادها را از چپ به راست طبق روبان اولویت بالا لمس کند.'
+      note: 'از بین ۴ نمادی که ناظر گزارش می‌دهد، اپراتور باید نمادها را از چپ به راست طبق روبان اولویت بالا لمس کند.'
+    },
+    beacon: {
+      protocolName: beaconSchema.protocolName,
+      frequencies: [
+        { channel: 1, label: 'کانال ۱ (100 MHz)' },
+        { channel: 2, label: 'کانال ۲ (250 MHz)' },
+        { channel: 3, label: 'کانال ۳ (400 MHz)' }
+      ],
+      evenRows: Object.entries(beaconSchema.evenMap).map(([patId, ch]) => {
+        const pat = BEACON_PATTERNS.find((p) => p.id === patId);
+        return { name: pat.name, pattern: pat.patternStr, channel: `کانال ${ch}` };
+      }),
+      oddRows: Object.entries(beaconSchema.oddMap).map(([patId, ch]) => {
+        const pat = BEACON_PATTERNS.find((p) => p.id === patId);
+        return { name: pat.name, pattern: pat.patternStr, channel: `کانال ${ch}` };
+      }),
+      note: 'تنها اپراتور الگوی ریتمیک بیپ را می‌شنود و با ضربه روی میز به ناظر منتقل می‌کند. ناظر بر اساس پلاک و راهنمای شما، شماره کانال را اعلام کرده و اپراتور سلکتور را تنظیم و کلید ارسال را می‌زند.'
     }
   };
 
@@ -238,6 +307,8 @@ export function selectRoundRules(rng, seed = 'DEFAULT') {
     buttonSchema,
     wiresSchema,
     keypadSchema,
+    beaconSchema,
     rulebook
   };
 }
+

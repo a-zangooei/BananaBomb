@@ -78,37 +78,37 @@
         <h3 style="font-size: 0.95rem; color: #94a3b8; margin-bottom: 6px;">نقش خود را انتخاب کنید (هر نقش فقط ۱ نفر):</h3>
         
         <div class="role-grid">
-          <!-- Role 1: Blind -->
+          <!-- Role 1: Operator -->
           <div class="role-card" id="cardBlind" data-role="blind">
             <div class="role-card-content">
-              <div class="role-icon">👁️</div>
+              <div class="role-icon">⚡</div>
               <div class="role-details">
-                <h3>نابینا (Blind) — تعامل‌گر ۳D بمب</h3>
-                <p>تنها کسی که با لمس اجزای سه‌بعدی بمب تعامل دارد. صحنه سیاه‌وسفید است و تنها کسی است که صدا را می‌شنود.</p>
+                <h3>اپراتور (Operator) — تعامل‌گر ۳D بمب</h3>
+                <p>تنها خنثی‌کننده‌ای که با لمس اجزای ۳D تعامل دارد. دید مونوکروم، شنونده ریتم صوتی فانوس، فاقد کلام.</p>
               </div>
             </div>
             <span class="role-status-badge" id="badgeBlind">خالی</span>
           </div>
 
-          <!-- Role 2: Deaf -->
+          <!-- Role 2: Observer -->
           <div class="role-card" id="cardDeaf" data-role="deaf">
             <div class="role-card-content">
-              <div class="role-icon">👂</div>
+              <div class="role-icon">👁️</div>
               <div class="role-details">
-                <h3>ناشنوا (Deaf) — ناظر ۳D رنگ‌ها و پلاک</h3>
-                <p>بمب رنگی ۳D، رنگ سیم‌ها، نمادها و پلاک پشت بمب را می‌بیند؛ اما امکان لمس ندارد و صدا کاملاً قطع است.</p>
+                <h3>ناظر (Observer) — ناظر ۳D رنگ‌ها و پلاک</h3>
+                <p>بمب رنگی ۳D، رنگ سیم‌ها، نمادها و پلاک سریال را می‌بیند؛ هدایت کلامی به اپراتور، فاقد لمس و صدا.</p>
               </div>
             </div>
             <span class="role-status-badge" id="badgeDeaf">خالی</span>
           </div>
 
-          <!-- Role 3: Mute -->
+          <!-- Role 3: Manual-holder -->
           <div class="role-card" id="cardMute" data-role="mute">
             <div class="role-card-content">
-              <div class="role-icon">🤐</div>
+              <div class="role-icon">📋</div>
               <div class="role-details">
-                <h3>بی‌کلام (Mute) — دفترچه راهنما ۲D</h3>
-                <p>دفترچه قوانین خنثی‌سازی پیش اوست (نه جواب‌ها). در دنیای واقعی حق صحبت ندارد و صدا هم قطع است.</p>
+                <h3>دفترچه راهنما (Manual-holder) — تحلیل‌گر ۲D</h3>
+                <p>دفترچه رمزگشایی پویا و ماتریس وضعیت بمب پیش اوست؛ هدایت تیم با اشاره دست، فاقد کلام و لمس.</p>
               </div>
             </div>
             <span class="role-status-badge" id="badgeMute">خالی</span>
@@ -126,10 +126,10 @@
         </div>
 
         <div class="role-assignment-info">
-          <strong>تقسیم کار تیم ۳ نفره:</strong>
-          <br>• <strong>ناشنوا</strong> بمب سه‌بعدی را می‌چرخاند، پلاک پشت بمب و رنگ‌ها را می‌خواند.
-          <br>• <strong>بی‌کلام</strong> دفترچه را بررسی کرده و بدون صحبت، قوانین را هدایت می‌کند.
-          <br>• <strong>نابینا</strong> بمب را در دست دارد و با لمس ۳D دستورات را اجرا می‌کند!
+          <strong>تقسیم کار تیم تاکتیکی ۳ نفره:</strong>
+          <br>• <strong>ناظر (Observer)</strong> پلاک سریال پشت بمب، رنگ‌ها و نمادها را مشاهده و به اپراتور و دفترچه گزارش می‌دهد.
+          <br>• <strong>دفترچه راهنما (Manual-holder)</strong> قوانین اختصاصی راند و ماتریس وضعیت را رمزگشایی کرده و با اشاره هدایت می‌کند.
+          <br>• <strong>اپراتور (Operator)</strong> ریتم فانوس صوتی را با ضربه به ناظر اعلام کرده و فرامین خنثی‌سازی را با لمس ۳D اجرا می‌نماید!
         </div>
       </section>
 
@@ -147,22 +147,24 @@
           </div>
 
           <div id="blindTactileHelper" style="display: none;" class="tactile-instructions">
-            <strong>کنترل‌های لمسی نابینا:</strong>
-            <br>• <strong>دکمه کاتالیزور:</strong> ضربه کوتاه برای کلیک، یا نگه‌داشتن و رهاسازی در ثانیه هدف.
-            <br>• <strong>سیم‌ها:</strong> روی سیم ضربه بزنید تا بریده شود.
-            <br>• <strong>کلیدهای ۱ تا ۴:</strong> کلیدها را با ضربه به ترتیب اعلامی لمس کنید.
+            <strong>دستورالعمل‌های رزمی اپراتور (Operator):</strong>
+            <br>• <strong>دکمه کاتالیزور:</strong> ضربه کوتاه (Tap) یا نگه‌داشتن و رهاسازی طبق رقم ثانیه.
+            <br>• <strong>فیوزهای سیم‌کشی:</strong> لمس مستقیم سیم جهت بریدن.
+            <br>• <strong>صفحه‌کلید نمادها:</strong> لمس دکمه‌های ۱ تا ۴ طبق ترتیب اولویت.
+            <br>• <strong>فانوس صوتی (Beacon):</strong> لمس سلکتور جهت چرخش کانال ۱-۳؛ لمس TX جهت ارسال فرکانس. ریتم بوق‌ها را با ضربه روی میز به ناظر انتقال دهید!
           </div>
 
           <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
-            <strong>راهنمای ناشنوا:</strong>
+            <strong>دستورالعمل‌های رزمی ناظر (Observer):</strong>
             <br>• با دکمه‌های «پشت» یا چرخش بمب، <strong>پلاک سریال</strong> را بخوانید.
-            <br>• رنگ دکمه، رنگ ۴ سیم و نمادهای صفحه کلید را به هم‌تیمی‌هایتان اعلام کنید.
+            <br>• رنگ دکمه، رنگ ۴ سیم و نمادهای کیپد را به دفترچه و اپراتور اعلام کنید.
+            <br>• ریتم ضربات میز اپراتور را با پلاک تطبیق داده و کانال هدف را از دفترچه دریافت و اعلام کنید.
           </div>
 
           <div class="desktop-keyboard-hint" id="desktopKeyboardHint" style="font-size: 0.72rem; color: #64748b; line-height: 1.5; padding: 6px 10px; background: rgba(15,23,42,0.6); border-radius: 8px;">
             ⌨️ <strong>کلیدهای میانبر دسکتاپ:</strong>
             <br>• جهت‌نما: چرخش بمب | R: روبرو | B: پشت
-            <br>• Space: دکمه | 1 تا 4: کیپد | W + 1-4: سیم‌ها
+            <br>• Space: دکمه | 1 تا 4: کیپد | W + 1-4: سیم‌ها | C: تغییر کانال فانوس | T: ارسال TX
           </div>
         </div>
 
@@ -187,14 +189,14 @@
         </div>
       </section>
 
-      <!-- View 3: Mute Player (Dynamic 2D Rulebook Manual Only, Silent) -->
+      <!-- View 3: Manual-holder Player (Dynamic 2D Rulebook Manual & Threat Status Matrix, Silent) -->
       <section class="view-section" id="muteSection">
         <div class="role-roleplay-banner mute-banner">
-          🤐 <strong>نقش بی‌کلام (صدا قطع):</strong> شما تنها دارنده دفترچه راهنمای راند جاری هستید. صحبت نکنید و با اشاره تیم را هدایت کنید.
+          📋 <strong>دفترچه راهنما (Manual-holder — بدون کلام):</strong> شما دارنده ماتریس وضعیت و پروتکل‌های رمزگشایی راند جاری هستید. کلام ممنوع است؛ با اشاره و فرم‌های تاکتیکی ناظر را هدایت کنید.
         </div>
 
         <div id="muteManualContainer">
-          <!-- Dynamically populated from state.roundManual based on round seed -->
+          <!-- Dynamically populated from state.roundManual and live state -->
           <div class="manual-section" style="text-align: center; color: #94a3b8; padding: 24px;">
             ⏳ در حال بارگذاری قوانین اختصاصی این راند...
           </div>

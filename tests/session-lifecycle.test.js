@@ -102,11 +102,6 @@ describe('Player Sessions and Game State Lifecycle', () => {
       } catch (e) {}
     }
     openSockets.clear();
-    await new Promise((resolve) => {
-      wss.close(() => {
-        server.close(() => resolve());
-      });
-    });
   });
 
   beforeEach(async () => {

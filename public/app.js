@@ -50,17 +50,36 @@ const bomb3dRoleBanner = document.getElementById('bomb3dRoleBanner');
 const blindTactileHelper = document.getElementById('blindTactileHelper');
 const deafVisualHelper = document.getElementById('deafVisualHelper');
 
-// Role Cards
+// Role Cards (supports both modern tactical and legacy role IDs)
+const cardBlindEl = document.getElementById('cardBlind');
+const cardDeafEl = document.getElementById('cardDeaf');
+const cardMuteEl = document.getElementById('cardMute');
+
+const badgeBlindEl = document.getElementById('badgeBlind');
+const badgeDeafEl = document.getElementById('badgeDeaf');
+const badgeMuteEl = document.getElementById('badgeMute');
+
 const roleCards = {
-  blind: document.getElementById('cardBlind'),
-  deaf: document.getElementById('cardDeaf'),
-  mute: document.getElementById('cardMute')
+  blind: cardBlindEl,
+  deaf: cardDeafEl,
+  mute: cardMuteEl,
+  operator: cardBlindEl,
+  observer: cardDeafEl,
+  manual: cardMuteEl
 };
 const roleBadges = {
-  blind: document.getElementById('badgeBlind'),
-  deaf: document.getElementById('badgeDeaf'),
-  mute: document.getElementById('badgeMute')
+  blind: badgeBlindEl,
+  deaf: badgeDeafEl,
+  mute: badgeMuteEl,
+  operator: badgeBlindEl,
+  observer: badgeDeafEl,
+  manual: badgeMuteEl
 };
+
+// Tactical Role Normalizers
+const isOperator = (r) => r === 'operator' || r === 'blind';
+const isObserver = (r) => r === 'observer' || r === 'deaf';
+const isManual = (r) => r === 'manual' || r === 'mute';
 
 // Buttons
 const btnUnlockAudio = document.getElementById('btnUnlockAudio');
@@ -232,14 +251,14 @@ transport.onEvent((eventType, data) => {
       if (bombScene) bombScene.setRole(myRole);
     }
 
-    // Strictly gate audio: Only Blind role hears any audio
-    sound.setEnabled(myRole === 'blind');
+    // Strictly gate audio: Only Operator role hears any audio
+    sound.setEnabled(isOperator(myRole));
 
     // Trigger one-time explosion or defusal sounds upon state change
     if (prevState?.status !== 'exploded' && currentGameState.status === 'exploded') {
-      if (myRole === 'blind') sound.playExplosion();
+      if (isOperator(myRole)) sound.playExplosion();
     } else if (prevState?.status !== 'defused' && currentGameState.status === 'defused') {
-      if (myRole === 'blind') sound.playDefused();
+      if (isOperator(myRole)) sound.playDefused();
     }
 
     lastGameStatus = currentGameState.status;
@@ -250,8 +269,8 @@ transport.onEvent((eventType, data) => {
   if (eventType === 'role_assigned') {
     myRole = data.role;
     sessionStorage.setItem('defusal_role', myRole);
-    sound.setEnabled(myRole === 'blind');
-    if (myRole === 'blind') {
+    sound.setEnabled(isOperator(myRole));
+    if (isOperator(myRole)) {
       sound.playClick();
     }
     if (btnLeaveRole) btnLeaveRole.style.display = 'block';
@@ -270,7 +289,7 @@ transport.onEvent((eventType, data) => {
   }
 
   if (eventType === 'strike') {
-    if (myRole === 'blind') {
+    if (isOperator(myRole)) {
       sound.playStrike();
     }
     triggerHaptic([120, 60, 120]);
@@ -279,7 +298,7 @@ transport.onEvent((eventType, data) => {
   }
 
   if (eventType === 'module_solved') {
-    if (myRole === 'blind') {
+    if (isOperator(myRole)) {
       sound.playDefused();
     }
     return;
@@ -347,10 +366,10 @@ function renderState(state) {
   const isHost = (state.hostPlayerId === playerId);
 
   // 1. Serial Number Tag
-  if (myRole === 'deaf' && state.serialNumber) {
+  if (isObserver(myRole) && state.serialNumber) {
     serialTag.textContent = `SERIAL: ${state.serialNumber} (پلاک پشت بمب را بخوانید)`;
   } else if (state.status === 'running') {
-    serialTag.textContent = 'SERIAL: [پلاک محرمانه / فقط در دسترس ناشنوا]';
+    serialTag.textContent = 'SERIAL: [پلاک محرمانه / فقط در دسترس ناظر]';
   } else {
     serialTag.textContent = 'SERIAL: STANDBY';
   }
@@ -459,7 +478,7 @@ function renderState(state) {
   [lobbySection, bomb3dSection, muteSection].forEach((sec) => sec.classList.remove('active'));
 
   if (state.status === 'running') {
-    if (myRole === 'blind' || myRole === 'deaf') {
+    if (isOperator(myRole) || isObserver(myRole)) {
       bomb3dSection.classList.add('active');
 
       // Lazy initialize or update Three.js scene
@@ -481,20 +500,20 @@ function renderState(state) {
       }
 
       // Banner & Helper text adjustments
-      if (myRole === 'blind') {
+      if (isOperator(myRole)) {
         bomb3dRoleBanner.className = 'role-roleplay-banner blind-banner';
-        bomb3dRoleBanner.innerHTML = '👁️ <strong>نقش نابینا (صدا فعال):</strong> تنها شما دستان بمب هستید! با لمس اجزای ۳ بعدی ماژول‌ها را خنثی کنید.';
+        bomb3dRoleBanner.innerHTML = '⚡ <strong>اپراتور (Operator — صدا فعال):</strong> دستان عملیاتی بمب! اجزای ۳D را لمس کنید و ریتم صوتی فانوس را با ضربه روی میز به ناظر انتقال دهید.';
         blindTactileHelper.style.display = 'block';
         deafVisualHelper.style.display = 'none';
       } else {
         bomb3dRoleBanner.className = 'role-roleplay-banner deaf-banner';
-        bomb3dRoleBanner.innerHTML = '👂 <strong>نقش ناشنوا (صدا قطع):</strong> بمب را بچرخانید. پلاک سریال در پشت بمب است؛ رنگ‌ها و نمادها را گزارش دهید.';
+        bomb3dRoleBanner.innerHTML = '👁️ <strong>ناظر (Observer — صدا قطع):</strong> بمب را بچرخانید. پلاک سریال در پشت بمب است؛ رنگ‌ها و ریتم ضربات میز اپراتور را تحلیل و اعلام کنید.';
         blindTactileHelper.style.display = 'none';
         deafVisualHelper.style.display = 'block';
       }
-    } else if (myRole === 'mute') {
+    } else if (isManual(myRole)) {
       muteSection.classList.add('active');
-      renderDynamicManual(state.roundManual);
+      renderDynamicManual(state.roundManual, state);
     } else {
       lobbySection.classList.add('active');
     }
@@ -542,11 +561,11 @@ setInterval(() => {
       timerDisplay.classList.remove('urgent');
     }
 
-    // Audio ticking strictly for Blind player
+    // Audio ticking strictly for Operator player
     const currentSec = Math.floor(remaining);
     if (currentSec !== lastTickSecond) {
       lastTickSecond = currentSec;
-      if (myRole === 'blind') {
+      if (isOperator(myRole)) {
         if (remaining <= 30) {
           sound.playUrgentBeep();
         } else {
@@ -609,8 +628,8 @@ window.addEventListener('keydown', (e) => {
       }
     }
 
-    // Role Blind physical interactions via keyboard
-    if (myRole === 'blind') {
+    // Role Operator physical interactions via keyboard
+    if (isOperator(myRole)) {
       if (e.key === 'w' || e.key === 'W') {
         isWKeyActive = true;
       }
@@ -637,6 +656,30 @@ window.addEventListener('keydown', (e) => {
             data: { slotIndex: index }
           });
         }
+      }
+
+      // Key C: Tune Beacon Channel (cycle 1 -> 2 -> 3 -> 1)
+      if (e.key === 'c' || e.key === 'C') {
+        const beaconState = currentGameState?.modules?.beacon;
+        const curr = beaconState?.tunedChannel || 1;
+        const nextChannel = (curr % 3) + 1;
+        triggerHaptic(25);
+        sound.playClick();
+        transport.send('action', {
+          moduleId: 'beacon',
+          action: 'tune',
+          data: { channel: nextChannel }
+        });
+      }
+
+      // Key T: Transmit on active Beacon Channel
+      if (e.key === 't' || e.key === 'T') {
+        triggerHaptic([30, 20]);
+        sound.playClick();
+        transport.send('action', {
+          moduleId: 'beacon',
+          action: 'transmit'
+        });
       }
 
       // Spacebar: Button press / hold
@@ -710,8 +753,11 @@ window.addEventListener('blur', () => {
   isWKeyActive = false;
 });
 
-// --- Dynamic Round Manual Renderer for Mute Role ---
-function renderDynamicManual(manual) {
+// --- Dynamic Round Manual & Status Matrix Renderer for Manual-holder Role ---
+let currentManualFilter = 'all';
+let currentBeaconParity = 'even';
+
+function renderDynamicManual(manual, state) {
   if (!muteManualContainer) return;
   if (!manual) {
     muteManualContainer.innerHTML = `
@@ -722,10 +768,74 @@ function renderDynamicManual(manual) {
     return;
   }
 
-  const { seed, button, wires, keypad } = manual;
+  const { seed, button, wires, keypad, beacon } = manual;
 
+  // 1. Live Threat Level & Dynamic Status Matrix
+  const modulesDefused = state?.modulesDefusedCount ?? Object.values(state?.modules || {}).filter(m => m?.solved).length;
+  const totalModules = state?.totalModulesCount || 4;
+
+  let threatPhaseText = '⚠️ فاز ۱: تسلیح کامل — هر ۴ ماژول فعال (تهدید حداکثری)';
+  if (modulesDefused === 1) threatPhaseText = '⚡ فاز ۲: زنجیره بحران — ۳ ماژول فعال (پایداری متوسط)';
+  else if (modulesDefused === 2) threatPhaseText = '⚡ فاز ۳: آستانه بحرانی — ۲ ماژول فعال (تشدید فرکانس)';
+  else if (modulesDefused === 3) threatPhaseText = '🎯 فاز ۴: مرحله آخر — تنها ۱ ماژول باقی‌مانده (حساسیت بالا)';
+  else if (modulesDefused >= 4) threatPhaseText = '🏆 خنثی‌سازی کامل: تمام سامانه‌ها ایمن شدند!';
+
+  const isBtnSecured = Boolean(state?.modules?.button?.solved);
+  const isWiresSecured = Boolean(state?.modules?.wires?.solved);
+  const isKeypadSecured = Boolean(state?.modules?.keypad?.solved);
+  const isBeaconSecured = Boolean(state?.modules?.beacon?.solved);
+
+  const stepsHtml = Array.from({ length: totalModules }, (_, i) => `
+    <div class="threat-step ${i < modulesDefused ? 'defused' : ''}"></div>
+  `).join('');
+
+  const matrixHtml = `
+    <div class="threat-matrix-card" id="manual-matrix">
+      <div class="threat-matrix-header">
+        <span class="threat-phase-title">📊 ماتریس پویای وضعیت بمب</span>
+        <span style="font-size: 0.75rem; color: #f59e0b; font-family: monospace;">SEED: ${seed || ''}</span>
+      </div>
+      <div style="font-size: 0.8rem; color: #e2e8f0; margin-bottom: 8px; font-weight: 500;">
+        ${threatPhaseText}
+      </div>
+      <div class="threat-progress-bar">
+        ${stepsHtml}
+      </div>
+      <div class="manual-modules-grid">
+        <div class="module-status-pill ${isBtnSecured ? 'secured' : 'armed'}">
+          <span>🔘 ۱. کاتالیزور</span>
+          <span>${isBtnSecured ? '🟢 خنثی' : '🔴 مسلح'}</span>
+        </div>
+        <div class="module-status-pill ${isWiresSecured ? 'secured' : 'armed'}">
+          <span>✂️ ۲. فیوزها</span>
+          <span>${isWiresSecured ? '🟢 خنثی' : '🔴 مسلح'}</span>
+        </div>
+        <div class="module-status-pill ${isKeypadSecured ? 'secured' : 'armed'}">
+          <span>🔣 ۳. کیپد</span>
+          <span>${isKeypadSecured ? '🟢 خنثی' : '🔴 مسلح'}</span>
+        </div>
+        <div class="module-status-pill ${isBeaconSecured ? 'secured' : 'armed'}">
+          <span>📡 ۴. فانوس صوتی</span>
+          <span>${isBeaconSecured ? '🟢 خنثی' : '🔴 مسلح'}</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 2. Navigation Tabs
+  const navTabsHtml = `
+    <div class="manual-nav-tabs">
+      <button class="manual-tab-btn ${currentManualFilter === 'all' ? 'active' : ''}" data-filter="all">همه پروتکل‌ها</button>
+      <button class="manual-tab-btn ${currentManualFilter === 'button' ? 'active' : ''}" data-filter="button">🔘 دکمه</button>
+      <button class="manual-tab-btn ${currentManualFilter === 'wires' ? 'active' : ''}" data-filter="wires">✂️ سیم‌ها</button>
+      <button class="manual-tab-btn ${currentManualFilter === 'keypad' ? 'active' : ''}" data-filter="keypad">🔣 کیپد</button>
+      <button class="manual-tab-btn ${currentManualFilter === 'beacon' ? 'active' : ''}" data-filter="beacon">📡 فانوس صوتی</button>
+    </div>
+  `;
+
+  // 3. Button Module Section
   let buttonHtml = '';
-  if (button) {
+  if (button && (currentManualFilter === 'all' || currentManualFilter === 'button')) {
     const tapRows = (button.tapRows || []).map(r => `
       <tr>
         <td>${r.condition}</td>
@@ -738,13 +848,13 @@ function renderDynamicManual(manual) {
     `).join('');
 
     buttonHtml = `
-      <div class="manual-section">
+      <div class="manual-section" id="manual-button" style="margin-bottom: 12px;">
         <h4>🔘 ماژول ۱: دکمه کاتالیزور — <span style="font-size: 0.8rem; color: #38bdf8;">${button.protocolName || ''}</span></h4>
         <table class="rule-table">
           <thead>
             <tr>
               <th>شرط رنگ دکمه و سریال</th>
-              <th>دستور اقدام نابینا</th>
+              <th>دستور اقدام به اپراتور</th>
             </tr>
           </thead>
           <tbody>
@@ -769,14 +879,15 @@ function renderDynamicManual(manual) {
     `;
   }
 
+  // 4. Wires Module Section
   let wiresHtml = '';
-  if (wires) {
+  if (wires && (currentManualFilter === 'all' || currentManualFilter === 'wires')) {
     const steps = (wires.checklist || []).map(item => `
       <li>${item.condition} <strong>${item.action}</strong> را قطع کن.</li>
     `).join('');
 
     wiresHtml = `
-      <div class="manual-section">
+      <div class="manual-section" id="manual-wires" style="margin-bottom: 12px;">
         <h4>✂️ ماژول ۲: فیوزهای سیم‌کشی — <span style="font-size: 0.8rem; color: #38bdf8;">${wires.protocolName || ''}</span></h4>
         <ul class="manual-checklist">
           ${steps}
@@ -788,24 +899,101 @@ function renderDynamicManual(manual) {
     `;
   }
 
+  // 5. Keypad Module Section
   let keypadHtml = '';
-  if (keypad) {
+  if (keypad && (currentManualFilter === 'all' || currentManualFilter === 'keypad')) {
     keypadHtml = `
-      <div class="manual-section">
+      <div class="manual-section" id="manual-keypad" style="margin-bottom: 12px;">
         <h4>🔣 ماژول ۳: نمادهای رمزی صفحه‌کلید — <span style="font-size: 0.8rem; color: #38bdf8;">${keypad.protocolName || ''}</span></h4>
         <p style="font-size: 0.78rem; color: #94a3b8; margin-bottom: 8px;">
-          ${keypad.note || 'از بین ۴ نمادی که ناشنوا گزارش می‌دهد، نابینا باید نمادها را از چپ به راست طبق روبان اولویت زیر لمس کند:'}
+          ${keypad.note || 'از بین ۴ نمادی که ناظر گزارش می‌دهد، اپراتور باید نمادها را از چپ به راست طبق روبان اولویت زیر لمس کند:'}
         </p>
         <div class="symbol-priority-ribbon">
           ${keypad.priorityRibbon}
         </div>
-        <p style="font-size: 0.72rem; color: #cbd5e1; margin-top: 6px;">
-          شناسه راند اختصاصی: <strong style="color: #f59e0b; font-family: monospace;">${seed || ''}</strong>
+      </div>
+    `;
+  }
+
+  // 6. Acoustic Beacon Module Section
+  let beaconHtml = '';
+  if (beacon && (currentManualFilter === 'all' || currentManualFilter === 'beacon')) {
+    const isEven = currentBeaconParity === 'even';
+    const rows = isEven ? (beacon.evenRows || []) : (beacon.oddRows || []);
+
+    const tableRows = rows.map(r => `
+      <tr>
+        <td><strong>${r.name}</strong></td>
+        <td style="text-align: center;"><span class="rhythm-badge">${r.pattern}</span></td>
+        <td style="color: #38bdf8; font-weight: bold; text-align: center;">${r.channel}</td>
+      </tr>
+    `).join('');
+
+    beaconHtml = `
+      <div class="manual-section" id="manual-beacon" style="margin-bottom: 12px;">
+        <h4>📡 ماژول ۴: فانوس صوتی (Acoustic Beacon) — <span style="font-size: 0.8rem; color: #38bdf8;">${beacon.protocolName || ''}</span></h4>
+        
+        <div style="font-size: 0.76rem; color: #cbd5e1; margin-bottom: 8px; line-height: 1.5;">
+          تنها <strong>اپراتور</strong> ریتم صوتی بوق‌ها را می‌شنود و با <strong>ضربه روی میز</strong> به ناظر منتقل می‌کند.
+          ناظر پلاک پشت بمب را بررسی می‌کند؛ سپس بر اساس <strong>زوج یا فرد بودن رقم آخر سریال</strong> کانال هدف را تعیین کنید:
+        </div>
+
+        <div class="parity-toggle-group">
+          <button class="parity-toggle-btn ${isEven ? 'active' : ''}" data-parity="even">
+            🔢 پلاک سریال زوج (Even Serial)
+          </button>
+          <button class="parity-toggle-btn ${!isEven ? 'active' : ''}" data-parity="odd">
+            🔢 پلاک سریال فرد (Odd Serial)
+          </button>
+        </div>
+
+        <table class="rule-table">
+          <thead>
+            <tr>
+              <th>نوع پالس</th>
+              <th style="text-align: center;">ریتم ضربه روی میز</th>
+              <th style="text-align: center;">کانال سلکتور هدف</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+
+        <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.6); padding: 8px 10px; border-radius: 8px; border: 1px solid #334155; font-size: 0.74rem; color: #cbd5e1;">
+          <strong style="color: #f59e0b;">راهنمای ریتم ضربات میز:</strong>
+          <ul style="margin: 4px 0 0 16px; line-height: 1.6;">
+            <li><strong>·· — · (وکتور):</strong> دو ضربه تند، مکث، یک ضربه بلند، یک ضربه کوتاه</li>
+            <li><strong>— · — · (سیگما):</strong> یک ضربه بلند، یک کوتاه، یک بلند، یک کوتاه</li>
+            <li><strong>· — — · (دلتا):</strong> یک ضربه کوتاه، دو ضربه بلند، یک ضربه کوتاه</li>
+            <li><strong>— — · · (امگا):</strong> دو ضربه بلند، دو ضربه تند و کوتاه</li>
+          </ul>
+        </div>
+
+        <p style="font-size: 0.72rem; color: #94a3b8; margin-top: 8px;">
+          📌 <em>${beacon.note || ''}</em>
         </p>
       </div>
     `;
   }
 
-  muteManualContainer.innerHTML = buttonHtml + wiresHtml + keypadHtml;
+  muteManualContainer.innerHTML = matrixHtml + navTabsHtml + buttonHtml + wiresHtml + keypadHtml + beaconHtml;
+
+  // Attach event handlers for interactive tabs
+  muteManualContainer.querySelectorAll('.manual-tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      currentManualFilter = e.currentTarget.getAttribute('data-filter') || 'all';
+      renderDynamicManual(manual, state);
+    });
+  });
+
+  // Attach event handlers for parity toggles
+  muteManualContainer.querySelectorAll('.parity-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      currentBeaconParity = e.currentTarget.getAttribute('data-parity') || 'even';
+      renderDynamicManual(manual, state);
+    });
+  });
 }
+
 

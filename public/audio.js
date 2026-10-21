@@ -132,6 +132,53 @@ class SoundEngine {
     } catch (err) {}
   }
 
+  playBeaconBeep(duration = 0.15) {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, now);
+
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + duration + 0.02);
+    } catch (err) {}
+  }
+
+  playBeaconPattern(beats = [1, 1, 3, 1]) {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      let t = this.ctx.currentTime;
+      beats.forEach((unit) => {
+        const dur = unit === 3 ? 0.28 : 0.1;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(750, t);
+
+        gain.gain.setValueAtTime(0.35, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+
+        t += dur + 0.12; // pause between beats
+      });
+    } catch (err) {}
+  }
+
   playWireCut() {
     if (!this.enabled || !this.ctx) return;
     try {

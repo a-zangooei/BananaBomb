@@ -638,7 +638,7 @@ body {
   border: 1px solid #334155;
 }
 
-/* Mute Static Rulebook Manual */
+/* Manual-holder Dynamic Field Manual & Threat Status Matrix */
 .manual-section {
   background: #0f172a;
   border: 1px solid #334155;
@@ -653,6 +653,159 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Threat Status Matrix */
+.threat-matrix-card {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95));
+  border: 1px solid #38bdf8;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.threat-matrix-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+  padding-bottom: 6px;
+}
+
+.threat-phase-title {
+  font-size: 0.88rem;
+  font-weight: bold;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.threat-progress-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.threat-step {
+  flex: 1;
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  transition: background 0.3s ease;
+}
+
+.threat-step.defused {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+}
+
+.manual-modules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.module-status-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.module-status-pill.secured {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  color: #a7f3d0;
+}
+
+.module-status-pill.armed {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+
+/* Manual Navigation Tabs */
+.manual-nav-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+}
+
+.manual-tab-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.manual-tab-btn:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.manual-tab-btn.active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+/* Parity Filter Switcher */
+.parity-toggle-group {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.parity-toggle-btn {
+  flex: 1;
+  padding: 8px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: bold;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.parity-toggle-btn.active {
+  background: #0369a1;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+
+/* Beacon Rhythm Indicator */
+.rhythm-badge {
+  font-family: monospace;
+  font-size: 1rem;
+  letter-spacing: 2px;
+  background: #020617;
+  color: #f59e0b;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #78350f;
+  display: inline-block;
+  direction: ltr;
 }
 
 .rule-table {

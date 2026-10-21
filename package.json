@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "build": "node -e \"console.log('Build OK')\"",
-    "test": "node --test tests/*.test.js"
+    "lint": "node --check server.js modules/*.js public/*.js public/modules/*.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
   "dependencies": {
     "express": "^4.21.2",

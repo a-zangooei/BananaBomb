@@ -6,11 +6,13 @@
 import { buttonClientModule } from './button.js';
 import { wiresClientModule } from './wires.js';
 import { keypadClientModule } from './keypad.js';
+import { beaconClientModule } from './beacon.js';
 
 export const clientModules = [
   buttonClientModule,
   wiresClientModule,
-  keypadClientModule
+  keypadClientModule,
+  beaconClientModule
 ];
 
 export const clientModulesById = new Map(clientModules.map((m) => [m.id, m]));
