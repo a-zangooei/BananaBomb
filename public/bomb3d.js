@@ -1,68 +1,582 @@
+/**
+ * Shared 3D Van World, Briefcase Occlusion Rig, Role Viewpoints & Scene Manager.
+ *
+ * Unifies:
+ * - Compact daytime 3D Van interior + green-top table (`van-environment.js`)
+ * - Hard-shell briefcase bomb with North-hinge physical lid occlusion (`briefcase-rig.js`)
+ * - Stylized orange-furred monkey teammates with role accessories & hands (`world-avatars.js`)
+ * - Fixed-origin seated role cameras with bounded head-look & optical FOV zoom (`camera-rig.js`)
+ * - Deterministic 4-pass Operator monochrome tactile wireframe + red reticle (`tactile-styler.js`)
+ * - Headless `buildSharedWorldGraph` + whole-scene fail-closed sightline evaluator for tests.
+ */
 import * as THREE from 'three';
 import { clientModules } from './modules/index.js';
-import { createCanvas2D, prefersReducedMotion } from './modules/canvas-utils.js';
+import { prefersReducedMotion } from './modules/canvas-utils.js';
 import { BombInteractionController, INTERACTION_DEFAULTS } from './interaction-controller.js';
+import { SeatedCameraRig, normalizeWorldRole } from './camera-rig.js';
+import { WorldVisualStyleManager } from './tactile-styler.js';
+import { BRIEFCASE_SPEC, buildBriefcaseBombRig } from './briefcase-rig.js';
+import { buildVanEnvironment } from './van-environment.js';
+import { buildWorldAvatars } from './world-avatars.js';
+
+export { BRIEFCASE_SPEC };
 
 /**
  * Checks if WebGL is available in the current browser environment.
  */
 export function isWebGLAvailable() {
   try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return false;
     const canvas = document.createElement('canvas');
-    return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+    );
   } catch (e) {
     return false;
   }
 }
 
-function isOperatorRole(role) {
+export function isOperatorRole(role) {
   return role === 'blind' || role === 'operator';
 }
 
-function isObserverRole(role) {
+export function isObserverRole(role) {
   return role === 'deaf' || role === 'observer';
 }
 
-/**
- * Procedural Serial Number Plate Texture
- */
-function createSerialPlateTexture(serialNumber, isMonochrome) {
-  const canvas = createCanvas2D(512, 128);
-  const ctx = canvas.getContext('2d');
+export function isManualRole(role) {
+  return role === 'mute' || role === 'manual';
+}
 
-  ctx.fillStyle = isMonochrome ? '#27272a' : '#1e293b';
-  ctx.fillRect(0, 0, 512, 128);
-
-  ctx.strokeStyle = isMonochrome ? '#52525b' : '#f59e0b';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(6, 6, 500, 116);
-
-  if (!isMonochrome && serialNumber) {
-    ctx.fillStyle = '#f59e0b';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('BANANABOMB REAR SERIAL PLATE', 24, 38);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 44px monospace';
-    ctx.fillText(`SERIAL: ${serialNumber}`, 24, 88);
-
-    ctx.fillStyle = '#94a3b8';
-    for (let x = 400; x < 480; x += 8) {
-      ctx.fillRect(x, 24, (x % 3 === 0 ? 5 : 2), 70);
-    }
-  } else {
-    ctx.fillStyle = '#71717a';
-    ctx.font = 'bold 24px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('[OBSERVER VISUAL ACCESS ONLY]', 256, 70);
+function isHierarchyVisible(obj) {
+  let curr = obj;
+  while (curr) {
+    if (curr.visible === false) return false;
+    curr = curr.parent;
   }
+  return true;
+}
 
-  return canvas;
+function resolveDescriptorTargetObject(moduleViews, descriptor) {
+  if (!descriptor || !moduleViews) return null;
+  const modInfo = moduleViews.get(descriptor.moduleId);
+  if (!modInfo?.group?.userData) return null;
+  const ud = modInfo.group.userData;
+
+  if (descriptor.moduleId === 'button') {
+    return ud.capMesh || ud.btnMesh || null;
+  }
+  if (descriptor.moduleId === 'wires') {
+    const w = ud.wireMeshes?.[descriptor.wireIndex];
+    return w?.intactMesh || null;
+  }
+  if (descriptor.moduleId === 'keypad') {
+    const k = ud.keyData?.[descriptor.slotIndex];
+    return k?.faceMesh || k?.keyMesh || null;
+  }
+  if (descriptor.moduleId === 'beacon') {
+    if (descriptor.targetType === 'tx') return ud.txFaceMesh || ud.txBaseMesh || null;
+    if (descriptor.targetType === 'knob') return ud.knobMesh || ud.knobGroup || null;
+    if (descriptor.targetType === 'channel') {
+      const ch = ud.channelItems?.find((c) => c.channel === descriptor.channel);
+      return ch?.notchMesh || null;
+    }
+  }
+  return null;
 }
 
 /**
- * Standalone Responsive 3D Bomb Scene Manager
+ * Computes 5 representative local-space sample points on a clue or control surface
+ * so sightline tests prove real surface visibility rather than single-center luck.
+ */
+function computeSurfaceSamplePointsWorld(targetMesh, eyeWorldPos) {
+  targetMesh.updateWorldMatrix(true, false);
+  const geo = targetMesh.geometry;
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+
+  const cx = (bb.min.x + bb.max.x) * 0.5;
+  const cy = (bb.min.y + bb.max.y) * 0.5;
+  const cz = (bb.min.z + bb.max.z) * 0.5;
+  const dx = bb.max.x - bb.min.x;
+  const dy = bb.max.y - bb.min.y;
+  const dz = bb.max.z - bb.min.z;
+
+  const localPts = [];
+  const clueId = targetMesh.userData?.clueId || '';
+
+  if (clueId === 'button_body') {
+    // Exposed front perimeter ring of cylindrical button plunger outside the central square cap label
+    const zFront = bb.max.z;
+    localPts.push(
+      new THREE.Vector3(0.305, 0, zFront),
+      new THREE.Vector3(-0.305, 0, zFront),
+      new THREE.Vector3(0, 0.305, zFront),
+      new THREE.Vector3(0, -0.305, zFront),
+      new THREE.Vector3(0.295, -0.09, zFront)
+    );
+  } else if (clueId.startsWith('wire_') && !clueId.includes('cut')) {
+    // Horizontal cylindrical wire along local X: sample 5 points along the outer skin facing the eye
+    const invWorld = new THREE.Matrix4().copy(targetMesh.matrixWorld).invert();
+    const localEye = eyeWorldPos.clone().applyMatrix4(invWorld);
+    const yzLen = Math.hypot(localEye.y, localEye.z) || 1;
+    const r = Math.max(dy, dz) * 0.49;
+    const ny = (localEye.y / yzLen) * r;
+    const nz = (localEye.z / yzLen) * r;
+
+    for (const frac of [-0.36, -0.18, 0.0, 0.18, 0.36]) {
+      localPts.push(new THREE.Vector3(cx + dx * frac, ny, nz));
+    }
+  } else if (dx < 1e-4) {
+    // YZ-plane mesh (e.g. rotated ExteriorSerialPlate)
+    const u = dy * 0.34;
+    const v = dz * 0.34;
+    localPts.push(
+      new THREE.Vector3(cx, cy, cz),
+      new THREE.Vector3(cx, cy + u, cz + v),
+      new THREE.Vector3(cx, cy - u, cz + v),
+      new THREE.Vector3(cx, cy + u, cz - v),
+      new THREE.Vector3(cx, cy - u, cz - v)
+    );
+  } else if (dz < 1e-4) {
+    // XY-plane mesh (e.g. capMesh, faceMesh, notchMesh, txFaceMesh, manualInnerPageMesh)
+    const u = dx * 0.34;
+    const v = dy * 0.34;
+    localPts.push(
+      new THREE.Vector3(cx, cy, cz),
+      new THREE.Vector3(cx + u, cy + v, cz),
+      new THREE.Vector3(cx - u, cy + v, cz),
+      new THREE.Vector3(cx + u, cy - v, cz),
+      new THREE.Vector3(cx - u, cy - v, cz)
+    );
+  } else {
+    // 3D Box / Cylinder clue mesh (e.g. stripMesh, keyMesh, txBaseMesh): sample front (+Z) face
+    const u = dx * 0.34;
+    const v = dy * 0.3;
+    const zFace = bb.max.z;
+    localPts.push(
+      new THREE.Vector3(cx, cy, zFace),
+      new THREE.Vector3(cx + u, cy + v, zFace),
+      new THREE.Vector3(cx - u, cy + v, zFace),
+      new THREE.Vector3(cx + u, cy - v, zFace),
+      new THREE.Vector3(cx - u, cy - v, zFace)
+    );
+  }
+
+  return localPts.map((p) => p.applyMatrix4(targetMesh.matrixWorld));
+}
+
+function disposeObjectSubtree(rootObj) {
+  if (!rootObj) return;
+  rootObj.traverse((obj) => {
+    if (obj.geometry) {
+      try {
+        obj.geometry.dispose();
+      } catch (e) {}
+    }
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        try {
+          if (m.map) m.map.dispose();
+          m.dispose();
+        } catch (e) {}
+      }
+    }
+  });
+}
+
+/**
+ * Builds the complete, deterministic Shared 3D Van World scene graph without requiring
+ * a browser DOM or WebGL context, enabling both live WebGL rendering and mathematical
+ * Node.js occlusion & sightline verification tests.
+ */
+export function buildSharedWorldGraph({
+  role = 'operator',
+  width = 390,
+  height = 640,
+  lowSpecMode = false
+} = {}) {
+  const scene = new THREE.Scene();
+  const aspect = Math.max(120, width) / Math.max(120, height);
+  const camera = new THREE.PerspectiveCamera(45, aspect, 0.08, 8.0);
+
+  const styleManager = new WorldVisualStyleManager();
+  scene.add(styleManager.reticleGroup);
+
+  // Daylight Lighting Group (Hemisphere + warm window directional + cool cabin bounce; 0 shadow maps)
+  const lightingGroup = new THREE.Group();
+  lightingGroup.name = 'DaylightLightingGroup';
+
+  const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x92400e, 1.15);
+  hemiLight.position.set(0, 1.7, 0);
+  lightingGroup.add(hemiLight);
+
+  const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.55);
+  sunLight.position.set(-2.4, 2.6, 0.65);
+  lightingGroup.add(sunLight);
+
+  const bounceLight = new THREE.DirectionalLight(0xbae6fd, 0.55);
+  bounceLight.position.set(1.6, 1.5, 1.1);
+  lightingGroup.add(bounceLight);
+
+  scene.add(lightingGroup);
+
+  // Build Shared Van, Briefcase Rig, and Stylized Monkey Teammates
+  const vanEnv = buildVanEnvironment({ styleManager });
+  scene.add(vanEnv.root);
+
+  const briefcaseRig = buildBriefcaseBombRig({
+    styleManager,
+    initialLidAngleRad: BRIEFCASE_SPEC.openAngleRad
+  });
+  scene.add(briefcaseRig.rig);
+
+  const avatars = buildWorldAvatars({ styleManager });
+  scene.add(avatars.root);
+
+  const cameraRig = new SeatedCameraRig(camera, role, width, height);
+  const moduleViews = new Map();
+  let currentRole = role;
+  let currentLowSpec = Boolean(lowSpecMode);
+  let latestState = null;
+
+  function clearBeaconIntervals() {
+    for (const modInfo of moduleViews.values()) {
+      if (modInfo.group?.userData?.soundLoopInterval) {
+        clearInterval(modInfo.group.userData.soundLoopInterval);
+        modInfo.group.userData.soundLoopInterval = null;
+      }
+    }
+  }
+
+  function clearModules() {
+    clearBeaconIntervals();
+    styleManager.clearModuleEdgeDisposables();
+    for (const modInfo of moduleViews.values()) {
+      if (modInfo.group) {
+        briefcaseRig.moduleBayRoot.remove(modInfo.group);
+        disposeObjectSubtree(modInfo.group);
+      }
+    }
+    moduleViews.clear();
+  }
+
+  function rebuildModules(forRole = currentRole) {
+    clearModules();
+
+    const numModules = clientModules.length;
+    const cols = numModules <= 3 ? numModules : (numModules <= 4 ? 2 : 3);
+    const rows = Math.ceil(numModules / cols);
+    const slotW = 1.08;
+    const slotH = 1.08;
+    const spacing = 0.13;
+
+    clientModules.forEach((mod, idx) => {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const startX = -((cols - 1) * (slotW + spacing)) / 2;
+      const startY = ((rows - 1) * (slotH + spacing)) / 2;
+      const posX = startX + col * (slotW + spacing);
+      const posY = startY - row * (slotH + spacing);
+
+      const slot = {
+        width: slotW,
+        height: slotH,
+        depth: 0.1,
+        position: { x: posX, y: posY, z: 0 }
+      };
+
+      const moduleGroup = mod.build(THREE, slot, forRole);
+      moduleGroup.position.set(posX, posY, 0);
+      moduleGroup.userData.moduleId = mod.id;
+
+      if (isOperatorRole(forRole)) {
+        styleManager.decorateOperatorModuleSubtree(moduleGroup);
+      }
+
+      briefcaseRig.moduleBayRoot.add(moduleGroup);
+      moduleViews.set(mod.id, {
+        moduleDef: mod,
+        group: moduleGroup
+      });
+    });
+  }
+
+  function applyCurrentStyleProfile() {
+    styleManager.applyRoleProfile(currentRole, {
+      scene,
+      lightingGroup,
+      contactShadowsGroup: vanEnv.contactShadowsGroup,
+      skyBackdropGroup: vanEnv.skyBackdropGroup,
+      lowSpecMode: currentLowSpec
+    });
+  }
+
+  function updateState(state) {
+    latestState = state;
+    if (!state) return;
+
+    const showSerial = isObserverRole(currentRole) && Boolean(state.serialNumber);
+    briefcaseRig.updateSerialPlate(showSerial ? state.serialNumber : null, isObserverRole(currentRole));
+
+    if (state.modules) {
+      for (const [modId, modInfo] of moduleViews.entries()) {
+        const modState = state.modules[modId];
+        if (modState) {
+          modInfo.group.visible = true;
+          modInfo.moduleDef.update(modInfo.group, currentRole, modState);
+        } else {
+          modInfo.group.visible = false;
+        }
+      }
+    }
+  }
+
+  function setRole(nextRole, { immediate = true } = {}) {
+    currentRole = nextRole;
+    avatars.setActiveReachTarget(null);
+    styleManager.hideReticle();
+    cameraRig.applyRoleConfig(nextRole, { immediate });
+    rebuildModules(nextRole);
+    applyCurrentStyleProfile();
+    if (latestState) {
+      updateState(latestState);
+    }
+    scene.updateMatrixWorld(true);
+  }
+
+  function setLowSpecMode(enabled) {
+    currentLowSpec = Boolean(enabled);
+    applyCurrentStyleProfile();
+  }
+
+  function showReticleForDescriptor(descriptor, isHoldLocked = false) {
+    if (!isOperatorRole(currentRole) || !descriptor) {
+      styleManager.hideReticle();
+      avatars.setActiveReachTarget(null);
+      return;
+    }
+    const targetObj = resolveDescriptorTargetObject(moduleViews, descriptor);
+    if (targetObj) {
+      styleManager.showReticleOnObject(targetObj, briefcaseRig.moduleBayRoot, isHoldLocked);
+      avatars.setActiveReachTarget(styleManager.reticleGroup.position);
+    } else {
+      styleManager.hideReticle();
+      avatars.setActiveReachTarget(null);
+    }
+  }
+
+  function hideReticle() {
+    styleManager.hideReticle();
+    avatars.setActiveReachTarget(null);
+  }
+
+  // Whole-scene touch raycast (checks real occluders like the briefcase lid before controls)
+  const _raycaster = new THREE.Raycaster();
+  const _ndcVec = new THREE.Vector2();
+
+  function raycastFromNdc(ndcX, ndcY) {
+    scene.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    _ndcVec.set(ndcX, ndcY);
+    _raycaster.setFromCamera(_ndcVec, camera);
+    _raycaster.layers.mask = camera.layers.mask;
+
+    const rawHits = _raycaster.intersectObjects(scene.children, true);
+    for (const hit of rawHits) {
+      const obj = hit.object;
+      if (!obj || !obj.isMesh) continue;
+      if (!isHierarchyVisible(obj)) continue;
+      if (obj.userData?.isAvatar) continue;
+      if (obj.userData?.skipTactile && !obj.userData?.isTouchHitbox && !obj.userData?.clueId) continue;
+      return hit;
+    }
+    return null;
+  }
+
+  /**
+   * Fail-closed whole-scene line-of-sight evaluator across 5 points on `targetMesh`.
+   * Proves whether the nearest visible scene surface along each ray is `targetMesh` itself
+   * (with valid front-facing incidence <= 85°) or an intervening occluder (e.g. `briefcase_lid`).
+   */
+  const _sightRaycaster = new THREE.Raycaster();
+  const _eyePos = new THREE.Vector3();
+  const _rayDir = new THREE.Vector3();
+  const _toEye = new THREE.Vector3();
+  const _worldNorm = new THREE.Vector3();
+  const _projVec = new THREE.Vector3();
+
+  function evaluateSurfaceSightline(
+    targetMesh,
+    { eyeOverride = null, requireInFrustum = false } = {}
+  ) {
+    scene.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+
+    if (!targetMesh || !isHierarchyVisible(targetMesh)) {
+      return {
+        totalSamples: 0,
+        visibleCount: 0,
+        occludedCount: 0,
+        visibleRatio: 0,
+        samples: [],
+        blockers: ['target_hidden']
+      };
+    }
+
+    if (eyeOverride) {
+      _eyePos.set(eyeOverride.x, eyeOverride.y, eyeOverride.z);
+    } else {
+      camera.getWorldPosition(_eyePos);
+    }
+
+    const samplePoints = computeSurfaceSamplePointsWorld(targetMesh, _eyePos);
+    _sightRaycaster.layers.mask = camera.layers.mask;
+
+    let visibleCount = 0;
+    let occludedCount = 0;
+    const blockers = new Set();
+    const samples = [];
+
+    for (const pt of samplePoints) {
+      _rayDir.copy(pt).sub(_eyePos);
+      const targetDist = _rayDir.length();
+      if (targetDist < 1e-5) continue;
+      _rayDir.divideScalar(targetDist);
+
+      _sightRaycaster.set(_eyePos, _rayDir);
+      _sightRaycaster.near = 0.02;
+      _sightRaycaster.far = targetDist + 0.25;
+
+      const rawHits = _sightRaycaster.intersectObjects(scene.children, true);
+      let firstHit = null;
+
+      for (const h of rawHits) {
+        const o = h.object;
+        if (!o || !o.isMesh) continue;
+        if (!isHierarchyVisible(o)) continue;
+        // Invisible touch hitboxes do not visually block or reveal clues
+        if (o.userData?.isTouchHitbox) continue;
+        // Sky backdrop & contact shadow decals are non-occluding
+        if (o.userData?.skipTactile && !o.userData?.clueId) continue;
+        firstHit = h;
+        break;
+      }
+
+      if (!firstHit) {
+        occludedCount++;
+        blockers.add('no_intersection');
+        samples.push({ visible: false, blocker: 'no_intersection' });
+        continue;
+      }
+
+      if (firstHit.object !== targetMesh) {
+        occludedCount++;
+        const blockerId =
+          firstHit.object.userData?.occluderId ||
+          firstHit.object.userData?.clueId ||
+          firstHit.object.name ||
+          'other_mesh';
+        blockers.add(blockerId);
+        samples.push({
+          visible: false,
+          blocker: blockerId,
+          blockerDistance: firstHit.distance,
+          targetDistance: targetDist
+        });
+        continue;
+      }
+
+      // Verify front-facing surface orientation (cos(85°) = 0.087155)
+      let cosIncidence = 1.0;
+      if (firstHit.face) {
+        _worldNorm.copy(firstHit.face.normal).transformDirection(targetMesh.matrixWorld).normalize();
+        _toEye.copy(_eyePos).sub(firstHit.point).normalize();
+        cosIncidence = _worldNorm.dot(_toEye);
+      }
+
+      if (cosIncidence < 0.087155) {
+        occludedCount++;
+        blockers.add('backface_or_grazing');
+        samples.push({ visible: false, blocker: 'backface_or_grazing', cosIncidence });
+        continue;
+      }
+
+      if (requireInFrustum) {
+        _projVec.copy(firstHit.point).project(camera);
+        const inFrustum =
+          Math.abs(_projVec.x) <= 0.97 &&
+          Math.abs(_projVec.y) <= 0.97 &&
+          _projVec.z >= -1.0 &&
+          _projVec.z <= 1.0;
+        if (!inFrustum) {
+          occludedCount++;
+          blockers.add('outside_frustum');
+          samples.push({ visible: false, blocker: 'outside_frustum', ndc: { x: _projVec.x, y: _projVec.y } });
+          continue;
+        }
+      }
+
+      visibleCount++;
+      samples.push({
+        visible: true,
+        blocker: null,
+        distance: firstHit.distance,
+        cosIncidence
+      });
+    }
+
+    const totalSamples = samples.length;
+    return {
+      totalSamples,
+      visibleCount,
+      occludedCount,
+      visibleRatio: totalSamples > 0 ? visibleCount / totalSamples : 0,
+      samples,
+      blockers: Array.from(blockers)
+    };
+  }
+
+  function dispose() {
+    clearModules();
+    styleManager.dispose();
+    disposeObjectSubtree(scene);
+  }
+
+  // Initialize initial role profile & modules
+  rebuildModules(currentRole);
+  applyCurrentStyleProfile();
+  cameraRig.snapToTargets();
+  scene.updateMatrixWorld(true);
+
+  return {
+    scene,
+    camera,
+    cameraRig,
+    styleManager,
+    lightingGroup,
+    vanEnv,
+    briefcaseRig,
+    avatars,
+    moduleViews,
+    rebuildModules,
+    updateState,
+    setRole,
+    setLowSpecMode,
+    showReticleForDescriptor,
+    hideReticle,
+    raycastFromNdc,
+    evaluateSurfaceSightline,
+    dispose,
+    getRole: () => currentRole,
+    isLowSpecMode: () => currentLowSpec
+  };
+}
+
+/**
+ * Live Responsive WebGL 3D Van & Briefcase Bomb Scene Manager.
  */
 export class Bomb3DScene {
   constructor(containerEl, role, onActionSend, getTimerRemaining, options = {}) {
@@ -72,33 +586,31 @@ export class Bomb3DScene {
     this.getTimerRemaining = getTimerRemaining || (() => 300);
     this.onInteractionStatus = options.onInteractionStatus || (() => {});
 
+    this.world = null;
     this.scene = null;
     this.camera = null;
-    this.renderer = null;
-    this.bombGroup = null;
+    this.cameraRig = null;
+    this.styleManager = null;
+    this.briefcaseRig = null;
+    this.vanEnv = null;
+    this.avatars = null;
     this.moduleViews = new Map();
+
+    this.renderer = null;
     this.animFrameId = null;
+    this.animTimeoutId = null;
     this.resizeObserver = null;
-
-    // Camera Framing & Distance Adaptation
-    this.baseCameraDist = 3.55;
-    this.cameraDist = 3.55;
-    this.targetCameraDist = 3.55;
-
-    // Rotation state
-    this.targetRotX = 0;
-    this.targetRotY = 0;
-    this.currentRotX = 0;
-    this.currentRotY = 0;
+    this.contextLost = false;
+    this.isSoftwareGl = false;
+    this.lowSpecMode = Boolean(options.lowSpecMode);
     this.sensitivity = 1.0;
-
-    this.raycaster = new THREE.Raycaster();
-    this.mouseVec = new THREE.Vector2();
-
-    this.serialPlateMesh = null;
-    this.serialPlateCanvas = null;
-    this.serialPlateTexture = null;
     this.currentState = null;
+
+    // Rolling 30-frame timing monitor for automatic low-spec fallback
+    this._lastFrameTime = 0;
+    this._frameDeltas = [];
+    this._avgFrameMs = 16.6;
+    this._keyboardReticleActive = false;
 
     // Production Interaction State Machine
     this.interaction = new BombInteractionController({
@@ -114,14 +626,20 @@ export class Bomb3DScene {
         }
       },
       onCameraRotate: (dx, dy) => {
+        if (!this.cameraRig) return;
         const sens = this.sensitivity || 1.0;
-        this.targetRotY += dx * 0.008 * sens;
-        this.targetRotX = Math.max(-1.4, Math.min(1.4, this.targetRotX + dy * 0.008 * sens));
+        this.cameraRig.rotateHeadByRadians(dx * 0.0042 * sens, dy * 0.0042 * sens, {
+          immediate: prefersReducedMotion()
+        });
       },
       onCameraZoom: (delta) => {
-        this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + delta * 0.008));
+        if (!this.cameraRig) return;
+        this.cameraRig.zoomByFovDelta(delta * 0.085, {
+          immediate: prefersReducedMotion()
+        });
       },
       onStatusChange: (status) => {
+        this.syncReticleWithInteraction();
         this.onInteractionStatus(status);
       },
       onFeedback: (feedbackType, descriptor) => {
@@ -140,84 +658,110 @@ export class Bomb3DScene {
     this.boundVisibilityChange = null;
     this.boundOrientationChange = null;
     this.boundContextMenu = null;
+    this.boundWebglContextLost = null;
+    this.boundWebglContextRestored = null;
 
     this.init();
   }
 
+  get targetRotY() {
+    return this.cameraRig ? this.cameraRig.targetYawOffset : 0;
+  }
+
+  set targetRotY(val) {
+    if (!this.cameraRig) return;
+    this.cameraRig.targetYawOffset = Number(val) || 0;
+    this.cameraRig.clampOffsets();
+    if (prefersReducedMotion()) this.cameraRig.snapToTargets();
+  }
+
+  get targetRotX() {
+    return this.cameraRig ? this.cameraRig.targetPitchOffset : 0;
+  }
+
+  set targetRotX(val) {
+    if (!this.cameraRig) return;
+    this.cameraRig.targetPitchOffset = Number(val) || 0;
+    this.cameraRig.clampOffsets();
+    if (prefersReducedMotion()) this.cameraRig.snapToTargets();
+  }
+
+  detectSoftwareRenderer(renderer) {
+    try {
+      const gl = renderer.getContext();
+      if (!gl) return false;
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const rendererStr = String(
+        dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)
+      ).toLowerCase();
+      return (
+        rendererStr.includes('swiftshader') ||
+        rendererStr.includes('llvmpipe') ||
+        rendererStr.includes('software') ||
+        rendererStr.includes('basic render driver')
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  computeTargetPixelRatio() {
+    if (this.isSoftwareGl || this.lowSpecMode) return 1.0;
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    return Math.min(dpr, 1.75);
+  }
+
   init() {
-    const width = Math.max(100, this.container.clientWidth || 360);
-    const height = Math.max(100, this.container.clientHeight || 420);
-    const aspect = width / height;
+    const width = Math.max(120, this.container.clientWidth || 360);
+    const height = Math.max(120, this.container.clientHeight || 420);
 
-    // 1. Scene
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x070b12);
+    // 1. Build Shared 3D Van World Graph
+    this.world = buildSharedWorldGraph({
+      role: this.role,
+      width,
+      height,
+      lowSpecMode: this.lowSpecMode
+    });
 
-    // 2. Camera with Adaptive Framing across Portrait & Landscape
-    this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 50);
-    this.targetCameraDist = this.calcOptimalCameraDist(width, height);
-    this.cameraDist = this.targetCameraDist;
-    this.camera.position.set(0, 0, this.cameraDist);
+    this.scene = this.world.scene;
+    this.camera = this.world.camera;
+    this.cameraRig = this.world.cameraRig;
+    this.styleManager = this.world.styleManager;
+    this.briefcaseRig = this.world.briefcaseRig;
+    this.vanEnv = this.world.vanEnv;
+    this.avatars = this.world.avatars;
+    this.moduleViews = this.world.moduleViews;
+    this.bombGroup = this.briefcaseRig.moduleBayRoot;
 
-    // 3. Renderer with Mobile Optimizations
+    // 2. Initialize WebGLRenderer with Mobile & Software-GL Protections
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !this.lowSpecMode,
       powerPreference: 'high-performance'
     });
+    this.isSoftwareGl = this.detectSoftwareRenderer(this.renderer);
+    if (this.isSoftwareGl) {
+      this.lowSpecMode = true;
+      this.world.setLowSpecMode(true);
+    }
+
+    this.renderer.setPixelRatio(this.computeTargetPixelRatio());
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = false;
+
     this.container.innerHTML = '';
     this.container.appendChild(this.renderer.domElement);
 
-    // 4. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.96);
-    this.scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xfff5eb, 1.4);
-    dirLight.position.set(3, 5, 4);
-    this.scene.add(dirLight);
-
-    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.65);
-    fillLight.position.set(-3, -3, 2);
-    this.scene.add(fillLight);
-
-    // 5. Build Bomb Model
-    this.buildBombModel();
-
-    // 6. Bind Native Pointer / Touch / Lifecycle Events
+    // 3. Bind Pointer / Touch / Context-Loss Lifecycle Events
     this.setupTouchControls();
 
-    // 7. Setup Container-Driven ResizeObserver
+    // 4. Container ResizeObserver
     this.setupResizeObserver();
 
-    // 8. Start Render Loop
+    // 5. Start Render Loop (scheduled afterDraw)
     this.animate = this.animate.bind(this);
+    this._lastFrameTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this.animate();
-  }
-
-  /**
-   * Calculates ideal camera distance based on viewport width & height so all
-   * active controls fit cleanly in both narrow portrait and short landscape screens
-   * without forcing the Operator to manually zoom just to reach a module.
-   */
-  calcOptimalCameraDist(width, height) {
-    const w = Math.max(120, width || 360);
-    const h = Math.max(120, height || 420);
-    const aspect = w / h;
-
-    // Bomb physical bounding box ~2.55w x 2.75h
-    const vFovRad = THREE.MathUtils.degToRad(45);
-    const tanHalfVFov = Math.tan(vHalf(vFovRad));
-    const tanHalfHFov = tanHalfVFov * aspect;
-
-    const halfBombW = 1.42;
-    const halfBombH = 1.54;
-
-    const distForHeight = halfBombH / tanHalfVFov;
-    const distForWidth = halfBombW / Math.max(0.28, tanHalfHFov);
-
-    return Math.max(this.baseCameraDist, distForHeight, distForWidth);
   }
 
   setupResizeObserver() {
@@ -235,146 +779,29 @@ export class Bomb3DScene {
   }
 
   handleResize(width, height) {
-    if (!this.container || !this.renderer || !this.camera) return;
+    if (!this.container || !this.renderer || !this.cameraRig) return;
     const w = width || this.container.clientWidth;
     const h = height || this.container.clientHeight;
-    if (w === 0 || h === 0) return;
+    if (w <= 0 || h <= 0) return;
 
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.cameraRig.handleViewportResize(w, h, { immediate: prefersReducedMotion() });
+    this.renderer.setPixelRatio(this.computeTargetPixelRatio());
     this.renderer.setSize(w, h);
-
-    const idealDist = this.calcOptimalCameraDist(w, h);
-    if (Math.abs(this.targetCameraDist - this.cameraDist) < 0.45) {
-      this.targetCameraDist = idealDist;
-      if (prefersReducedMotion()) {
-        this.cameraDist = idealDist;
-      }
-    }
   }
 
   resize() {
     this.handleResize();
   }
 
-  clearBeaconIntervals() {
-    for (const modInfo of this.moduleViews.values()) {
-      if (modInfo.group?.userData?.soundLoopInterval) {
-        clearInterval(modInfo.group.userData.soundLoopInterval);
-        modInfo.group.userData.soundLoopInterval = null;
-      }
-    }
-  }
-
-  buildBombModel() {
-    this.clearBeaconIntervals();
-    if (this.bombGroup) {
-      this.scene.remove(this.bombGroup);
-    }
-
-    this.bombGroup = new THREE.Group();
-    const isBlind = isOperatorRole(this.role);
-    const numModules = clientModules.length;
-
-    const cols = numModules <= 3 ? numModules : (numModules <= 4 ? 2 : 3);
-    const rows = Math.ceil(numModules / cols);
-
-    const slotW = 1.08;
-    const slotH = 1.08;
-    const spacing = 0.13;
-
-    const bodyWidth = cols * slotW + (cols + 1) * spacing;
-    const bodyHeight = rows * slotH + (rows + 1) * spacing + 0.18;
-    const bodyDepth = 0.5;
-
-    const bodyGeo = new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth);
-    const bodyMat = new THREE.MeshLambertMaterial({
-      color: isBlind ? 0x27272a : 0x0f172a
-    });
-    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-    this.bombGroup.add(bodyMesh);
-
-    const rimGeo = new THREE.BoxGeometry(bodyWidth + 0.08, bodyHeight + 0.08, 0.1);
-    const rimMat = new THREE.MeshLambertMaterial({
-      color: isBlind ? 0x3f3f46 : 0x1e293b
-    });
-    const rimMesh = new THREE.Mesh(rimGeo, rimMat);
-    rimMesh.position.z = bodyDepth / 2 - 0.05;
-    this.bombGroup.add(rimMesh);
-
-    const screwGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.02, 10);
-    screwGeo.rotateX(Math.PI / 2);
-    const screwMat = new THREE.MeshLambertMaterial({ color: 0x94a3b8 });
-    const cornerOffsets = [
-      [-bodyWidth / 2 + 0.08, bodyHeight / 2 - 0.08],
-      [bodyWidth / 2 - 0.08, bodyHeight / 2 - 0.08],
-      [-bodyWidth / 2 + 0.08, -bodyHeight / 2 + 0.08],
-      [bodyWidth / 2 - 0.08, -bodyHeight / 2 + 0.08]
-    ];
-    cornerOffsets.forEach(([cx, cy]) => {
-      const screw = new THREE.Mesh(screwGeo, screwMat);
-      screw.position.set(cx, cy, bodyDepth / 2 + 0.01);
-      this.bombGroup.add(screw);
-    });
-
-    const plateW = Math.min(bodyWidth * 0.8, 2.2);
-    const plateH = 0.45;
-    const plateGeo = new THREE.PlaneGeometry(plateW, plateH);
-    plateGeo.rotateY(Math.PI);
-
-    this.serialPlateCanvas = createSerialPlateTexture(null, isBlind);
-    this.serialPlateTexture = new THREE.CanvasTexture(this.serialPlateCanvas);
-    const plateMat = new THREE.MeshBasicMaterial({
-      map: this.serialPlateTexture,
-      transparent: true
-    });
-    this.serialPlateMesh = new THREE.Mesh(plateGeo, plateMat);
-    this.serialPlateMesh.position.set(0, 0, -bodyDepth / 2 - 0.005);
-    this.bombGroup.add(this.serialPlateMesh);
-
-    this.moduleViews.clear();
-    clientModules.forEach((mod, idx) => {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-
-      const startX = -((cols - 1) * (slotW + spacing)) / 2;
-      const startY = ((rows - 1) * (slotH + spacing)) / 2;
-
-      const posX = startX + col * (slotW + spacing);
-      const posY = startY - row * (slotH + spacing);
-
-      const slot = {
-        width: slotW,
-        height: slotH,
-        depth: 0.1,
-        position: { x: posX, y: posY, z: bodyDepth / 2 }
-      };
-
-      const moduleGroup = mod.build(THREE, slot, this.role);
-      moduleGroup.position.set(posX, posY, bodyDepth / 2);
-      moduleGroup.userData.moduleId = mod.id;
-
-      this.bombGroup.add(moduleGroup);
-      this.moduleViews.set(mod.id, {
-        moduleDef: mod,
-        group: moduleGroup
-      });
-    });
-
-    this.scene.add(this.bombGroup);
-  }
-
   setupTouchControls() {
     const dom = this.renderer.domElement;
 
     this.boundPointerDown = (e) => {
-      // Only ignore non-primary mouse clicks (e.g. right-click)
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (e.cancelable) e.preventDefault();
       try {
         dom.setPointerCapture(e.pointerId);
       } catch (err) {}
-
       this.interaction.onPointerDown(e);
     };
 
@@ -416,7 +843,6 @@ export class Bomb3DScene {
           const w = this.container.clientWidth;
           const h = this.container.clientHeight;
           if (w > 0 && h > 0) {
-            this.targetCameraDist = this.calcOptimalCameraDist(w, h);
             this.handleResize(w, h);
           }
         }
@@ -425,12 +851,43 @@ export class Bomb3DScene {
 
     this.boundWheel = (e) => {
       e.preventDefault();
-      this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + e.deltaY * 0.003));
+      if (this.cameraRig) {
+        this.cameraRig.zoomByFovDelta(e.deltaY * 0.025, {
+          immediate: prefersReducedMotion()
+        });
+      }
     };
 
     this.boundContextMenu = (e) => {
-      // Prevent Android long-press context menu from interrupting 400ms wire cut or button hold!
       e.preventDefault();
+    };
+
+    this.boundWebglContextLost = (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      this.interaction.cancelActiveGesture('webgl_context_lost');
+      if (this.animFrameId) {
+        cancelAnimationFrame(this.animFrameId);
+        this.animFrameId = null;
+      }
+      if (this.animTimeoutId) {
+        clearTimeout(this.animTimeoutId);
+        this.animTimeoutId = null;
+      }
+    };
+
+    this.boundWebglContextRestored = () => {
+      this.contextLost = false;
+      if (this.world) {
+        this.world.setRole(this.role, { immediate: true });
+        if (this.currentState) {
+          this.world.updateState(this.currentState);
+        }
+      }
+      if (!this.animFrameId) {
+        this._lastFrameTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        this.animate();
+      }
     };
 
     dom.addEventListener('pointerdown', this.boundPointerDown);
@@ -440,10 +897,40 @@ export class Bomb3DScene {
     dom.addEventListener('lostpointercapture', this.boundLostCapture);
     dom.addEventListener('wheel', this.boundWheel, { passive: false });
     dom.addEventListener('contextmenu', this.boundContextMenu);
+    dom.addEventListener('webglcontextlost', this.boundWebglContextLost, false);
+    dom.addEventListener('webglcontextrestored', this.boundWebglContextRestored, false);
 
     window.addEventListener('blur', this.boundWindowBlur);
     window.addEventListener('orientationchange', this.boundOrientationChange);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
+  }
+
+  syncReticleWithInteraction() {
+    if (!this.world) return;
+    const g = this.interaction.activeGesture;
+    if (g && g.kind === 'control' && g.descriptor && isOperatorRole(this.role)) {
+      this._keyboardReticleActive = false;
+      this.world.showReticleForDescriptor(g.descriptor, Boolean(g.holdTriggered));
+    } else if (!this._keyboardReticleActive) {
+      this.world.hideReticle();
+    }
+  }
+
+  /**
+   * Allows keyboard Space accessibility hold to display the exact Operator red target reticle.
+   */
+  setKeyboardButtonReticle(active, isHoldLocked = false) {
+    if (!this.world) return;
+    if (active && isOperatorRole(this.role)) {
+      this._keyboardReticleActive = true;
+      this.world.showReticleForDescriptor(
+        { moduleId: 'button', controlId: 'plunger' },
+        isHoldLocked
+      );
+    } else {
+      this._keyboardReticleActive = false;
+      this.syncReticleWithInteraction();
+    }
   }
 
   handleTactileAndAudioFeedback(type, descriptor) {
@@ -489,41 +976,33 @@ export class Bomb3DScene {
   }
 
   cancelActiveInteraction(reason = 'manual_cancel') {
+    this._keyboardReticleActive = false;
     return this.interaction.cancelActiveGesture(reason);
   }
 
   /**
-   * Fast Programmatic Camera Views
+   * Role-Specific Seated Camera Quick Focus Presets
    */
+  setCameraPreset(presetName) {
+    if (!this.cameraRig) return;
+    this.cameraRig.setPreset(presetName, { immediate: prefersReducedMotion() });
+  }
+
   viewFront() {
-    this.targetRotX = 0;
-    this.targetRotY = 0;
-    if (prefersReducedMotion()) {
-      this.currentRotX = 0;
-      this.currentRotY = 0;
-    }
+    this.setCameraPreset('primary');
   }
 
   viewBack() {
-    this.targetRotX = 0;
-    this.targetRotY = Math.PI;
-    if (prefersReducedMotion()) {
-      this.currentRotX = 0;
-      this.currentRotY = Math.PI;
-    }
+    this.setCameraPreset('secondary');
+  }
+
+  viewTertiary() {
+    this.setCameraPreset('tertiary');
   }
 
   resetView() {
-    this.targetRotX = 0;
-    this.targetRotY = 0;
-    const w = this.container ? this.container.clientWidth : 360;
-    const h = this.container ? this.container.clientHeight : 420;
-    this.targetCameraDist = this.calcOptimalCameraDist(w, h);
-    if (prefersReducedMotion()) {
-      this.currentRotX = 0;
-      this.currentRotY = 0;
-      this.cameraDist = this.targetCameraDist;
-    }
+    if (!this.cameraRig) return;
+    this.cameraRig.resetView({ immediate: prefersReducedMotion() });
   }
 
   setSensitivity(val) {
@@ -531,6 +1010,32 @@ export class Bomb3DScene {
     if (!isNaN(num) && num >= 0.1 && num <= 3.0) {
       this.sensitivity = num;
     }
+  }
+
+  setLowSpecMode(enabled) {
+    this.lowSpecMode = Boolean(enabled);
+    if (this.world) {
+      this.world.setLowSpecMode(this.lowSpecMode);
+    }
+    if (this.renderer) {
+      this.renderer.setPixelRatio(this.computeTargetPixelRatio());
+    }
+  }
+
+  getPerformanceMetrics() {
+    const renderInfo = this.renderer?.info?.render || {};
+    const memoryInfo = this.renderer?.info?.memory || {};
+    return {
+      role: normalizeWorldRole(this.role),
+      drawCalls: renderInfo.calls ?? 0,
+      triangles: renderInfo.triangles ?? 0,
+      lines: renderInfo.lines ?? 0,
+      geometries: memoryInfo.geometries ?? 0,
+      textures: memoryInfo.textures ?? 0,
+      lowSpecMode: this.lowSpecMode,
+      isSoftwareGl: this.isSoftwareGl,
+      avgFrameMs: Math.round(this._avgFrameMs * 10) / 10
+    };
   }
 
   triggerTactileFeedback(type = 'tap') {
@@ -550,23 +1055,21 @@ export class Bomb3DScene {
   }
 
   raycast(clientX, clientY) {
-    if (!this.renderer || !this.camera || !this.bombGroup) return null;
+    if (!this.renderer || !this.world) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
 
-    this.mouseVec.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouseVec.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-    this.raycaster.setFromCamera(this.mouseVec, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.bombGroup.children, true);
-    return intersects.length > 0 ? intersects[0] : null;
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
+    return this.world.raycastFromNdc(ndcX, ndcY);
   }
 
   findHitModule(obj) {
+    if (!this.briefcaseRig || !obj) return null;
     let curr = obj;
-    while (curr && curr !== this.bombGroup) {
+    while (curr && curr !== this.briefcaseRig.moduleBayRoot && curr !== this.scene) {
       if (curr.userData?.moduleId) {
-        return this.moduleViews.get(curr.userData.moduleId);
+        return this.moduleViews.get(curr.userData.moduleId) || null;
       }
       curr = curr.parent;
     }
@@ -575,9 +1078,12 @@ export class Bomb3DScene {
 
   setRole(newRole) {
     if (this.role !== newRole) {
+      this._keyboardReticleActive = false;
       this.interaction.cancelActiveGesture('role_change');
       this.role = newRole;
-      this.buildBombModel();
+      if (this.world) {
+        this.world.setRole(newRole, { immediate: true });
+      }
       if (this.currentState) {
         this.updateState(this.currentState);
       }
@@ -587,92 +1093,84 @@ export class Bomb3DScene {
   updateState(state) {
     const prevStatus = this.currentState?.status;
     this.currentState = state;
-    if (!state) return;
+    if (!state || !this.world) return;
 
     if (prevStatus === 'running' && state.status !== 'running') {
+      this._keyboardReticleActive = false;
       this.interaction.cancelActiveGesture('round_ended');
     }
 
-    const isBlind = isOperatorRole(this.role);
-
-    if (this.serialPlateCanvas && this.serialPlateTexture) {
-      const plateText = (isObserverRole(this.role) && state.serialNumber) ? state.serialNumber : null;
-      const ctx = this.serialPlateCanvas.getContext('2d');
-      ctx.clearRect(0, 0, 512, 128);
-
-      ctx.fillStyle = isBlind ? '#27272a' : '#1e293b';
-      ctx.fillRect(0, 0, 512, 128);
-
-      ctx.strokeStyle = isBlind ? '#52525b' : '#f59e0b';
-      ctx.lineWidth = 6;
-      ctx.strokeRect(6, 6, 500, 116);
-
-      if (plateText) {
-        ctx.fillStyle = '#f59e0b';
-        ctx.font = 'bold 22px monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText('BANANABOMB REAR SERIAL PLATE', 24, 38);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '900 42px monospace';
-        ctx.fillText(`SERIAL: ${plateText}`, 24, 88);
-
-        ctx.fillStyle = '#94a3b8';
-        for (let x = 400; x < 480; x += 8) {
-          ctx.fillRect(x, 24, (x % 3 === 0 ? 5 : 2), 70);
-        }
-      } else {
-        ctx.fillStyle = '#71717a';
-        ctx.font = 'bold 24px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('[OBSERVER VISUAL ACCESS ONLY]', 256, 70);
-      }
-      this.serialPlateTexture.needsUpdate = true;
-    }
-
-    if (state.modules) {
-      for (const [modId, modInfo] of this.moduleViews.entries()) {
-        const modState = state.modules[modId];
-        if (modState) {
-          modInfo.group.visible = true;
-          modInfo.moduleDef.update(modInfo.group, this.role, modState);
-        } else {
-          modInfo.group.visible = false;
-        }
-      }
-    }
+    this.world.updateState(state);
   }
 
   animate() {
-    this.animFrameId = requestAnimationFrame(this.animate);
+    if (!this.renderer || !this.scene || !this.camera || this.contextLost) return;
 
-    // Advance active touch/hold progress indicators every frame
-    this.interaction.tick();
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const dt = now - (this._lastFrameTime || now);
+    this._lastFrameTime = now;
 
-    const damping = prefersReducedMotion() ? 1.0 : 0.16;
-    this.currentRotX += (this.targetRotX - this.currentRotX) * damping;
-    this.currentRotY += (this.targetRotY - this.currentRotY) * damping;
-    this.cameraDist += (this.targetCameraDist - this.cameraDist) * damping;
-
-    if (this.bombGroup) {
-      this.bombGroup.rotation.x = this.currentRotX;
-      this.bombGroup.rotation.y = this.currentRotY;
+    if (dt > 2 && dt < 250) {
+      this._frameDeltas.push(dt);
+      if (this._frameDeltas.length > 30) this._frameDeltas.shift();
+      if (this._frameDeltas.length === 30) {
+        const sum = this._frameDeltas.reduce((a, b) => a + b, 0);
+        this._avgFrameMs = sum / 30;
+        if (!this.lowSpecMode && !this.isSoftwareGl && this._avgFrameMs > 28) {
+          this.setLowSpecMode(true);
+        }
+      }
     }
 
-    if (this.camera) {
-      this.camera.position.z = this.cameraDist;
+    // Advance active touch/hold progress indicators
+    this.interaction.tick();
+    this.syncReticleWithInteraction();
+
+    const damping = prefersReducedMotion() ? 1.0 : 0.18;
+    if (this.cameraRig) {
+      this.cameraRig.update(damping);
     }
 
     this.renderer.render(this.scene, this.camera);
+
+    // Schedule next frame strictly AFTER draw (using GPU fenceSync on software GL)
+    if (this.isSoftwareGl && typeof window !== 'undefined') {
+      const gl = this.renderer.getContext();
+      if (gl && typeof gl.fenceSync === 'function') {
+        const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+        const poll = () => {
+          if (!this.renderer || this.contextLost) return;
+          const state = sync && gl.getSyncParameter(sync, gl.SYNC_STATUS);
+          if (state === gl.UNSIGNALED) {
+            this.animTimeoutId = window.setTimeout(poll, 5);
+          } else {
+            if (sync) gl.deleteSync(sync);
+            this.animTimeoutId = window.setTimeout(() => {
+              this.animTimeoutId = null;
+              this.animate();
+            }, 80);
+          }
+        };
+        this.animTimeoutId = window.setTimeout(poll, 5);
+        return;
+      }
+    }
+
+    this.animFrameId = requestAnimationFrame(this.animate);
   }
 
   dispose() {
+    this._keyboardReticleActive = false;
     this.interaction.cancelActiveGesture('dispose');
-    this.clearBeaconIntervals();
 
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
+    }
+    if (this.animTimeoutId) {
+      clearTimeout(this.animTimeoutId);
+      this.animTimeoutId = null;
     }
 
     if (this.resizeObserver) {
@@ -690,42 +1188,41 @@ export class Bomb3DScene {
         if (this.boundLostCapture) dom.removeEventListener('lostpointercapture', this.boundLostCapture);
         if (this.boundWheel) dom.removeEventListener('wheel', this.boundWheel);
         if (this.boundContextMenu) dom.removeEventListener('contextmenu', this.boundContextMenu);
+        if (this.boundWebglContextLost) dom.removeEventListener('webglcontextlost', this.boundWebglContextLost);
+        if (this.boundWebglContextRestored) dom.removeEventListener('webglcontextrestored', this.boundWebglContextRestored);
       }
-      window.removeEventListener('blur', this.boundWindowBlur);
-      window.removeEventListener('orientationchange', this.boundOrientationChange);
-      document.removeEventListener('visibilitychange', this.boundVisibilityChange);
 
-      if (this.scene) {
-        this.scene.traverse((obj) => {
-          if (obj.geometry) {
-            try { obj.geometry.dispose(); } catch (e) {}
-          }
-          if (obj.material) {
-            if (Array.isArray(obj.material)) {
-              obj.material.forEach((m) => {
-                try { if (m.map) m.map.dispose(); m.dispose(); } catch (e) {}
-              });
-            } else {
-              try { if (obj.material.map) obj.material.map.dispose(); obj.material.dispose(); } catch (e) {}
-            }
-          }
-        });
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('blur', this.boundWindowBlur);
+        window.removeEventListener('orientationchange', this.boundOrientationChange);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', this.boundVisibilityChange);
+      }
+
+      if (this.world) {
+        this.world.dispose();
+        this.world = null;
       }
 
       this.renderer.dispose();
       if (dom && dom.parentNode) {
         dom.parentNode.removeChild(dom);
       }
+    } else if (this.world) {
+      this.world.dispose();
+      this.world = null;
     }
 
     this.scene = null;
     this.camera = null;
+    this.cameraRig = null;
+    this.styleManager = null;
+    this.briefcaseRig = null;
+    this.vanEnv = null;
+    this.avatars = null;
     this.renderer = null;
     this.bombGroup = null;
     this.moduleViews.clear();
   }
-}
-
-function vHalf(fovRad) {
-  return fovRad * 0.5;
 }

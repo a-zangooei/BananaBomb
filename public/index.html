@@ -199,7 +199,7 @@
           <div class="tutorial-info-grid">
             <div class="tutorial-card">
               <h4>🪑 ۱. چیدمان نشستن</h4>
-              <p><strong>اپراتور</strong> طوری می‌نشیند که <strong>دارنده دفترچه راهنما</strong> و صفحه او را نبیند. <strong>ناظر</strong> در مرکز روبه‌روی دفترچه راهنما قرار می‌گیرد تا اشاره‌های او را ببیند و شفاهاً با اپراتور صحبت کند. صفحه‌نمایش هر گوشی فقط رو به صاحب همان نقش باشد.</p>
+              <p><strong>اپراتور</strong> و <strong>دارنده دفترچه راهنما</strong> روبه‌روی هم پشت میز می‌نشینند و درب بازشده کیف بمب مانع دید مستقیم دفترچه راهنما به داخل کیف می‌شود. <strong>ناظر</strong> در ضلع کناری میز می‌نشیند تا هم از زاویه جانبی داخل کیف و پلاک سریال را ببیند، هم اشاره‌های دفترچه راهنما را ببیند و شفاهاً با اپراتور صحبت کند.</p>
             </div>
             <div class="tutorial-card">
               <h4>🔊 ۲. واقعیت فیزیکی صدا</h4>
@@ -418,7 +418,7 @@
           <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
             <strong>دستورالعمل‌های عملیاتی ناظر (Observer — تنها گوینده و پل ارتباطی):</strong>
             <br>• <strong>حرمت صدا و لمس:</strong> بمب را لمس نکنید و با هدفون ایمن از صدای بازی در اتاق اطلاعات نگیرید.
-            <br>• <strong>مشاهده سرنخ‌ها:</strong> با دکمه «پشت (پلاک)» شماره سریال را بخوانید و رنگ دکمه، نوار کناری، ۴ سیم و نمادها را ببینید.
+            <br>• <strong>مشاهده سرنخ‌ها:</strong> از زاویه جانبی داخل کیف بازشده رنگ دکمه، نوار کناری، ۴ سیم و نمادها را ببینید و با دکمه «پلاک سریال» شماره سریال بدنه کیف را بخوانید.
             <br>• <strong>پل ارتباطی:</strong> سرنخ‌ها و ریتم ضربات میز اپراتور را با <strong>اشاره‌های توافقی</strong> با دفترچه راهنما تبادل کنید و دستور نهایی را <strong>شفاهاً به اپراتور</strong> بگویید.
           </div>
 
@@ -450,9 +450,10 @@
         <div class="bomb-3d-wrapper">
           <!-- Quick Camera & Hold Threshold Toolbar -->
           <div class="bomb-view-toolbar" role="toolbar" aria-label="تنظیمات زاویه دید و حساسیت تعامل">
-            <button type="button" class="view-btn" id="btnViewFront" title="نمای روبروی ماژول‌ها">👀 روبرو</button>
-            <button type="button" class="view-btn" id="btnViewBack" title="نمای پشت و پلاک سریال">🔄 پشت (پلاک)</button>
-            <button type="button" class="view-btn" id="btnResetView" title="تنظیم مجدد زاویه و زوم">🎯 بازنشانی</button>
+            <button type="button" class="view-btn" id="btnViewFront" title="زاویه دید اصلی نقش">🎛️ نمای اصلی</button>
+            <button type="button" class="view-btn" id="btnViewBack" title="زاویه دید دوم نقش">🏷️ نمای دوم</button>
+            <button type="button" class="view-btn" id="btnViewBridge" style="display: none;" title="نمای پل ارتباطی با هر دو هم‌تیمی">🤝 پل ارتباطی</button>
+            <button type="button" class="view-btn" id="btnResetView" title="تنظیم مجدد زاویه نگاه و زوم اپتیکال">🎯 بازنشانی</button>
             <div class="camera-sensitivity-control" title="تنظیم سرعت چرخش دوربین">
               <label for="cameraSensitivity"><span>سرعت:</span> <span id="sensitivityValue">1.0x</span></label>
               <input type="range" id="cameraSensitivity" min="0.5" max="2.0" step="0.1" value="1.0" aria-label="سرعت چرخش دوربین">
@@ -532,10 +533,37 @@
           </details>
         </div>
 
-        <div id="muteManualContainer" class="manual-comm-span">
-          <!-- Dynamically populated from state.roundManual and live state -->
-          <div class="manual-section manual-loading-placeholder">
-            ⏳ در حال بارگذاری قوانین اختصاصی این راند...
+        <!-- Hybrid 3D Seated Van Viewpoint + Dockable 2D Persian Rulebook Sheet -->
+        <div id="manualHybridWorkspace" class="manual-hybrid-workspace manual-comm-span" data-dock-mode="split">
+          <div class="manual-dock-controls" id="manualDockControls" role="toolbar" aria-label="حالت نمایش میز سه‌بعدی و دفترچه راهنما">
+            <div class="manual-dock-modes">
+              <button type="button" class="manual-dock-btn active" data-manual-dock="split">🚐 نمای ترکیبی</button>
+              <button type="button" class="manual-dock-btn" data-manual-dock="sheet">📖 تمام‌صفحه دفترچه</button>
+              <button type="button" class="manual-dock-btn" data-manual-dock="world">🪑 نمای میز ۳D</button>
+            </div>
+            <div class="manual-camera-presets" id="manualCameraPresets">
+              <button type="button" class="view-btn" id="btnManualViewBridge" title="نمای کلی میز و هم‌تیمی‌ها">🤝 نمای میز</button>
+              <button type="button" class="view-btn" id="btnManualViewObserver" title="تمرکز نگاه روی ناظر">👁️ تمرکز بر ناظر</button>
+            </div>
+          </div>
+
+          <div class="manual-hybrid-grid">
+            <div id="manual3dPanel" class="manual-3d-panel">
+              <div id="manual3dContainer" class="bomb-3d-canvas-container manual-3d-canvas" role="region" aria-label="نمای نشسته دارنده دفترچه راهنما در ون ۳ بعدی"></div>
+              <div class="manual-3d-caption">
+                <span>🔒 درب بازشده کیف، دید داخل بمب را مسدود کرده است</span>
+                <span>نگاه با کشیدن • زوم اپتیکال</span>
+              </div>
+            </div>
+
+            <div id="manualSheetPanel" class="manual-sheet-panel">
+              <div id="muteManualContainer">
+                <!-- Dynamically populated from state.roundManual and live state -->
+                <div class="manual-section manual-loading-placeholder">
+                  ⏳ در حال بارگذاری قوانین اختصاصی این راند...
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive architectural implementation plan for BananaBomb configurable difficulty presets (Easy, Normal, Hard), single-source-of-truth configuration, server-authoritative error-cost penalty system (scaled -15s/-30s/-45s), duplicate action idempotency, anti-guessing mathematical defense, and lobby host controls.",
-  "updatedAt":  "2026-10-21T19:42:23.715705448Z",
+  "summary":  "Revised, implementation-ready architectural specification for BananaBomb's shared 3D van world resolving all 7 technical items: exact metric BriefcaseBombRig and North-hinge coordinate math, multi-point whole-scene sightline raycast proofs with fixed-origin FOV zoom, verified server getFilteredStateForRole contracts, deterministic role-material & depth/outline rendering architecture, full BombInteractionController compatibility, measurable GPU/timing instrumentation with automatic mobile fallback, verified package.json test commands, and reordered spatial-first Stages 1–8.",
+  "updatedAt":  "2026-10-23T21:01:28.459394401Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

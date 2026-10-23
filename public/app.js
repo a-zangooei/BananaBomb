@@ -18,6 +18,8 @@ let currentGameState = null;
 let lastGameStatus = null;
 let lastTickSecond = null;
 let bombScene = null;
+let manualWorldScene = null;
+let manualDockMode = 'split';
 let selectedPermTabRole = 'operator';
 let toastTimeoutId = null;
 
@@ -124,10 +126,10 @@ const ROLE_PERMISSIONS_SPEC = {
   observer: {
     title: 'ناظر (Observer) — پل ارتباطی تیم',
     can: [
-      'مشاهده سرنخ‌های رنگی، نمادهای کیپد، نوار کناری دکمه و پلاک شماره سریال پشت بمب در نمای ۳D.',
+      'مشاهده سرنخ‌های رنگی، نمادهای کیپد، نوار کناری دکمه و پلاک شماره سریال کناری کیف بمب در نمای ۳D.',
       'صحبت کردن شفاهی با اپراتور (شما تنها بازیکنی هستید که اجازه صحبت کردن دارد).',
       'برقراری ارتباط دوطرفه با دارنده دفترچه راهنما از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
-      'چرخاندن و زوم کردن دوربین ۳D بدون لمس عملیاتی ماژول‌های بمب.'
+      'نگاه به اطراف و زوم اپتیکال از صندلی کناری میز بدون لمس عملیاتی ماژول‌های بمب.'
     ],
     cannot: [
       'لمس، بریدن سیم یا تعامل عملیاتی با هیچ‌یک از ماژول‌های بمب.',
@@ -139,7 +141,7 @@ const ROLE_PERMISSIONS_SPEC = {
   manual: {
     title: 'دفترچه راهنما (Manual-holder)',
     can: [
-      'مطالعه دفترچه قوانین اختصاصی راند جاری و ماتریس وضعیت ماژول‌ها روی گوشی خود.',
+      'مطالعه دفترچه قوانین ۲D راند جاری در کنار نمای سه‌بعدی نشسته پشت میز ون (که درب باز کیف دید داخل بمب را پوشانده است).',
       'برقراری ارتباط دوطرفه فقط با ناظر از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
       'تحلیل سرنخ‌های اعلامی ناظر و انتقال شماره سیم، ضربه/نگه‌داشتن، رقم ثانیه یا شماره کانال با اشاره به ناظر.'
     ],
@@ -336,7 +338,13 @@ function renderStrikeBoxes(currentStrikes, maxStrikes = 3) {
 // Quick Camera Views, Hold Threshold & Sensitivity Toolbar
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
+const btnViewBridge = document.getElementById('btnViewBridge');
 const btnResetView = document.getElementById('btnResetView');
+const manualHybridWorkspace = document.getElementById('manualHybridWorkspace');
+const manualDockControls = document.getElementById('manualDockControls');
+const manual3dContainer = document.getElementById('manual3dContainer');
+const btnManualViewBridge = document.getElementById('btnManualViewBridge');
+const btnManualViewObserver = document.getElementById('btnManualViewObserver');
 const cameraSensitivity = document.getElementById('cameraSensitivity');
 const sensitivityValue = document.getElementById('sensitivityValue');
 const holdThresholdControl = document.getElementById('holdThresholdControl');
@@ -387,10 +395,72 @@ if (btnViewBack) {
     if (bombScene) bombScene.viewBack();
   });
 }
+if (btnViewBridge) {
+  btnViewBridge.addEventListener('click', () => {
+    if (bombScene) bombScene.viewTertiary();
+  });
+}
 if (btnResetView) {
   btnResetView.addEventListener('click', () => {
     if (bombScene) bombScene.resetView();
   });
+}
+
+function setManualDockMode(mode) {
+  const webglReady = isWebGLAvailable();
+  manualDockMode = webglReady ? (mode || 'split') : 'sheet';
+  if (manualHybridWorkspace) {
+    manualHybridWorkspace.setAttribute('data-dock-mode', manualDockMode);
+  }
+  if (manualDockControls) {
+    manualDockControls.style.display = webglReady ? 'flex' : 'none';
+    manualDockControls.querySelectorAll('[data-manual-dock]').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-manual-dock') === manualDockMode);
+    });
+  }
+  if (manualWorldScene && manualDockMode !== 'sheet') {
+    setTimeout(() => manualWorldScene?.resize(), 30);
+  }
+}
+
+document.querySelectorAll('[data-manual-dock]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const targetMode = btn.getAttribute('data-manual-dock') || 'split';
+    setManualDockMode(targetMode);
+    if (currentGameState?.status === 'running' && isManual(myRole) && targetMode !== 'sheet') {
+      ensureManualWorldScene(currentGameState);
+    }
+  });
+});
+
+if (btnManualViewBridge) {
+  btnManualViewBridge.addEventListener('click', () => {
+    manualWorldScene?.viewFront();
+  });
+}
+if (btnManualViewObserver) {
+  btnManualViewObserver.addEventListener('click', () => {
+    manualWorldScene?.viewBack();
+  });
+}
+
+function ensureManualWorldScene(state) {
+  if (!manual3dContainer || !isWebGLAvailable() || manualDockMode === 'sheet') return;
+  if (!manualWorldScene) {
+    manualWorldScene = new Bomb3DScene(
+      manual3dContainer,
+      myRole || 'manual',
+      null,
+      () => getCurrentRemainingSeconds()
+    );
+    const savedSens = localStorage.getItem('bomb_camera_sensitivity') || '1.0';
+    manualWorldScene.setSensitivity(savedSens);
+  }
+  manualWorldScene.setRole(myRole || 'manual');
+  if (state) {
+    manualWorldScene.updateState(state);
+  }
+  manualWorldScene.resize();
 }
 
 if (cameraSensitivity) {
@@ -404,6 +474,9 @@ if (cameraSensitivity) {
     localStorage.setItem('bomb_camera_sensitivity', val);
     if (bombScene) {
       bombScene.setSensitivity(val);
+    }
+    if (manualWorldScene) {
+      manualWorldScene.setSensitivity(val);
     }
   });
 }
@@ -764,7 +837,7 @@ function renderState(state) {
 
   // 1. Serial Number Tag
   if (isObserver(myRole) && state.serialNumber) {
-    serialTag.textContent = `SERIAL: ${state.serialNumber} (پلاک پشت بمب — ویژه ناظر)`;
+    serialTag.textContent = `SERIAL: ${state.serialNumber} (پلاک کناری کیف بمب — ویژه ناظر)`;
   } else if (state.status === 'running') {
     serialTag.textContent = 'SERIAL: [فقط در دید ناظر / Observer]';
   } else {
@@ -960,21 +1033,27 @@ function renderState(state) {
         bombScene.resize();
       }
 
-      // Banner, helper instructions, and in-round "You can / You cannot" reference
+      // Banner, camera preset labels, helper instructions, and in-round "You can / You cannot" reference
       if (isOperator(myRole)) {
         bomb3dRoleBanner.className = 'role-roleplay-banner blind-banner';
         bomb3dRoleBanner.innerHTML = '⚡ <strong>اپراتور (Operator — بدون کلام):</strong> تنها فرد مجاز به لمس بمب ۳D! با عینک آفتابی و بدون دید به دفترچه راهنما؛ صدای بازی از گوشی شما پخش می‌شود. فرامین را فقط شفاهاً از ناظر بشنوید.';
         blindTactileHelper.style.display = 'block';
         deafVisualHelper.style.display = 'none';
+        if (btnViewFront) btnViewFront.textContent = '🎛️ پنل ماژول‌ها';
+        if (btnViewBack) btnViewBack.textContent = '🚐 نمای کلی میز';
+        if (btnViewBridge) btnViewBridge.style.display = 'none';
         if (holdThresholdControl) holdThresholdControl.style.display = 'flex';
         if (operatorInteractionHud) operatorInteractionHud.style.display = 'flex';
         if (observerGestureDrawer) observerGestureDrawer.style.display = 'none';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('operator');
       } else {
         bomb3dRoleBanner.className = 'role-roleplay-banner deaf-banner';
-        bomb3dRoleBanner.innerHTML = '👁️ <strong>ناظر (Observer — تنها گوینده و پل ارتباطی):</strong> هدفون ایمن در گوش (عدم استفاده از صدای بازی) و بدون لمس بمب. سرنخ‌های رنگی و پلاک سریال را ببینید، با دفترچه راهنما با اشاره تبادل کنید و به اپراتور شفاهاً فرمان دهید.';
+        bomb3dRoleBanner.innerHTML = '👁️ <strong>ناظر (Observer — تنها گوینده و پل ارتباطی):</strong> هدفون ایمن در گوش (عدم استفاده از صدای بازی) و بدون لمس بمب. از زاویه جانبی سرنخ‌های رنگی و پلاک سریال کیف را ببینید، با دفترچه راهنما با اشاره تبادل کنید و به اپراتور شفاهاً فرمان دهید.';
         blindTactileHelper.style.display = 'none';
         deafVisualHelper.style.display = 'block';
+        if (btnViewFront) btnViewFront.textContent = '🔍 سرنخ‌های کیف';
+        if (btnViewBack) btnViewBack.textContent = '🏷️ پلاک سریال';
+        if (btnViewBridge) btnViewBridge.style.display = 'inline-flex';
         if (holdThresholdControl) holdThresholdControl.style.display = 'none';
         if (operatorInteractionHud) operatorInteractionHud.style.display = 'none';
         if (observerGestureDrawer) observerGestureDrawer.style.display = 'block';
@@ -983,6 +1062,8 @@ function renderState(state) {
     } else if (isManual(myRole)) {
       muteSection.classList.add('active');
       if (manualInRoundPermissions) manualInRoundPermissions.innerHTML = buildPermissionsHtml('manual');
+      setManualDockMode(manualDockMode);
+      ensureManualWorldScene(state);
       renderDynamicManual(state.roundManual, state);
     } else {
       lobbySection.classList.add('active');
@@ -994,10 +1075,13 @@ function renderState(state) {
   updateOrientationHint();
 }
 
-// Window resize handler for 3D canvas
+// Window resize handler for 3D canvases
 window.addEventListener('resize', () => {
   if (bombScene) {
     bombScene.resize();
+  }
+  if (manualWorldScene) {
+    manualWorldScene.resize();
   }
 });
 
@@ -1084,6 +1168,7 @@ function cancelKeyboardSpaceHold(reasonText = 'نگه‌داشتن کلید Spac
     clearInterval(spaceProgressTimer);
     spaceProgressTimer = null;
   }
+  bombScene?.setKeyboardButtonReticle?.(false, false);
   const btnView = bombScene?.moduleViews?.get('button');
   if (btnView?.moduleDef?.onVisualState) {
     btnView.moduleDef.onVisualState(
@@ -1251,6 +1336,7 @@ window.addEventListener('keydown', (e) => {
               triggerHaptic([40, 30, 40]);
               sound.playTactileTick();
             }
+            bombScene?.setKeyboardButtonReticle?.(true, true);
             btnView?.moduleDef?.onVisualState?.(
               btnView.group,
               { state: 'holding', mode: 'hold', progress: 1, lastTimerDigit: digit },
@@ -1266,6 +1352,7 @@ window.addEventListener('keydown', (e) => {
               variant: 'hold'
             });
           } else {
+            bombScene?.setKeyboardButtonReticle?.(true, false);
             btnView?.moduleDef?.onVisualState?.(
               btnView.group,
               { state: 'pressing', mode: 'tap', progress, lastTimerDigit: digit },
@@ -1302,6 +1389,7 @@ window.addEventListener('keyup', (e) => {
       clearInterval(spaceProgressTimer);
       spaceProgressTimer = null;
     }
+    bombScene?.setKeyboardButtonReticle?.(false, false);
 
     const duration = Date.now() - spacePressStartTime;
     const isHold = spaceHoldReached || duration >= operatorHoldThresholdMs;

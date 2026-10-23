@@ -2012,4 +2012,147 @@ body {
   grid-column: 1 / -1;
 }
 
+/* ========================================================
+   MANUAL-HOLDER HYBRID 3D VAN VIEWPOINT + DOCKABLE 2D SHEET
+   ======================================================== */
+.manual-hybrid-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.manual-dock-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+
+.manual-dock-modes,
+.manual-camera-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.manual-dock-btn {
+  min-height: 40px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.manual-dock-btn:hover {
+  border-color: #38bdf8;
+  color: #f8fafc;
+}
+
+.manual-dock-btn.active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.manual-hybrid-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.manual-3d-panel {
+  background: #030712;
+  border: 2px solid #1f293d;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 36dvh;
+  min-height: 210px;
+  max-height: 300px;
+  flex-shrink: 0;
+}
+
+.manual-3d-canvas {
+  min-height: 170px;
+  flex: 1;
+}
+
+.manual-3d-caption {
+  background: #0f172a;
+  border-top: 1px solid #1e293b;
+  padding: 5px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.71rem;
+  color: #94a3b8;
+}
+
+.manual-sheet-panel {
+  flex: 1;
+  min-width: 0;
+  touch-action: pan-y pinch-zoom;
+}
+
+.manual-hybrid-workspace[data-dock-mode="sheet"] .manual-3d-panel,
+.manual-hybrid-workspace[data-dock-mode="sheet"] .manual-camera-presets {
+  display: none;
+}
+
+.manual-hybrid-workspace[data-dock-mode="world"] .manual-3d-panel {
+  height: 62dvh;
+  min-height: 340px;
+  max-height: 620px;
+}
+
+.manual-hybrid-workspace[data-dock-mode="world"] .manual-sheet-panel {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .manual-hybrid-workspace[data-dock-mode="split"] .manual-hybrid-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 40%) 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .manual-hybrid-workspace[data-dock-mode="split"] .manual-3d-panel {
+    position: sticky;
+    top: 8px;
+    height: 440px;
+    max-height: 520px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .manual-hybrid-workspace[data-dock-mode="split"] .manual-hybrid-grid {
+    display: grid;
+    grid-template-columns: minmax(240px, 38%) 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+
+  .manual-hybrid-workspace[data-dock-mode="split"] .manual-3d-panel {
+    height: 240px;
+    min-height: 180px;
+  }
+}
+
+
 
