@@ -102,6 +102,7 @@ describe('Phase 3 — Responsive Layout, 3D Interaction & Input Reliability Test
       } catch (e) {}
     }
     openSockets.clear();
+    server.unref();
   });
 
   describe('1. Camera & Viewport Adaptation Geometry Calculations', () => {

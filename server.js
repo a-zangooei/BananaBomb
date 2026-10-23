@@ -6,6 +6,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { activeModules, modulesById } from './modules/index.js';
 import { selectRoundRules } from './modules/rules-config.js';
+import {
+  DIFFICULTY_PRESETS,
+  DEFAULT_DIFFICULTY_ID,
+  sanitizeDifficultyConfig
+} from './modules/difficulty-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,8 +75,32 @@ function printNetworkInterfaces(port) {
 }
 
 // --- Authoritative Game State Engine ---
+// INTERNAL IDENTIFIER MAPPING (Backward-Compatible Wire Protocol):
+// Internal storage slots 'blind', 'deaf', 'mute' map 1-to-1 to canonical functional roles:
+//   - 'blind' <-> 'operator' (Operator / اپراتور)
+//   - 'deaf'  <-> 'observer' (Observer / ناظر — sole verbal speaker & gesture bridge)
+//   - 'mute'  <-> 'manual'   (Manual-holder / دفترچه راهنما)
+// Legacy keys are retained in wire payloads strictly for backward compatibility with existing clients/tests;
+// all player-facing titles and descriptions exclusively use Operator, Observer, and Manual-holder.
 const ROLES = ['blind', 'deaf', 'mute'];
 const ALL_ROLES = ['blind', 'deaf', 'mute', 'operator', 'observer', 'manual'];
+
+const COMM_AID_SYMBOLS = {
+  confirm: { id: 'confirm', symbol: '✓', label: 'تأیید' },
+  reject: { id: 'reject', symbol: '✕', label: 'رد' },
+  urgent: { id: 'urgent', symbol: '⏱', label: 'زمان / فوری' }
+};
+
+function createCommAidState(difficulty) {
+  const budget = difficulty?.features?.commAidEnabled ? (difficulty?.features?.commAidBudget || 0) : 0;
+  return {
+    enabled: Boolean(difficulty?.features?.commAidEnabled && budget > 0),
+    totalBudget: budget,
+    remainingUses: budget,
+    seq: 0,
+    lastSignal: null
+  };
+}
 
 function canonicalRole(r) {
   if (r === 'operator' || r === 'blind') return 'blind';
@@ -81,12 +110,30 @@ function canonicalRole(r) {
 }
 
 const roleMeta = {
-  operator: { title: 'اپراتور (Operator)', subtitle: 'تنها تعامل‌گر ۳ بعدی بمب؛ شنونده و تنظیم‌کننده فانوس صوتی (مونوکروم، صدا فعال، بدون کلام)' },
-  observer: { title: 'ناظر (Observer)', subtitle: 'مشاهده کامل رنگ‌ها، نمادها و پلاک پشت بمب؛ هدایت کلامی به اپراتور و اشاره به دفترچه (بدون لمس، بدون صدا)' },
-  manual: { title: 'دفترچه راهنما (Manual-holder)', subtitle: 'تحلیل‌گر دفترچه رمزگشایی و ماتریس انشعابی وضعیت (مطالعه و هدایت با اشاره، بدون لمس، بدون صدا)' },
-  blind: { title: 'اپراتور (Operator)', subtitle: 'تنها تعامل‌گر ۳ بعدی بمب؛ شنونده و تنظیم‌کننده فانوس صوتی (مونوکروم، صدا فعال، بدون کلام)' },
-  deaf: { title: 'ناظر (Observer)', subtitle: 'مشاهده کامل رنگ‌ها، نمادها و پلاک پشت بمب؛ هدایت کلامی به اپراتور و اشاره به دفترچه (بدون لمس، بدون صدا)' },
-  mute: { title: 'دفترچه راهنما (Manual-holder)', subtitle: 'تحلیل‌گر دفترچه رمزگشایی و ماتریس انشعابی وضعیت (مطالعه و هدایت با اشاره، بدون لمس، بدون صدا)' }
+  operator: {
+    title: 'اپراتور (Operator)',
+    subtitle: 'تنها بازیکن مجاز به لمس بمب ۳D؛ بدون کلام، دارای محدودیت دید توافقی (عینک آفتابی)، بدون دید به دفترچه راهنما؛ پخش صدای بازی از گوشی اپراتور'
+  },
+  observer: {
+    title: 'ناظر (Observer)',
+    subtitle: 'تنها گوینده تیم و پل ارتباطی؛ مشاهده رنگ‌ها، نمادها و پلاک سریال؛ صحبت با اپراتور و اشاره با دفترچه راهنما؛ دارای هدفون (بدون استفاده از صدای بازی) و بدون لمس بمب'
+  },
+  manual: {
+    title: 'دفترچه راهنما (Manual-holder)',
+    subtitle: 'دارنده دفترچه قوانین راند جاری؛ بدون کلام، بدون دید به صفحه اپراتور و بدون لمس بمب؛ ارتباط فقط با ناظر از طریق اشاره‌های توافقی'
+  },
+  blind: {
+    title: 'اپراتور (Operator)',
+    subtitle: 'تنها بازیکن مجاز به لمس بمب ۳D؛ بدون کلام، دارای محدودیت دید توافقی (عینک آفتابی)، بدون دید به دفترچه راهنما؛ پخش صدای بازی از گوشی اپراتور'
+  },
+  deaf: {
+    title: 'ناظر (Observer)',
+    subtitle: 'تنها گوینده تیم و پل ارتباطی؛ مشاهده رنگ‌ها، نمادها و پلاک سریال؛ صحبت با اپراتور و اشاره با دفترچه راهنما؛ دارای هدفون (بدون استفاده از صدای بازی) و بدون لمس بمب'
+  },
+  mute: {
+    title: 'دفترچه راهنما (Manual-holder)',
+    subtitle: 'دارنده دفترچه قوانین راند جاری؛ بدون کلام، بدون دید به صفحه اپراتور و بدون لمس بمب؛ ارتباط فقط با ناظر از طریق اشاره‌های توافقی'
+  }
 };
 
 // Monotonic counter to uniquely identify socket connections
@@ -135,16 +182,23 @@ roles.operator = roles.blind;
 roles.observer = roles.deaf;
 roles.manual = roles.mute;
 
+const defaultDifficulty = sanitizeDifficultyConfig(DEFAULT_DIFFICULTY_ID);
+const defaultDuration = defaultDifficulty.duration + (defaultDifficulty.features?.timerGraceSeconds || 0);
+
 let gameState = {
   status: 'waiting', // 'waiting' | 'ready' | 'running' | 'exploded' | 'defused'
   seed: null,        // Server internal seed (never sent to client)
   roundSeed: generateRandomSeed(), // Public room match seed
   roundRules: null,  // Authoritative selected schemas & rulebook
   startTime: null,   // Server timestamp in ms
-  duration: 300,     // 5 minutes in seconds
-  remainingSeconds: 300,
+  duration: defaultDuration,     // Configured round duration
+  remainingSeconds: defaultDuration,
   strikes: 0,
-  maxStrikes: 3,
+  maxStrikes: defaultDifficulty.maxStrikes,
+  difficulty: defaultDifficulty,
+  commAid: createCommAidState(defaultDifficulty),
+  activeModuleIds: activeModules.slice(0, defaultDifficulty.moduleCount).map((m) => m.id),
+  processedActionIds: new Set(), // Ring buffer for action idempotency / deduplication
   serialNumber: '',
   endReason: null,   // 'time_out' | 'max_strikes' | 'defused'
   modules: {}        // Authoritative module states
@@ -232,7 +286,9 @@ function updateHost() {
 
 // Check whether all active modules are defused
 function checkDefused() {
-  return activeModules.every((mod) => mod.isSolved(gameState.modules[mod.id]));
+  const activeIds = gameState.activeModuleIds || activeModules.map((m) => m.id);
+  const activeMods = activeModules.filter((mod) => activeIds.includes(mod.id));
+  return activeMods.length > 0 && activeMods.every((mod) => mod.isSolved(gameState.modules[mod.id]));
 }
 
 // --- Role-filtered state generation (Secrets & Seed are NEVER sent) ---
@@ -242,8 +298,21 @@ function getFilteredStateForRole(rawRole) {
   const isObserver = role === 'deaf';
   const isManual = role === 'mute';
 
-  const modulesDefusedCount = Object.values(gameState.modules || {}).filter((m) => m?.solved).length;
-  const totalModulesCount = activeModules.length;
+  const activeIds = gameState.activeModuleIds || activeModules.map((m) => m.id);
+  const modulesDefusedCount = activeIds.filter((id) => gameState.modules?.[id]?.solved).length;
+  const totalModulesCount = activeIds.length;
+
+  const rawCommAid = gameState.commAid || createCommAidState(gameState.difficulty);
+  // Enforce communication graph: Only Observer and Manual-holder see bridge signals; Operator never receives direct signals from Manual-holder
+  const roleCommAid = (isObserver || isManual)
+    ? { ...rawCommAid }
+    : {
+        enabled: rawCommAid.enabled,
+        totalBudget: rawCommAid.totalBudget,
+        remainingUses: rawCommAid.remainingUses,
+        seq: rawCommAid.seq,
+        lastSignal: null
+      };
 
   const common = {
     status: gameState.status,
@@ -253,9 +322,11 @@ function getFilteredStateForRole(rawRole) {
     remainingSeconds: gameState.remainingSeconds,
     strikes: gameState.strikes,
     maxStrikes: gameState.maxStrikes,
+    difficulty: gameState.difficulty,
+    commAid: roleCommAid,
     endReason: gameState.endReason,
     hostPlayerId: hostPlayerId,
-    moduleIds: activeModules.map((m) => m.id),
+    moduleIds: activeIds,
     modulesDefusedCount,
     totalModulesCount,
     roles: {
@@ -282,7 +353,8 @@ function getFilteredStateForRole(rawRole) {
   // Filter modules polymorphically using each module's filterForRole
   const filteredModules = {};
   for (const mod of activeModules) {
-    filteredModules[mod.id] = mod.filterForRole(role, gameState.modules[mod.id]);
+    if (!activeIds.includes(mod.id)) continue;
+    filteredModules[mod.id] = mod.filterForRole(role, gameState.modules[mod.id], { difficulty: gameState.difficulty });
   }
 
   if (isOperator) {
@@ -387,22 +459,36 @@ function startGame(customSeed = null) {
   gameState.roundSeed = seed;
   gameState.seed = seed;
 
+  if (!gameState.difficulty) {
+    gameState.difficulty = sanitizeDifficultyConfig(DEFAULT_DIFFICULTY_ID);
+  }
+
   const serial = generateSerialNumber(rng);
   const lastSerialDigit = parseInt(serial[serial.length - 1], 10);
   const isSerialEven = lastSerialDigit % 2 === 0;
-  const ctx = { serialNumber: serial, isSerialEven, rng, roundRules };
+  const ctx = { serialNumber: serial, isSerialEven, rng, roundRules, difficulty: gameState.difficulty };
 
-  // Dynamically initialize all active modules using roundRules
+  // Select active modules according to difficulty moduleCount (preserving wires first)
+  const modCount = gameState.difficulty.moduleCount || activeModules.length;
+  const selectedMods = activeModules.slice(0, modCount);
+  gameState.activeModuleIds = selectedMods.map((m) => m.id);
+
+  // Dynamically initialize only active modules using roundRules
   gameState.serialNumber = serial;
   gameState.modules = {};
-  for (const mod of activeModules) {
+  for (const mod of selectedMods) {
     gameState.modules[mod.id] = mod.create(rng, ctx);
   }
 
   gameState.strikes = 0;
+  gameState.maxStrikes = gameState.difficulty.maxStrikes || 3;
   gameState.endReason = null;
-  gameState.duration = 300; // 5 minutes
-  gameState.remainingSeconds = 300;
+  gameState.processedActionIds = new Set();
+  gameState.commAid = createCommAidState(gameState.difficulty);
+
+  const totalDuration = (gameState.difficulty.duration || 300) + (gameState.difficulty.features?.timerGraceSeconds || 0);
+  gameState.duration = totalDuration;
+  gameState.remainingSeconds = totalDuration;
   gameState.startTime = Date.now();
   gameState.status = 'running';
 
@@ -411,6 +497,7 @@ function startGame(customSeed = null) {
     startTime: gameState.startTime,
     duration: gameState.duration,
     roundSeed: gameState.roundSeed,
+    difficulty: gameState.difficulty,
     serverTimestamp: Date.now()
   });
 
@@ -440,12 +527,21 @@ function resetGame(clearDisconnectedRoles = true) {
   gameState.roundSeed = generateRandomSeed();
   gameState.roundRules = null;
   gameState.startTime = null;
-  gameState.duration = 300;
-  gameState.remainingSeconds = 300;
+  gameState.processedActionIds = new Set();
+
+  if (!gameState.difficulty) {
+    gameState.difficulty = sanitizeDifficultyConfig(DEFAULT_DIFFICULTY_ID);
+  }
+  const totalDuration = gameState.difficulty.duration + (gameState.difficulty.features?.timerGraceSeconds || 0);
+  gameState.duration = totalDuration;
+  gameState.remainingSeconds = totalDuration;
   gameState.strikes = 0;
+  gameState.maxStrikes = gameState.difficulty.maxStrikes;
   gameState.endReason = null;
   gameState.serialNumber = '';
   gameState.modules = {};
+  gameState.activeModuleIds = activeModules.slice(0, gameState.difficulty.moduleCount).map((m) => m.id);
+  gameState.commAid = createCommAidState(gameState.difficulty);
 
   if (clearDisconnectedRoles) {
     // Purge any stale role claims from disconnected players
@@ -468,6 +564,8 @@ function resetGame(clearDisconnectedRoles = true) {
 }
 
 function triggerExplosion(reason) {
+  // Ensure terminal states are strictly mutually exclusive and trigger exactly once
+  if (gameState.status !== 'running') return;
   stopGameTimer();
   gameState.status = 'exploded';
   gameState.endReason = reason; // 'time_out' | 'max_strikes'
@@ -475,6 +573,8 @@ function triggerExplosion(reason) {
 }
 
 function triggerDefusal() {
+  // Ensure terminal states are strictly mutually exclusive and trigger exactly once
+  if (gameState.status !== 'running') return;
   stopGameTimer();
   gameState.status = 'defused';
   gameState.endReason = 'all_modules_defused';
@@ -482,16 +582,30 @@ function triggerDefusal() {
 }
 
 function registerStrike(reason) {
+  if (gameState.status !== 'running') return;
   gameState.strikes += 1;
+
+  const penalty = gameState.difficulty?.timePenaltySeconds ?? 30;
+  if (penalty > 0 && gameState.startTime) {
+    // Exact authoritative time penalty deduction
+    gameState.startTime -= penalty * 1000;
+    const elapsed = (Date.now() - gameState.startTime) / 1000;
+    gameState.remainingSeconds = Math.max(0, Math.round(gameState.duration - elapsed));
+  }
+
   broadcastEvent({
     type: 'strike',
     strikes: gameState.strikes,
     maxStrikes: gameState.maxStrikes,
+    penaltySeconds: penalty,
+    remainingSeconds: gameState.remainingSeconds,
     reason: reason || 'خطا در اجرای ماژول'
   });
 
   if (gameState.strikes >= gameState.maxStrikes) {
     triggerExplosion('max_strikes');
+  } else if (gameState.remainingSeconds <= 0) {
+    triggerExplosion('time_out');
   } else {
     broadcastFullState();
   }
@@ -751,6 +865,48 @@ function handleClientEvent(ws, msg) {
     return;
   }
 
+  // 4c. Set Difficulty Preset & Custom Overrides in Lobby (Host only)
+  if (type === 'set_difficulty') {
+    if (gameState.status !== 'waiting' && gameState.status !== 'ready') {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'INVALID_STATE',
+        message: 'تنظیم درجه سختی فقط در لابی امکان‌پذیر است.'
+      }));
+      return;
+    }
+
+    const socketInfo = activeSockets.get(ws);
+    const playerId = socketInfo ? socketInfo.playerId : null;
+    if (!playerId || playerId !== hostPlayerId) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'UNAUTHORIZED',
+        message: 'تنها میزبان بازی مجاز به تغییر درجه سختی است.'
+      }));
+      return;
+    }
+
+    const presetId = payload?.presetId || payload?.preset || msg.presetId || msg.preset;
+    const customOverrides = payload?.customOverrides || payload?.custom || msg.customOverrides;
+
+    const sanitized = sanitizeDifficultyConfig(presetId, customOverrides);
+    gameState.difficulty = sanitized;
+    const totalDuration = sanitized.duration + (sanitized.features?.timerGraceSeconds || 0);
+    gameState.duration = totalDuration;
+    gameState.remainingSeconds = totalDuration;
+    gameState.maxStrikes = sanitized.maxStrikes;
+    gameState.activeModuleIds = activeModules.slice(0, sanitized.moduleCount).map((m) => m.id);
+    gameState.commAid = createCommAidState(sanitized);
+
+    broadcastEvent({
+      type: 'difficulty_changed',
+      difficulty: gameState.difficulty
+    });
+    broadcastFullState();
+    return;
+  }
+
   // 5. Reset Game (Must be in valid state AND initiated by host)
   if (type === 'reset') {
     if (!['waiting', 'exploded', 'defused'].includes(gameState.status)) {
@@ -808,9 +964,29 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    // Flood protection / rate limiting (70ms between actions per player)
+    // Action idempotency & deduplication: Ignore duplicate action IDs
+    const actionId = actionData.actionId || msg.actionId;
+    if (actionId) {
+      if (gameState.processedActionIds && gameState.processedActionIds.has(actionId)) {
+        ws.send(JSON.stringify({
+          type: 'action_duplicate',
+          actionId,
+          message: 'عملیات تکراری نادیده گرفته شد.'
+        }));
+        return;
+      }
+      if (!gameState.processedActionIds) gameState.processedActionIds = new Set();
+      gameState.processedActionIds.add(actionId);
+      if (gameState.processedActionIds.size > 500) {
+        const oldest = gameState.processedActionIds.values().next().value;
+        gameState.processedActionIds.delete(oldest);
+      }
+    }
+
+    // Flood protection / rate limiting based on difficulty interaction grace
     const now = Date.now();
-    if (session.lastActionTime && (now - session.lastActionTime < 70)) {
+    const cooldownMs = gameState.difficulty?.interactionGraceMs || 70;
+    if (session.lastActionTime && (now - session.lastActionTime < cooldownMs)) {
       return;
     }
     session.lastActionTime = now;
@@ -824,7 +1000,8 @@ function handleClientEvent(ws, msg) {
     const ctx = {
       remainingSeconds: gameState.remainingSeconds,
       lastDigit,
-      serialNumber: gameState.serialNumber
+      serialNumber: gameState.serialNumber,
+      difficulty: gameState.difficulty
     };
 
     const result = mod.handleAction(gameState.modules[moduleId], action, data, ctx);
@@ -840,6 +1017,127 @@ function handleClientEvent(ws, msg) {
       if (checkDefused()) {
         triggerDefusal();
         return;
+      }
+    }
+
+    broadcastFullState();
+    return;
+  }
+
+  // 7. Optional Easy-mode 3-Symbol Communication Aid (Observer <-> Manual-holder bridge only)
+  if (type === 'comm_signal') {
+    if (gameState.status !== 'running') {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'INVALID_STATE',
+        message: 'ارسال نماد کمک‌ارتباطی فقط در حین اجرای راند مجاز است.'
+      }));
+      return;
+    }
+
+    const socketInfo = activeSockets.get(ws);
+    const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
+    const senderRole = session ? canonicalRole(session.role) : null;
+
+    // Strictly enforce canonical communication graph: Only Observer ('deaf') and Manual-holder ('mute') share this bridge
+    if (senderRole !== 'deaf' && senderRole !== 'mute') {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'UNAUTHORIZED_COMM_ROLE',
+        message: 'کمک‌ارتباطی فقط بین ناظر و دارنده دفترچه راهنما فعال است؛ ارتباط مستقیم با اپراتور مجاز نیست.'
+      }));
+      return;
+    }
+
+    const reqData = payload || msg.data || msg;
+    // Reject any attempt to smuggle free-text chat, voice payloads, or answer shortcuts
+    if (
+      reqData?.text !== undefined ||
+      reqData?.chat !== undefined ||
+      reqData?.answer !== undefined ||
+      msg.text !== undefined ||
+      msg.chat !== undefined
+    ) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'INVALID_COMM_SYMBOL',
+        message: 'ارسال متن آزاد یا میانبر پاسخ ممنوع است؛ فقط سه نماد استاندارد مجاز هستند.'
+      }));
+      return;
+    }
+
+    const symbolId = typeof reqData?.symbolId === 'string' ? reqData.symbolId.trim() : '';
+    const symbolDef = COMM_AID_SYMBOLS[symbolId];
+    if (!symbolDef) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'INVALID_COMM_SYMBOL',
+        message: 'نماد انتخاب‌شده معتبر نیست. فقط تأیید، رد یا زمان/فوری مجاز است.'
+      }));
+      return;
+    }
+
+    if (!gameState.commAid || !gameState.commAid.enabled) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'COMM_AID_DISABLED',
+        message: 'کمک‌ارتباطی ۳ نمادی در درجه سختی فعلی غیرفعال است.'
+      }));
+      return;
+    }
+
+    const actionId = reqData?.actionId || msg.actionId;
+    if (actionId) {
+      if (gameState.processedActionIds && gameState.processedActionIds.has(actionId)) {
+        ws.send(JSON.stringify({
+          type: 'action_duplicate',
+          actionId,
+          message: 'نماد تکراری نادیده گرفته شد.'
+        }));
+        return;
+      }
+      if (!gameState.processedActionIds) gameState.processedActionIds = new Set();
+      gameState.processedActionIds.add(actionId);
+    }
+
+    if (gameState.commAid.remainingUses <= 0) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'COMM_BUDGET_EXHAUSTED',
+        message: 'سهمیه کمک‌ارتباطی در این راند به پایان رسیده است؛ از اشاره‌های توافقی استفاده کنید.'
+      }));
+      return;
+    }
+
+    gameState.commAid.remainingUses -= 1;
+    gameState.commAid.seq += 1;
+    const signalRecord = {
+      id: symbolDef.id,
+      symbol: symbolDef.symbol,
+      label: symbolDef.label,
+      senderRole: senderRole === 'deaf' ? 'observer' : 'manual',
+      senderTitle: senderRole === 'deaf' ? 'ناظر (Observer)' : 'دفترچه راهنما (Manual-holder)',
+      seq: gameState.commAid.seq,
+      remainingUses: gameState.commAid.remainingUses,
+      totalBudget: gameState.commAid.totalBudget,
+      timestamp: Date.now()
+    };
+    gameState.commAid.lastSignal = signalRecord;
+
+    // Deliver signal event ONLY to Observer and Manual-holder sockets (never to Operator)
+    const eventMsg = JSON.stringify({
+      type: 'comm_signal_sent',
+      signal: signalRecord,
+      remainingUses: gameState.commAid.remainingUses,
+      totalBudget: gameState.commAid.totalBudget
+    });
+    for (const client of wss.clients) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+      const cInfo = activeSockets.get(client);
+      const cSess = cInfo ? sessions.get(cInfo.playerId) : null;
+      const cRole = cSess ? canonicalRole(cSess.role) : null;
+      if (cRole === 'deaf' || cRole === 'mute') {
+        client.send(eventMsg);
       }
     }
 
@@ -869,11 +1167,15 @@ export {
   sessions,
   activeSockets,
   ROLES,
+  COMM_AID_SYMBOLS,
   startGame,
   resetGame,
   getRoleByPlayerId,
   releaseRole,
   updateHost,
   getFilteredStateForRole,
-  createRng
+  createRng,
+  DIFFICULTY_PRESETS,
+  DEFAULT_DIFFICULTY_ID,
+  sanitizeDifficultyConfig
 };

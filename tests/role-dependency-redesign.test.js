@@ -13,7 +13,8 @@ import {
   activeSockets,
   ROLES,
   createRng,
-  getFilteredStateForRole
+  getFilteredStateForRole,
+  sanitizeDifficultyConfig
 } from '../server.js';
 import { activeModules, modulesById } from '../modules/index.js';
 import {
@@ -150,6 +151,7 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
     }
     openSockets.clear();
     resetGame(true);
+    server.unref();
   });
 
   beforeEach(async () => {
@@ -169,6 +171,7 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
       roles[r].connected = false;
       roles[r].joinedAt = null;
     }
+    gameState.difficulty = sanitizeDifficultyConfig('hard');
     resetGame(true);
   });
 

@@ -30,7 +30,7 @@ export const keypadClientModule = {
   build(THREE, slot, role) {
     const group = new THREE.Group();
     group.name = 'module_keypad';
-    const isBlind = role === 'blind';
+    const isBlind = role === 'blind' || role === 'operator';
 
     // 1. Module Base Plate
     const baseGeo = new THREE.BoxGeometry(slot.width * 0.94, slot.height * 0.94, 0.05);
@@ -117,7 +117,7 @@ export const keypadClientModule = {
   update(moduleView, role, state) {
     if (!moduleView || !state) return;
     const { keyData, ledMesh } = moduleView.userData;
-    const isBlind = role === 'blind';
+    const isBlind = role === 'blind' || role === 'operator';
 
     // Status LED
     ledMesh.material.color.setHex(state.solved ? 0x10b981 : 0x475569);
@@ -151,7 +151,7 @@ export const keypadClientModule = {
   },
 
   onPointer(hit, event, send, moduleView, role, state) {
-    if (role !== 'blind' || state?.solved) return false;
+    if ((role !== 'blind' && role !== 'operator') || state?.solved) return false;
     const { keyData } = moduleView.userData;
 
     let targetMesh = hit.object;

@@ -13,33 +13,40 @@ export function isWebGLAvailable() {
   }
 }
 
+function isOperatorRole(role) {
+  return role === 'blind' || role === 'operator';
+}
+
+function isObserverRole(role) {
+  return role === 'deaf' || role === 'observer';
+}
+
 /**
  * Procedural Serial Number Plate Texture
  */
-function createSerialPlateTexture(serialNumber, isBlind) {
+function createSerialPlateTexture(serialNumber, isMonochrome) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 128;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = isBlind ? '#27272a' : '#1e293b';
+  ctx.fillStyle = isMonochrome ? '#27272a' : '#1e293b';
   ctx.fillRect(0, 0, 512, 128);
 
-  ctx.strokeStyle = isBlind ? '#52525b' : '#f59e0b';
+  ctx.strokeStyle = isMonochrome ? '#52525b' : '#f59e0b';
   ctx.lineWidth = 6;
   ctx.strokeRect(6, 6, 500, 116);
 
-  if (!isBlind && serialNumber) {
+  if (!isMonochrome && serialNumber) {
     ctx.fillStyle = '#f59e0b';
     ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('ORDNANCE DISPOSAL UNIT // DEFENSE TECH', 24, 38);
+    ctx.fillText('BANANABOMB REAR SERIAL PLATE', 24, 38);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '900 44px monospace';
     ctx.fillText(`SERIAL: ${serialNumber}`, 24, 88);
 
-    // Fake barcode stripes on right
     ctx.fillStyle = '#94a3b8';
     for (let x = 400; x < 480; x += 8) {
       ctx.fillRect(x, 24, (x % 3 === 0 ? 5 : 2), 70);
@@ -48,7 +55,7 @@ function createSerialPlateTexture(serialNumber, isBlind) {
     ctx.fillStyle = '#71717a';
     ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('[CLASSIFIED // SERIAL SCRATCHED]', 256, 70);
+    ctx.fillText('[OBSERVER VISUAL ACCESS ONLY]', 256, 70);
   }
 
   return canvas;
@@ -220,7 +227,7 @@ export class Bomb3DScene {
     }
 
     this.bombGroup = new THREE.Group();
-    const isBlind = this.role === 'blind';
+    const isBlind = isOperatorRole(this.role);
     const numModules = clientModules.length;
 
     // Calculate slots layout (supports up to 6 modules)
@@ -335,12 +342,12 @@ export class Bomb3DScene {
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
         this.candidateModule = null;
 
-        // Interactive raycast check for Blind role
-        if (this.role === 'blind') {
+        // Interactive raycast check for Operator role
+        if (isOperatorRole(this.role)) {
           const hit = this.raycast(e.clientX, e.clientY);
           if (hit) {
             const modInfo = this.findHitModule(hit.object);
-            if (modInfo) {
+            if (modInfo && modInfo.group.visible) {
               this.candidateModule = modInfo;
               this.candidateHit = hit;
               const lastDigit = Math.floor(Math.max(0, this.getTimerRemaining())) % 10;
@@ -406,7 +413,7 @@ export class Bomb3DScene {
 
         if (isCancel) {
           this.cancelCandidateModule();
-        } else if (this.role === 'blind' && this.candidateModule) {
+        } else if (isOperatorRole(this.role) && this.candidateModule) {
           // If the pointer didn't move significantly, it is a deliberate tap / release!
           if (!this.hasMovedSignificantly) {
             const hit = this.raycast(e.clientX, e.clientY);
@@ -552,11 +559,11 @@ export class Bomb3DScene {
     this.currentState = state;
     if (!state) return;
 
-    const isBlind = this.role === 'blind';
+    const isBlind = isOperatorRole(this.role);
 
     // Update Serial Number Plate
     if (this.serialPlateCanvas && this.serialPlateTexture) {
-      const plateText = (this.role === 'deaf' && state.serialNumber) ? state.serialNumber : null;
+      const plateText = (isObserverRole(this.role) && state.serialNumber) ? state.serialNumber : null;
       const ctx = this.serialPlateCanvas.getContext('2d');
       ctx.clearRect(0, 0, 512, 128);
 
@@ -571,7 +578,7 @@ export class Bomb3DScene {
         ctx.fillStyle = '#f59e0b';
         ctx.font = 'bold 22px monospace';
         ctx.textAlign = 'left';
-        ctx.fillText('ORDNANCE DISPOSAL UNIT // DEFENSE TECH', 24, 38);
+        ctx.fillText('BANANABOMB REAR SERIAL PLATE', 24, 38);
 
         ctx.fillStyle = '#ffffff';
         ctx.font = '900 42px monospace';
@@ -585,17 +592,20 @@ export class Bomb3DScene {
         ctx.fillStyle = '#71717a';
         ctx.font = 'bold 24px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('[CLASSIFIED // SERIAL SCRATCHED]', 256, 70);
+        ctx.fillText('[OBSERVER VISUAL ACCESS ONLY]', 256, 70);
       }
       this.serialPlateTexture.needsUpdate = true;
     }
 
-    // Update individual active modules
+    // Update individual active modules (hide slots not active in current difficulty preset)
     if (state.modules) {
       for (const [modId, modInfo] of this.moduleViews.entries()) {
         const modState = state.modules[modId];
         if (modState) {
+          modInfo.group.visible = true;
           modInfo.moduleDef.update(modInfo.group, this.role, modState);
+        } else {
+          modInfo.group.visible = false;
         }
       }
     }

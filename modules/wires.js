@@ -25,7 +25,7 @@ export const wiresModule = {
     };
   },
 
-  filterForRole(role, state) {
+  filterForRole(role, state, ctx = null) {
     if (!state) return null;
     const isOperator = role === 'operator' || role === 'blind';
     const isObserver = role === 'observer' || role === 'deaf';
@@ -45,7 +45,8 @@ export const wiresModule = {
         wires: state.wires,
         colors: state.wires,
         cutWires: state.cutWires,
-        solved: state.solved
+        solved: state.solved,
+        wireIndexLabels: Boolean(ctx?.difficulty?.features?.wireIndexLabels)
       };
     }
     // Manual-holder (mute)

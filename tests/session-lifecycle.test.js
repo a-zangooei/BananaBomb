@@ -85,13 +85,17 @@ function createClient() {
 }
 
 describe('Player Sessions and Game State Lifecycle', () => {
-  before(() => {
-    return new Promise((resolve) => {
-      server.listen(0, '127.0.0.1', () => {
-        port = server.address().port;
-        resolve();
+  before(async () => {
+    if (!server.listening) {
+      await new Promise((resolve) => {
+        server.listen(0, '127.0.0.1', () => {
+          port = server.address().port;
+          resolve();
+        });
       });
-    });
+    } else {
+      port = server.address().port;
+    }
   });
 
   after(async () => {
@@ -102,6 +106,7 @@ describe('Player Sessions and Game State Lifecycle', () => {
       } catch (e) {}
     }
     openSockets.clear();
+    server.unref();
   });
 
   beforeEach(async () => {

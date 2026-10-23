@@ -8,7 +8,7 @@ export const wiresClientModule = {
   build(THREE, slot, role) {
     const group = new THREE.Group();
     group.name = 'module_wires';
-    const isBlind = role === 'blind';
+    const isBlind = role === 'blind' || role === 'operator';
 
     // 1. Module Base Plate
     const baseGeo = new THREE.BoxGeometry(slot.width * 0.94, slot.height * 0.94, 0.05);
@@ -75,6 +75,37 @@ export const wiresClientModule = {
       rightCutMesh.visible = false;
       wireGroup.add(rightCutMesh);
 
+      // Wire index indicator badge (for Observer assistance in Easy mode)
+      let labelMesh = null;
+      if (!isBlind && typeof document !== 'undefined') {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 64;
+          canvas.height = 64;
+          const ctx2d = canvas.getContext('2d');
+          ctx2d.fillStyle = '#1e293b';
+          ctx2d.beginPath();
+          ctx2d.arc(32, 32, 28, 0, Math.PI * 2);
+          ctx2d.fill();
+          ctx2d.lineWidth = 4;
+          ctx2d.strokeStyle = '#38bdf8';
+          ctx2d.stroke();
+          ctx2d.fillStyle = '#38bdf8';
+          ctx2d.font = 'bold 36px sans-serif';
+          ctx2d.textAlign = 'center';
+          ctx2d.textBaseline = 'middle';
+          ctx2d.fillText((idx + 1).toString(), 32, 34);
+
+          const tex = new THREE.CanvasTexture(canvas);
+          const lblMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
+          const lblGeo = new THREE.PlaneGeometry(0.12, 0.12);
+          labelMesh = new THREE.Mesh(lblGeo, lblMat);
+          labelMesh.position.set(-wireSpan / 2 - 0.09, 0, 0.05);
+          labelMesh.visible = false;
+          wireGroup.add(labelMesh);
+        } catch (e) {}
+      }
+
       // Generous invisible touch hitbox for mobile & touchscreens (3x wire radius)
       const hitBoxGeo = new THREE.BoxGeometry(wireSpan * 0.95, 0.13, 0.12);
       const hitBoxMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
@@ -90,6 +121,7 @@ export const wiresClientModule = {
         leftCutMesh,
         rightCutMesh,
         wireMat,
+        labelMesh,
         wireIndex: idx
       });
     });
@@ -105,7 +137,7 @@ export const wiresClientModule = {
   update(moduleView, role, state) {
     if (!moduleView || !state) return;
     const { wireMeshes, ledMesh } = moduleView.userData;
-    const isBlind = role === 'blind';
+    const isBlind = role === 'blind' || role === 'operator';
 
     // LED
     ledMesh.material.color.setHex(state.solved ? 0x10b981 : 0x475569);
@@ -120,6 +152,11 @@ export const wiresClientModule = {
     wireMeshes.forEach((w) => {
       const idx = w.wireIndex;
       const isCut = state.cutWires?.includes(idx);
+
+      // Assistance wire index labels
+      if (w.labelMesh) {
+        w.labelMesh.visible = !!state.wireIndexLabels;
+      }
 
       // Update color: gray for blind, real colors for deaf
       if (isBlind) {
@@ -143,7 +180,7 @@ export const wiresClientModule = {
   },
 
   onPointer(hit, event, send, moduleView, role, state) {
-    if (role !== 'blind' || state?.solved) return false;
+    if ((role !== 'blind' && role !== 'operator') || state?.solved) return false;
 
     // Identify which wire was hit
     let targetMesh = hit.object;

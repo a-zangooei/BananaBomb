@@ -31,7 +31,7 @@ export const buttonClientModule = {
     const group = new THREE.Group();
     group.name = 'module_button';
 
-    const isBlind = role === 'blind';
+    const isBlind = role === 'blind' || role === 'operator';
 
     // 1. Module Base Plate
     const baseGeo = new THREE.BoxGeometry(slot.width * 0.94, slot.height * 0.94, 0.05);
@@ -130,7 +130,7 @@ export const buttonClientModule = {
   update(moduleView, role, state) {
     if (!moduleView || !state) return;
     const { btnMesh, capMesh, ledMesh, stripMesh, labelCanvas, labelTexture } = moduleView.userData;
-    const isBlind = role === 'blind';
+    const isBlind = role === 'blind' || role === 'operator';
 
     // 1. Solved Status LED
     if (state.solved) {
@@ -185,7 +185,7 @@ export const buttonClientModule = {
   },
 
   onPointer(hit, event, send, moduleView, role, state) {
-    if (role !== 'blind' || state?.solved) return;
+    if ((role !== 'blind' && role !== 'operator') || state?.solved) return;
     const { btnMesh, capMesh, stripMesh, glowRing, defaultBtnZ } = moduleView.userData;
 
     if (event.type === 'pointerdown') {

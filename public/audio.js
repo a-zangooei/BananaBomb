@@ -1,7 +1,7 @@
 /**
  * Standalone Web Audio API Synthesizer
  * Generates all bomb sound effects procedurally without any external audio files.
- * Role-gated: Only the 'blind' role has sound enabled.
+ * Device playback is enabled on the Operator's device (note: in an in-person room, sound from the Operator's phone may physically be heard in the room; Observer wears headphones/agreed alternative and must not use game audio).
  */
 
 class SoundEngine {

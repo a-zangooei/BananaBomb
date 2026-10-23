@@ -2,7 +2,7 @@
   "name": "local-coop-defusal",
   "version": "1.0.0",
   "type": "module",
-  "description": "Local 3-player cooperative bomb defusal game with Blind, Deaf, and Mute roles",
+  "description": "Local 3-player in-person cooperative bomb defusal game with Operator, Observer, and Manual-holder roles",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
