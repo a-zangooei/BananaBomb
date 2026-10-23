@@ -1,29 +1,51 @@
 /**
  * Client 3D Acoustic Beacon Module
- * Operator perceives audio pattern and tunes channel dial;
- * Observer reads physical dial and relays serial number;
- * Manual-holder decrypts target channel from the rhythm matrix.
+ * Enlarged dial knob, channel 1-3 touch targets, and intentional hold-to-transmit (TX)
+ * confirmation ring so accidental brushes cannot trigger a transmit strike.
  */
-function createDialTexture(label, isMonochrome) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
+import { createCanvas2D } from './canvas-utils.js';
 
-  ctx.fillStyle = isMonochrome ? '#27272a' : '#0f172a';
+function drawDialCanvas(canvas, label, isMonochrome, isHighlighted = false) {
+  const ctx = canvas.getContext('2d');
+  if (canvas._texts) canvas._texts.length = 0;
+
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.fillStyle = isHighlighted ? '#1e3a8a' : (isMonochrome ? '#27272a' : '#0f172a');
   ctx.fillRect(0, 0, 128, 128);
 
-  ctx.strokeStyle = isMonochrome ? '#71717a' : '#38bdf8';
-  ctx.lineWidth = 6;
+  ctx.strokeStyle = isHighlighted ? '#fbbf24' : (isMonochrome ? '#a1a1aa' : '#38bdf8');
+  ctx.lineWidth = isHighlighted ? 8 : 6;
   ctx.strokeRect(4, 4, 120, 120);
 
-  ctx.font = 'bold 36px monospace';
+  ctx.font = 'bold 38px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
   ctx.fillText(label, 64, 64);
+}
 
-  return canvas;
+function drawTxCanvas(canvas, text, progress, isMonochrome, isSolved = false) {
+  const ctx = canvas.getContext('2d');
+  if (canvas._texts) canvas._texts.length = 0;
+
+  ctx.clearRect(0, 0, 256, 96);
+  ctx.fillStyle = isSolved ? '#14532d' : (isMonochrome ? '#27272a' : '#0369a1');
+  ctx.fillRect(0, 0, 256, 96);
+
+  if (progress > 0 && !isSolved) {
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.45)';
+    ctx.fillRect(6, 6, Math.round(244 * Math.min(1, progress)), 84);
+  }
+
+  ctx.strokeStyle = isSolved ? '#22c55e' : (progress > 0 ? '#f59e0b' : (isMonochrome ? '#a1a1aa' : '#38bdf8'));
+  ctx.lineWidth = 6;
+  ctx.strokeRect(4, 4, 248, 88);
+
+  ctx.font = 'bold 34px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, 128, 48);
 }
 
 export const beaconClientModule = {
@@ -45,7 +67,7 @@ export const beaconClientModule = {
     group.add(baseMesh);
 
     // 2. Status LED (Top-Right)
-    const ledGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.02, 16);
+    const ledGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.025, 16);
     ledGeo.rotateX(Math.PI / 2);
     const ledMat = new THREE.MeshBasicMaterial({
       color: isMonochrome ? 0x71717a : 0xef4444
@@ -56,9 +78,9 @@ export const beaconClientModule = {
 
     // 3. Speaker / Beacon Perforated Grill (Top-Left)
     const speakerGroup = new THREE.Group();
-    speakerGroup.position.set(-slot.width * 0.22, slot.height * 0.25, 0.03);
-    for (let r = 0.04; r <= 0.14; r += 0.05) {
-      const ringGeo = new THREE.RingGeometry(r, r + 0.015, 20);
+    speakerGroup.position.set(-slot.width * 0.25, slot.height * 0.28, 0.03);
+    for (let r = 0.035; r <= 0.12; r += 0.042) {
+      const ringGeo = new THREE.RingGeometry(r, r + 0.014, 20);
       const ringMat = new THREE.MeshBasicMaterial({
         color: isMonochrome ? 0x52525b : 0x38bdf8,
         side: THREE.DoubleSide
@@ -75,14 +97,14 @@ export const beaconClientModule = {
       side: THREE.DoubleSide
     });
     const dialRingMesh = new THREE.Mesh(dialRingGeo, dialRingMat);
-    dialRingMesh.position.set(0, -0.02, 0.03);
+    dialRingMesh.position.set(0, -0.01, 0.03);
     group.add(dialRingMesh);
 
     // 5. Dial Knob (Interactive)
     const knobGroup = new THREE.Group();
-    knobGroup.position.set(0, -0.02, 0.03);
+    knobGroup.position.set(0, -0.01, 0.03);
 
-    const knobBodyGeo = new THREE.CylinderGeometry(0.18, 0.21, 0.06, 24);
+    const knobBodyGeo = new THREE.CylinderGeometry(0.2, 0.22, 0.065, 24);
     knobBodyGeo.rotateX(Math.PI / 2);
     const knobBodyMat = new THREE.MeshLambertMaterial({
       color: isMonochrome ? 0x3f3f46 : 0x334155
@@ -91,17 +113,25 @@ export const beaconClientModule = {
     knobMesh.userData.isKnob = true;
     knobGroup.add(knobMesh);
 
+    // Invisible Knob Touch Hitbox
+    const knobHitGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.1, 20);
+    knobHitGeo.rotateX(Math.PI / 2);
+    const knobHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const knobHitMesh = new THREE.Mesh(knobHitGeo, knobHitMat);
+    knobHitMesh.userData.isKnob = true;
+    knobGroup.add(knobHitMesh);
+
     // Pointer indicator on knob
-    const needleGeo = new THREE.BoxGeometry(0.025, 0.14, 0.02);
+    const needleGeo = new THREE.BoxGeometry(0.028, 0.15, 0.022);
     const needleMat = new THREE.MeshBasicMaterial({
-      color: isMonochrome ? 0xe4e4e7 : 0xf59e0b
+      color: isMonochrome ? 0xf4f4f5 : 0xf59e0b
     });
     const needleMesh = new THREE.Mesh(needleGeo, needleMat);
-    needleMesh.position.set(0, 0.07, 0.035);
+    needleMesh.position.set(0, 0.075, 0.036);
     knobGroup.add(needleMesh);
 
-    // Glow Ring for Knob when pressed
-    const knobGlowGeo = new THREE.RingGeometry(0.2, 0.26, 24);
+    // Glow Ring for Knob
+    const knobGlowGeo = new THREE.RingGeometry(0.21, 0.27, 24);
     const knobGlowMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
@@ -109,38 +139,47 @@ export const beaconClientModule = {
       side: THREE.DoubleSide
     });
     const knobGlowMesh = new THREE.Mesh(knobGlowGeo, knobGlowMat);
-    knobGlowMesh.position.z = 0.036;
+    knobGlowMesh.position.z = 0.038;
     knobGlowMesh.visible = false;
     knobGroup.add(knobGlowMesh);
 
     group.add(knobGroup);
 
-    // 6. Channel Notch Labels (1, 2, 3) around Dial
-    const channelMeshes = [];
-    const channelAngles = [-0.75, 0, 0.75]; // radians for 1, 2, 3
+    // 6. Enlarged Channel Notch Labels (1, 2, 3) around Dial with Dedicated Hitboxes
+    const channelItems = [];
+    const channelAngles = [-0.78, 0, 0.78];
     const channelLabels = ['1', '2', '3'];
 
     channelAngles.forEach((ang, idx) => {
-      const radius = 0.36;
+      const radius = 0.37;
       const lx = -Math.sin(ang) * radius;
-      const ly = Math.cos(ang) * radius - 0.02;
+      const ly = Math.cos(ang) * radius - 0.01;
 
-      const canvas = createDialTexture(channelLabels[idx], isMonochrome);
+      const canvas = createCanvas2D(128, 128);
+      drawDialCanvas(canvas, channelLabels[idx], isMonochrome, idx === 0);
       const tex = new THREE.CanvasTexture(canvas);
-      const notchGeo = new THREE.PlaneGeometry(0.12, 0.12);
+      const notchGeo = new THREE.PlaneGeometry(0.16, 0.16);
       const notchMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
       const notchMesh = new THREE.Mesh(notchGeo, notchMat);
-      notchMesh.position.set(lx, ly, 0.032);
+      notchMesh.position.set(lx, ly, 0.034);
       notchMesh.userData.channelIndex = idx + 1;
       group.add(notchMesh);
-      channelMeshes.push(notchMesh);
+
+      const notchHitGeo = new THREE.BoxGeometry(0.21, 0.21, 0.09);
+      const notchHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+      const notchHitMesh = new THREE.Mesh(notchHitGeo, notchHitMat);
+      notchHitMesh.position.set(lx, ly, 0.045);
+      notchHitMesh.userData.channelIndex = idx + 1;
+      group.add(notchHitMesh);
+
+      channelItems.push({ channel: idx + 1, notchMesh, canvas, tex });
     });
 
-    // 7. Transmit Switch Button (TX) at Bottom
+    // 7. Enlarged Transmit Switch Button (TX) at Bottom (Requires Intentional Hold)
     const txGroup = new THREE.Group();
-    txGroup.position.set(0, -slot.height * 0.36, 0.03);
+    txGroup.position.set(0, -slot.height * 0.35, 0.035);
 
-    const txBaseGeo = new THREE.BoxGeometry(0.42, 0.16, 0.04);
+    const txBaseGeo = new THREE.BoxGeometry(0.56, 0.2, 0.05);
     const txBaseMat = new THREE.MeshLambertMaterial({
       color: isMonochrome ? 0x27272a : 0x0284c7
     });
@@ -148,24 +187,31 @@ export const beaconClientModule = {
     txBaseMesh.userData.isTxButton = true;
     txGroup.add(txBaseMesh);
 
-    const txCanvas = createDialTexture('TX', isMonochrome);
+    const txCanvas = createCanvas2D(256, 96);
+    drawTxCanvas(txCanvas, 'HOLD TX', 0, isMonochrome, false);
     const txTex = new THREE.CanvasTexture(txCanvas);
-    const txFaceGeo = new THREE.PlaneGeometry(0.38, 0.13);
+    const txFaceGeo = new THREE.PlaneGeometry(0.52, 0.17);
     const txFaceMat = new THREE.MeshBasicMaterial({ map: txTex, transparent: true });
     const txFaceMesh = new THREE.Mesh(txFaceGeo, txFaceMat);
-    txFaceMesh.position.z = 0.022;
+    txFaceMesh.position.z = 0.027;
     txFaceMesh.userData.isTxButton = true;
     txGroup.add(txFaceMesh);
 
-    // Glow outline for TX button
-    const txGlowGeo = new THREE.PlaneGeometry(0.44, 0.18);
+    const txHitGeo = new THREE.BoxGeometry(0.62, 0.25, 0.11);
+    const txHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const txHitMesh = new THREE.Mesh(txHitGeo, txHitMat);
+    txHitMesh.position.z = 0.03;
+    txHitMesh.userData.isTxButton = true;
+    txGroup.add(txHitMesh);
+
+    const txGlowGeo = new THREE.PlaneGeometry(0.59, 0.23);
     const txGlowMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
+      color: 0xf59e0b,
       transparent: true,
       opacity: 0
     });
     const txGlowMesh = new THREE.Mesh(txGlowGeo, txGlowMat);
-    txGlowMesh.position.z = 0.023;
+    txGlowMesh.position.z = 0.028;
     txGlowMesh.visible = false;
     txGroup.add(txGlowMesh);
 
@@ -178,79 +224,24 @@ export const beaconClientModule = {
       knobGlowMesh,
       txGroup,
       txBaseMesh,
+      txCanvas,
+      txTex,
       txGlowMesh,
-      channelMeshes,
+      channelItems,
       currentChannel: 1,
-      lastBeepTime: 0,
       soundLoopInterval: null
     };
 
     return group;
   },
 
-  update(moduleGroup, role, state) {
-    if (!state || !moduleGroup) return;
-    const { ledMesh, knobGroup, txBaseMesh, txGroup } = moduleGroup.userData;
-    const isMonochrome = role === 'blind' || role === 'operator';
-
-    // Update Channel Dial Position (-0.75, 0, +0.75)
-    const channel = state.tunedChannel || 1;
-    moduleGroup.userData.currentChannel = channel;
-    const angles = { 1: 0.75, 2: 0, 3: -0.75 };
-    if (knobGroup) {
-      knobGroup.rotation.z = angles[channel] ?? 0;
-    }
-
-    // Update Solved Status
-    if (state.solved) {
-      if (ledMesh) {
-        ledMesh.material.color.setHex(0x10b981); // Bright green
-      }
-      if (txBaseMesh) {
-        txBaseMesh.material.color.setHex(0x059669);
-      }
-      // Stop looping sound if solved
-      if (moduleGroup.userData.soundLoopInterval) {
-        clearInterval(moduleGroup.userData.soundLoopInterval);
-        moduleGroup.userData.soundLoopInterval = null;
-      }
-      return;
-    }
-
-    // Unsolved state
-    if (ledMesh) {
-      ledMesh.material.color.setHex(isMonochrome ? 0x71717a : 0xef4444);
-    }
-
-    // Looping audio telemetry for Operator / Blind role
-    if ((role === 'blind' || role === 'operator') && state.beats && !state.solved) {
-      if (!moduleGroup.userData.soundLoopInterval) {
-        const playLoop = () => {
-          if (typeof window !== 'undefined' && window.soundEngine?.playBeaconPattern) {
-            window.soundEngine.playBeaconPattern(state.beats);
-          }
-        };
-        // Initial play and loop every 4.2 seconds
-        playLoop();
-        moduleGroup.userData.soundLoopInterval = setInterval(playLoop, 4200);
-      }
-    }
-  },
-
-  onPointer(hit, event, send, moduleView, role, state) {
-    const isOperator = role === 'blind' || role === 'operator';
-    if (!isOperator || state?.solved) return false;
-
-    const { knobGlowMesh, txGlowMesh, txGroup } = moduleView.userData;
-
-    // Detect what was touched: knob vs TX button vs notch mark
-    let targetObj = hit.object;
-    let isKnob = targetObj?.userData?.isKnob;
-    let isTx = targetObj?.userData?.isTxButton;
+  inspectBeaconTarget(hit) {
+    let targetObj = hit?.object;
+    let isKnob = Boolean(targetObj?.userData?.isKnob);
+    let isTx = Boolean(targetObj?.userData?.isTxButton);
     let hitChannel = targetObj?.userData?.channelIndex;
 
-    // Trace parent if clicked child
-    while (targetObj && targetObj !== moduleView && !isKnob && !isTx && hitChannel === undefined) {
+    while (targetObj && !isKnob && !isTx && hitChannel === undefined && targetObj.parent) {
       targetObj = targetObj.parent;
       if (targetObj) {
         if (targetObj.userData?.isKnob) isKnob = true;
@@ -258,100 +249,195 @@ export const beaconClientModule = {
         if (targetObj.userData?.channelIndex !== undefined) hitChannel = targetObj.userData.channelIndex;
       }
     }
+    return { isKnob, isTx, hitChannel };
+  },
 
-    if (event.type === 'pointerdown') {
-      if (isKnob || hitChannel !== undefined) {
-        if (knobGlowMesh) {
-          knobGlowMesh.visible = true;
-          knobGlowMesh.material.opacity = 0.85;
-        }
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          try { navigator.vibrate(20); } catch (e) {}
-        }
-        if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
-          window.soundEngine.playTactileTick();
-        }
-        return true;
-      }
+  resolveControl(hit, state, role, config = {}) {
+    if ((role !== 'blind' && role !== 'operator') || state?.solved) return null;
+    const { isKnob, isTx, hitChannel } = this.inspectBeaconTarget(hit);
+    const currChannel = state?.tunedChannel || 1;
 
-      if (isTx) {
-        if (txGlowMesh) {
-          txGlowMesh.visible = true;
-          txGlowMesh.material.opacity = 0.85;
+    if (hitChannel !== undefined) {
+      return {
+        moduleId: 'beacon',
+        controlId: `channel-${hitChannel}`,
+        targetType: 'channel',
+        channel: hitChannel,
+        interactionMode: 'tap',
+        label: `کانال ${hitChannel} فانوس`,
+        commitLabel: `فانوس روی کانال ${hitChannel} تنظیم شد`,
+        commitDetail: `سلکتور فرکانس روی کانال ${hitChannel} قرار گرفت.`,
+        buildAction() {
+          return {
+            moduleId: 'beacon',
+            action: 'tune',
+            data: { channel: hitChannel }
+          };
         }
-        if (txGroup) {
-          txGroup.position.z = 0.015; // depressed button
-        }
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          try { navigator.vibrate(25); } catch (e) {}
-        }
-        if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
-          window.soundEngine.playTactileTick();
-        }
-        return true;
-      }
-
-      return false;
+      };
     }
 
-    if (event.type === 'pointercancel') {
-      if (knobGlowMesh) {
-        knobGlowMesh.visible = false;
-        knobGlowMesh.material.opacity = 0;
-      }
-      if (txGlowMesh) {
+    if (isKnob) {
+      const nextChannel = (currChannel % 3) + 1;
+      return {
+        moduleId: 'beacon',
+        controlId: 'knob',
+        targetType: 'knob',
+        channel: nextChannel,
+        interactionMode: 'tap',
+        label: 'سلکتور کانال فانوس',
+        commitLabel: `فانوس به کانال ${nextChannel} چرخید`,
+        commitDetail: `سلکتور به کانال بعدی (${nextChannel}) تغییر یافت.`,
+        buildAction() {
+          return {
+            moduleId: 'beacon',
+            action: 'tune',
+            data: { channel: nextChannel }
+          };
+        }
+      };
+    }
+
+    if (isTx) {
+      return {
+        moduleId: 'beacon',
+        controlId: 'tx',
+        targetType: 'tx',
+        interactionMode: 'hold_commit',
+        holdDurationMs: config.beaconTxHoldMs || 340,
+        dedupeLockMs: 400,
+        label: 'کلید ارسال فرکانس (TX)',
+        commitLabel: `ارسال فرکانس (TX) روی کانال ${currChannel}`,
+        commitDetail: 'پالس فرکانسی برای بررسی به سرور ارسال شد.',
+        buildAction() {
+          return {
+            moduleId: 'beacon',
+            action: 'transmit'
+          };
+        }
+      };
+    }
+
+    return null;
+  },
+
+  onVisualState(moduleView, visualEvent, role, state, descriptor) {
+    if (!moduleView?.userData) return;
+    const { knobGlowMesh, txGlowMesh, txGroup, txCanvas, txTex } = moduleView.userData;
+    const isMonochrome = role === 'blind' || role === 'operator';
+    const st = visualEvent?.state;
+
+    if (descriptor?.targetType === 'tx') {
+      if (st === 'press_start' || st === 'holding_to_commit') {
+        const p = Math.max(0.08, visualEvent.progress || 0);
+        txGroup.position.z = 0.018;
+        txGlowMesh.visible = true;
+        txGlowMesh.material.opacity = 0.85;
+        drawTxCanvas(txCanvas, `TX ${Math.round(p * 100)}%`, p, isMonochrome, false);
+        txTex.needsUpdate = true;
+      } else {
+        txGroup.position.z = 0.035;
         txGlowMesh.visible = false;
         txGlowMesh.material.opacity = 0;
+        drawTxCanvas(txCanvas, state?.solved ? '✓ TX' : 'HOLD TX', 0, isMonochrome, Boolean(state?.solved));
+        txTex.needsUpdate = true;
       }
-      if (txGroup) {
-        txGroup.position.z = 0.03;
+      return;
+    }
+
+    if (st === 'press_start') {
+      knobGlowMesh.visible = true;
+      knobGlowMesh.material.opacity = 0.85;
+    } else {
+      knobGlowMesh.visible = false;
+      knobGlowMesh.material.opacity = 0;
+    }
+  },
+
+  update(moduleGroup, role, state) {
+    if (!state || !moduleGroup) return;
+    const { ledMesh, knobGroup, txBaseMesh, txCanvas, txTex, channelItems } = moduleGroup.userData;
+    const isMonochrome = role === 'blind' || role === 'operator';
+
+    const channel = state.tunedChannel || 1;
+    moduleGroup.userData.currentChannel = channel;
+    const angles = { 1: 0.78, 2: 0, 3: -0.78 };
+    if (knobGroup) {
+      knobGroup.rotation.z = angles[channel] ?? 0;
+    }
+
+    if (channelItems) {
+      channelItems.forEach((item) => {
+        drawDialCanvas(item.canvas, String(item.channel), isMonochrome, item.channel === channel);
+        item.tex.needsUpdate = true;
+      });
+    }
+
+    if (state.solved) {
+      if (ledMesh) ledMesh.material.color.setHex(0x10b981);
+      if (txBaseMesh) txBaseMesh.material.color.setHex(0x059669);
+      if (txCanvas && txTex) {
+        drawTxCanvas(txCanvas, '✓ TX', 1, isMonochrome, true);
+        txTex.needsUpdate = true;
       }
+      if (moduleGroup.userData.soundLoopInterval) {
+        clearInterval(moduleGroup.userData.soundLoopInterval);
+        moduleGroup.userData.soundLoopInterval = null;
+      }
+      return;
+    }
+
+    if (ledMesh) {
+      ledMesh.material.color.setHex(isMonochrome ? 0x71717a : 0xef4444);
+    }
+    if (txCanvas && txTex) {
+      drawTxCanvas(txCanvas, 'HOLD TX', 0, isMonochrome, false);
+      txTex.needsUpdate = true;
+    }
+
+    if ((role === 'blind' || role === 'operator') && state.beats && !state.solved) {
+      if (!moduleGroup.userData.soundLoopInterval) {
+        const playLoop = () => {
+          if (typeof window !== 'undefined' && window.soundEngine?.playBeaconPattern) {
+            window.soundEngine.playBeaconPattern(state.beats);
+          }
+        };
+        playLoop();
+        moduleGroup.userData.soundLoopInterval = setInterval(playLoop, 4200);
+      }
+    }
+  },
+
+  onPointer(hit, event, send, moduleView, role, state) {
+    const desc = this.resolveControl(hit, state, role, { beaconTxHoldMs: event?.beaconTxHoldMs || 340 });
+    if (event.type === 'pointercancel') {
+      moduleView.userData.downControlId = null;
+      moduleView.userData.txHoldStart = null;
+      this.onVisualState(moduleView, { state: 'cancelled' }, role, state, desc);
+      return true;
+    }
+    if (!desc) return false;
+
+    if (event.type === 'pointerdown') {
+      moduleView.userData.downControlId = desc.controlId;
+      moduleView.userData.txHoldStart = desc.interactionMode === 'hold_commit' ? Date.now() : null;
+      this.onVisualState(moduleView, { state: 'press_start', progress: 0.1 }, role, state, desc);
       return true;
     }
 
-    if (event.type === 'pointerup' || event.type === 'click') {
-      if (knobGlowMesh) {
-        knobGlowMesh.visible = false;
-        knobGlowMesh.material.opacity = 0;
-      }
-      if (txGlowMesh) {
-        txGlowMesh.visible = false;
-        txGlowMesh.material.opacity = 0;
-      }
-      if (txGroup) {
-        txGroup.position.z = 0.03;
-      }
+    if (event.type === 'pointerup') {
+      const downId = moduleView.userData.downControlId;
+      const holdStart = moduleView.userData.txHoldStart;
+      moduleView.userData.downControlId = null;
+      moduleView.userData.txHoldStart = null;
+      this.onVisualState(moduleView, { state: 'idle' }, role, state, desc);
 
-      if (isKnob || hitChannel !== undefined) {
-        const curr = moduleView.userData.currentChannel || 1;
-        const nextChannel = hitChannel !== undefined ? hitChannel : ((curr % 3) + 1);
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          try { navigator.vibrate(25); } catch (e) {}
-        }
-        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
-          window.soundEngine.playClick();
-        }
-        send('action', {
-          moduleId: 'beacon',
-          action: 'tune',
-          data: { channel: nextChannel }
-        });
-        return true;
+      if (downId !== desc.controlId) return false;
+      if (desc.interactionMode === 'hold_commit' && (!holdStart || Date.now() - holdStart < desc.holdDurationMs)) {
+        return false;
       }
-
-      if (isTx) {
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          try { navigator.vibrate([30, 20]); } catch (e) {}
-        }
-        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
-          window.soundEngine.playClick();
-        }
-        send('action', {
-          moduleId: 'beacon',
-          action: 'transmit'
-        });
-        return true;
-      }
+      send('action', desc.buildAction());
+      return true;
     }
 
     return false;

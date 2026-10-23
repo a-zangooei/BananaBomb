@@ -1,6 +1,7 @@
 import { GameTransport } from './transport.js';
 import { sound } from './audio.js';
 import { Bomb3DScene, isWebGLAvailable } from './bomb3d.js';
+import { INTERACTION_DEFAULTS } from './interaction-controller.js';
 
 // Expose sound engine for tactile audio feedback across modules
 window.soundEngine = sound;
@@ -332,14 +333,49 @@ function renderStrikeBoxes(currentStrikes, maxStrikes = 3) {
   }
 }
 
-// Quick Camera Views & Sensitivity Toolbar
+// Quick Camera Views, Hold Threshold & Sensitivity Toolbar
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
 const btnResetView = document.getElementById('btnResetView');
 const cameraSensitivity = document.getElementById('cameraSensitivity');
 const sensitivityValue = document.getElementById('sensitivityValue');
+const holdThresholdControl = document.getElementById('holdThresholdControl');
+const holdThresholdSlider = document.getElementById('holdThresholdSlider');
+const holdThresholdValue = document.getElementById('holdThresholdValue');
+const operatorInteractionHud = document.getElementById('operatorInteractionHud');
+const operatorHudLabel = document.getElementById('operatorHudLabel');
+const operatorHudDetail = document.getElementById('operatorHudDetail');
+const operatorHudProgressFill = document.getElementById('operatorHudProgressFill');
 const orientationHint = document.getElementById('orientationHint');
 const btnCloseOrientationHint = document.getElementById('btnCloseOrientationHint');
+
+let operatorHoldThresholdMs = Number(localStorage.getItem('bomb_hold_threshold_ms')) || INTERACTION_DEFAULTS.buttonHoldThresholdMs;
+operatorHoldThresholdMs = Math.max(
+  INTERACTION_DEFAULTS.minHoldThresholdMs,
+  Math.min(INTERACTION_DEFAULTS.maxHoldThresholdMs, operatorHoldThresholdMs)
+);
+
+function renderOperatorHudStatus(status) {
+  if (!operatorInteractionHud || !status) return;
+  if (operatorHudLabel) operatorHudLabel.textContent = status.label || 'آماده تعامل';
+  if (operatorHudDetail) operatorHudDetail.textContent = status.detail || '';
+  if (operatorHudProgressFill) {
+    const pct = Math.max(0, Math.min(100, Math.round((status.progress || 0) * 100)));
+    operatorHudProgressFill.style.width = `${pct}%`;
+  }
+  operatorInteractionHud.setAttribute('data-variant', status.variant || 'neutral');
+}
+
+function sendOperatorBombAction(actionPayload) {
+  if (!actionPayload || typeof actionPayload !== 'object') return;
+  const enriched = {
+    ...actionPayload,
+    actionId: actionPayload.actionId || `${playerId || 'p'}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+    roundSeed: currentGameState?.roundSeed || null,
+    clientTimestamp: Date.now()
+  };
+  transport.send('action', enriched);
+}
 
 if (btnViewFront) {
   btnViewFront.addEventListener('click', () => {
@@ -368,6 +404,24 @@ if (cameraSensitivity) {
     localStorage.setItem('bomb_camera_sensitivity', val);
     if (bombScene) {
       bombScene.setSensitivity(val);
+    }
+  });
+}
+
+if (holdThresholdSlider) {
+  holdThresholdSlider.value = String(operatorHoldThresholdMs);
+  if (holdThresholdValue) holdThresholdValue.textContent = `${operatorHoldThresholdMs}ms`;
+
+  holdThresholdSlider.addEventListener('input', (e) => {
+    const nextMs = Math.max(
+      INTERACTION_DEFAULTS.minHoldThresholdMs,
+      Math.min(INTERACTION_DEFAULTS.maxHoldThresholdMs, Number(e.target.value) || INTERACTION_DEFAULTS.buttonHoldThresholdMs)
+    );
+    operatorHoldThresholdMs = nextMs;
+    if (holdThresholdValue) holdThresholdValue.textContent = `${nextMs}ms`;
+    localStorage.setItem('bomb_hold_threshold_ms', String(nextMs));
+    if (bombScene) {
+      bombScene.setHoldThreshold(nextMs);
     }
   });
 }
@@ -883,14 +937,17 @@ function renderState(state) {
           bomb3dContainer,
           myRole,
           (event, payload) => {
-            if (event === 'action' && payload && typeof payload === 'object') {
-              if (!payload.actionId) {
-                payload.actionId = `${playerId || 'p'}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-              }
+            if (event === 'action') {
+              sendOperatorBombAction(payload);
+            } else {
+              transport.send(event, payload);
             }
-            transport.send(event, payload);
           },
-          () => getCurrentRemainingSeconds()
+          () => getCurrentRemainingSeconds(),
+          {
+            holdThresholdMs: operatorHoldThresholdMs,
+            onInteractionStatus: (status) => renderOperatorHudStatus(status)
+          }
         );
         const savedSens = localStorage.getItem('bomb_camera_sensitivity') || '1.0';
         bombScene.setSensitivity(savedSens);
@@ -898,6 +955,7 @@ function renderState(state) {
 
       if (bombScene) {
         bombScene.setRole(myRole);
+        bombScene.setHoldThreshold(operatorHoldThresholdMs);
         bombScene.updateState(state);
         bombScene.resize();
       }
@@ -908,6 +966,8 @@ function renderState(state) {
         bomb3dRoleBanner.innerHTML = '⚡ <strong>اپراتور (Operator — بدون کلام):</strong> تنها فرد مجاز به لمس بمب ۳D! با عینک آفتابی و بدون دید به دفترچه راهنما؛ صدای بازی از گوشی شما پخش می‌شود. فرامین را فقط شفاهاً از ناظر بشنوید.';
         blindTactileHelper.style.display = 'block';
         deafVisualHelper.style.display = 'none';
+        if (holdThresholdControl) holdThresholdControl.style.display = 'flex';
+        if (operatorInteractionHud) operatorInteractionHud.style.display = 'flex';
         if (observerGestureDrawer) observerGestureDrawer.style.display = 'none';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('operator');
       } else {
@@ -915,6 +975,8 @@ function renderState(state) {
         bomb3dRoleBanner.innerHTML = '👁️ <strong>ناظر (Observer — تنها گوینده و پل ارتباطی):</strong> هدفون ایمن در گوش (عدم استفاده از صدای بازی) و بدون لمس بمب. سرنخ‌های رنگی و پلاک سریال را ببینید، با دفترچه راهنما با اشاره تبادل کنید و به اپراتور شفاهاً فرمان دهید.';
         blindTactileHelper.style.display = 'none';
         deafVisualHelper.style.display = 'block';
+        if (holdThresholdControl) holdThresholdControl.style.display = 'none';
+        if (operatorInteractionHud) operatorInteractionHud.style.display = 'none';
         if (observerGestureDrawer) observerGestureDrawer.style.display = 'block';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('observer');
       }
@@ -1009,10 +1071,46 @@ function flashRedAlert() {
 // --- Keyboard Navigation & Accessibility Controls ---
 let isSpacePressed = false;
 let spacePressStartTime = 0;
+let spaceHoldReached = false;
+let spaceProgressTimer = null;
 let isWKeyActive = false;
+const keyboardSlotLockMap = new Map();
+
+function cancelKeyboardSpaceHold(reasonText = 'نگه‌داشتن کلید Space بدون ثبت خطا لغو شد.') {
+  if (!isSpacePressed) return;
+  isSpacePressed = false;
+  spaceHoldReached = false;
+  if (spaceProgressTimer) {
+    clearInterval(spaceProgressTimer);
+    spaceProgressTimer = null;
+  }
+  const btnView = bombScene?.moduleViews?.get('button');
+  if (btnView?.moduleDef?.onVisualState) {
+    btnView.moduleDef.onVisualState(
+      btnView.group,
+      { state: 'cancelled', progress: 0 },
+      myRole,
+      currentGameState?.modules?.button
+    );
+  }
+  renderOperatorHudStatus({
+    active: false,
+    mode: 'cancelled',
+    label: 'لغو ایمن دکمه (Space)',
+    detail: reasonText,
+    progress: 0,
+    variant: 'neutral'
+  });
+}
 
 window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+  if (e.key === 'Escape') {
+    cancelKeyboardSpaceHold('لغو دستی با کلید Escape — هیچ خطایی ثبت نشد.');
+    bombScene?.cancelActiveInteraction('escape_key');
+    return;
+  }
 
   if (currentGameState?.status === 'running') {
     // Arrow keys: Rotate 3D bomb
@@ -1036,73 +1134,157 @@ window.addEventListener('keydown', (e) => {
       }
     }
 
-    // Operator physical interactions via keyboard
+    // Operator physical interactions via keyboard (ignore key auto-repeat!)
     if (isOperator(myRole)) {
       if (e.key === 'w' || e.key === 'W') {
         isWKeyActive = true;
       }
 
-      if (['1', '2', '3', '4'].includes(e.key)) {
+      if (['1', '2', '3', '4'].includes(e.key) && !e.repeat) {
         const index = parseInt(e.key, 10) - 1;
+        const now = Date.now();
+        const lockKey = isWKeyActive ? `wire:${index}` : `keypad:${index}`;
+        const lockedUntil = keyboardSlotLockMap.get(lockKey) || 0;
+        if (now < lockedUntil) return;
+        keyboardSlotLockMap.set(lockKey, now + INTERACTION_DEFAULTS.keypadDedupeLockMs);
+
         if (isWKeyActive) {
-          triggerHaptic([35, 25]);
-          sound.playWireCut();
-          transport.send('action', {
-            moduleId: 'wires',
-            action: 'cut',
-            data: { wireIndex: index }
-          });
-        } else {
+          if (currentGameState?.modules?.wires && !currentGameState.modules.wires.solved && !currentGameState.modules.wires.cutWires?.includes(index)) {
+            triggerHaptic([35, 25]);
+            sound.playWireCut();
+            sendOperatorBombAction({
+              moduleId: 'wires',
+              action: 'cut',
+              data: { wireIndex: index }
+            });
+            renderOperatorHudStatus({
+              active: false,
+              mode: 'committed',
+              label: `✓ سیم ${index + 1} قطع شد (کیبورد)`,
+              detail: 'فرمان قطع سیم به سرور ارسال شد.',
+              progress: 1,
+              variant: 'success'
+            });
+          }
+        } else if (currentGameState?.modules?.keypad && !currentGameState.modules.keypad.solved && !currentGameState.modules.keypad.enteredSlots?.includes(index)) {
           triggerHaptic(25);
           sound.playClick();
-          transport.send('action', {
+          sendOperatorBombAction({
             moduleId: 'keypad',
             action: 'press',
             data: { slotIndex: index }
           });
+          renderOperatorHudStatus({
+            active: false,
+            mode: 'committed',
+            label: `✓ کلید کیپد ${index + 1} ثبت شد`,
+            detail: `فشردن کلید شماره ${index + 1} ارسال شد.`,
+            progress: 1,
+            variant: 'success'
+          });
         }
       }
 
-      if (e.key === 'c' || e.key === 'C') {
+      if ((e.key === 'c' || e.key === 'C') && !e.repeat) {
         const beaconState = currentGameState?.modules?.beacon;
-        const curr = beaconState?.tunedChannel || 1;
-        const nextChannel = (curr % 3) + 1;
-        triggerHaptic(25);
-        sound.playClick();
-        transport.send('action', {
-          moduleId: 'beacon',
-          action: 'tune',
-          data: { channel: nextChannel }
-        });
+        if (beaconState && !beaconState.solved) {
+          const curr = beaconState.tunedChannel || 1;
+          const nextChannel = (curr % 3) + 1;
+          triggerHaptic(25);
+          sound.playClick();
+          sendOperatorBombAction({
+            moduleId: 'beacon',
+            action: 'tune',
+            data: { channel: nextChannel }
+          });
+          renderOperatorHudStatus({
+            active: false,
+            mode: 'committed',
+            label: `✓ فانوس روی کانال ${nextChannel} تنظیم شد`,
+            detail: 'تغییر کانال سلکتور ثبت گردید.',
+            progress: 1,
+            variant: 'success'
+          });
+        }
       }
 
-      if (e.key === 't' || e.key === 'T') {
-        triggerHaptic([30, 20]);
-        sound.playClick();
-        transport.send('action', {
-          moduleId: 'beacon',
-          action: 'transmit'
-        });
+      if ((e.key === 't' || e.key === 'T') && !e.repeat) {
+        const beaconState = currentGameState?.modules?.beacon;
+        if (beaconState && !beaconState.solved) {
+          triggerHaptic([30, 20]);
+          sound.playClick();
+          sendOperatorBombAction({
+            moduleId: 'beacon',
+            action: 'transmit'
+          });
+          renderOperatorHudStatus({
+            active: false,
+            mode: 'committed',
+            label: '✓ ارسال فرکانس (TX) ثبت شد',
+            detail: 'پالس فرکانسی به سرور ارسال شد.',
+            progress: 1,
+            variant: 'success'
+          });
+        }
       }
 
-      if (e.code === 'Space' && !isSpacePressed) {
+      if (e.code === 'Space' && !isSpacePressed && !e.repeat) {
         e.preventDefault();
+        if (currentGameState?.modules?.button?.solved) return;
+
         isSpacePressed = true;
+        spaceHoldReached = false;
         spacePressStartTime = Date.now();
-        triggerHaptic(30);
-        sound.playClick();
+        triggerHaptic(25);
+        sound.playTactileTick();
 
         const btnView = bombScene?.moduleViews?.get('button');
-        if (btnView) {
-          const { btnMesh, capMesh, defaultBtnZ, stripMesh, glowRing } = btnView.group.userData;
-          btnMesh.position.z = defaultBtnZ - 0.04;
-          capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
-          stripMesh.material.color.setHex(0xa1a1aa);
-          if (glowRing) {
-            glowRing.visible = true;
-            glowRing.material.opacity = 0.85;
+        const updateSpaceVisuals = () => {
+          if (!isSpacePressed) return;
+          const elapsed = Date.now() - spacePressStartTime;
+          const progress = Math.min(1, elapsed / operatorHoldThresholdMs);
+          const digit = Math.floor(Math.max(0, getCurrentRemainingSeconds())) % 10;
+
+          if (elapsed >= operatorHoldThresholdMs) {
+            if (!spaceHoldReached) {
+              spaceHoldReached = true;
+              triggerHaptic([40, 30, 40]);
+              sound.playTactileTick();
+            }
+            btnView?.moduleDef?.onVisualState?.(
+              btnView.group,
+              { state: 'holding', mode: 'hold', progress: 1, lastTimerDigit: digit },
+              myRole,
+              currentGameState?.modules?.button
+            );
+            renderOperatorHudStatus({
+              active: true,
+              mode: 'hold',
+              label: `نگه‌داشتن فعال شد (HOLD) • رقم فعلی تایمر: ${digit}`,
+              detail: 'روی رقم ثانیه اعلامی ناظر کلید Space را رها کنید (Esc = لغو ایمن).',
+              progress: 1,
+              variant: 'hold'
+            });
+          } else {
+            btnView?.moduleDef?.onVisualState?.(
+              btnView.group,
+              { state: 'pressing', mode: 'tap', progress, lastTimerDigit: digit },
+              myRole,
+              currentGameState?.modules?.button
+            );
+            renderOperatorHudStatus({
+              active: true,
+              mode: 'tap',
+              label: `حالت فعلی: ضربه کوتاه (TAP) — ${Math.round(progress * 100)}% تا HOLD`,
+              detail: `رهاسازی الان = ضربه کوتاه | ادامه نگه‌داشتن (${operatorHoldThresholdMs}ms) = حالت HOLD`,
+              progress,
+              variant: 'info'
+            });
           }
-        }
+        };
+
+        updateSpaceVisuals();
+        spaceProgressTimer = setInterval(updateSpaceVisuals, 45);
       }
     }
   }
@@ -1116,43 +1298,69 @@ window.addEventListener('keyup', (e) => {
   if (e.code === 'Space' && isSpacePressed && isOperator(myRole)) {
     e.preventDefault();
     isSpacePressed = false;
+    if (spaceProgressTimer) {
+      clearInterval(spaceProgressTimer);
+      spaceProgressTimer = null;
+    }
+
     const duration = Date.now() - spacePressStartTime;
+    const isHold = spaceHoldReached || duration >= operatorHoldThresholdMs;
+    spaceHoldReached = false;
     const lastDigit = Math.floor(Math.max(0, getCurrentRemainingSeconds())) % 10;
 
     const btnView = bombScene?.moduleViews?.get('button');
-    if (btnView) {
-      const { btnMesh, capMesh, defaultBtnZ, stripMesh, glowRing } = btnView.group.userData;
-      btnMesh.position.z = defaultBtnZ;
-      capMesh.position.z = defaultBtnZ + 0.075;
-      stripMesh.material.color.setHex(0x3f3f46);
-      if (glowRing) {
-        glowRing.visible = false;
-        glowRing.material.opacity = 0;
-      }
-    }
+    btnView?.moduleDef?.onVisualState?.(
+      btnView.group,
+      { state: 'committed', mode: isHold ? 'hold_release' : 'tap', progress: 1, lastTimerDigit: lastDigit },
+      myRole,
+      currentGameState?.modules?.button
+    );
 
-    if (duration < 350) {
+    if (!isHold) {
       triggerHaptic(35);
       sound.playClick();
-      transport.send('action', {
+      sendOperatorBombAction({
         moduleId: 'button',
         action: 'press'
+      });
+      renderOperatorHudStatus({
+        active: false,
+        mode: 'committed',
+        label: '✓ ضربه کوتاه (TAP) روی دکمه ثبت شد',
+        detail: `مدت فشردن: ${duration}ms (کمتر از آستانه ${operatorHoldThresholdMs}ms)`,
+        progress: 1,
+        variant: 'success'
       });
     } else {
       triggerHaptic([40, 30, 40]);
       sound.playClick();
-      transport.send('action', {
+      sendOperatorBombAction({
         moduleId: 'button',
         action: 'release',
         data: { releaseDigit: lastDigit }
+      });
+      renderOperatorHudStatus({
+        active: false,
+        mode: 'committed',
+        label: `✓ رهاسازی دکمه (HOLD) روی رقم ${lastDigit} پذیرفته شد`,
+        detail: `مدت نگه‌داشتن: ${duration}ms • رقم ثانیه ارسالی: ${lastDigit}`,
+        progress: 1,
+        variant: 'success'
       });
     }
   }
 });
 
 window.addEventListener('blur', () => {
-  isSpacePressed = false;
+  cancelKeyboardSpaceHold('خروج تمرکز از پنجره — نگه‌داشتن Space بدون خطا لغو شد.');
   isWKeyActive = false;
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    cancelKeyboardSpaceHold('تغییر تب مرورگر — نگه‌داشتن Space بدون خطا لغو شد.');
+    isWKeyActive = false;
+  }
 });
 
 // --- Dynamic Round Manual & Status Matrix Renderer for Manual-holder Role ---

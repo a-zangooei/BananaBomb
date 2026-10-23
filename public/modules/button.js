@@ -1,26 +1,58 @@
 /**
  * Client 3D Reactor Button Module
+ * Explicit Tap vs Hold distinction, radial 3D hold-progress arc,
+ * live timer digit preview during Hold, and non-color solved badge.
  */
-function createButtonLabelTexture(text, isMonochrome) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
+import { createCanvas2D } from './canvas-utils.js';
 
-  ctx.fillStyle = isMonochrome ? '#3f3f46' : '#1e293b';
+function drawButtonCapCanvas(canvas, mainText, subText, bgHex, borderHex, textHex) {
+  const ctx = canvas.getContext('2d');
+  if (canvas._texts) canvas._texts.length = 0;
+
+  ctx.clearRect(0, 0, 256, 256);
+  ctx.fillStyle = bgHex;
   ctx.fillRect(0, 0, 256, 256);
 
-  ctx.strokeStyle = isMonochrome ? '#71717a' : '#475569';
+  ctx.strokeStyle = borderHex;
   ctx.lineWidth = 10;
   ctx.strokeRect(8, 8, 240, 240);
 
-  ctx.font = 'bold 36px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(text || 'دکمه', 128, 128);
+  ctx.fillStyle = textHex;
 
-  return canvas;
+  if (subText) {
+    ctx.font = 'bold 34px sans-serif';
+    ctx.fillText(mainText || 'دکمه', 128, 102);
+    ctx.font = 'bold 26px monospace';
+    ctx.fillText(subText, 128, 158);
+  } else {
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText(mainText || 'دکمه', 128, 128);
+  }
+}
+
+function drawProgressArcCanvas(canvas, progress, isHoldLocked) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 256, 256);
+  if (progress <= 0) return;
+
+  // Background track
+  ctx.beginPath();
+  ctx.arc(128, 128, 108, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+  ctx.lineWidth = 18;
+  ctx.stroke();
+
+  // Active radial progress arc
+  const startAngle = -Math.PI / 2;
+  const endAngle = startAngle + Math.min(1, progress) * Math.PI * 2;
+  ctx.beginPath();
+  ctx.arc(128, 128, 108, startAngle, endAngle);
+  ctx.strokeStyle = isHoldLocked ? '#f59e0b' : '#38bdf8';
+  ctx.lineWidth = 20;
+  ctx.lineCap = 'round';
+  ctx.stroke();
 }
 
 export const buttonClientModule = {
@@ -43,7 +75,7 @@ export const buttonClientModule = {
     group.add(baseMesh);
 
     // 2. Button Collar / Socket Ring
-    const collarGeo = new THREE.CylinderGeometry(0.38, 0.42, 0.1, 24);
+    const collarGeo = new THREE.CylinderGeometry(0.4, 0.44, 0.1, 28);
     collarGeo.rotateX(Math.PI / 2);
     const collarMat = new THREE.MeshLambertMaterial({
       color: isBlind ? 0x3f3f46 : 0x334155
@@ -53,23 +85,33 @@ export const buttonClientModule = {
     collarMesh.userData = { isButton: true };
     group.add(collarMesh);
 
-    // 2b. Tactile Feedback Glow Ring (Cyan/Emerald ring around button collar)
-    const glowGeo = new THREE.RingGeometry(0.39, 0.46, 32);
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0,
-      side: THREE.DoubleSide
-    });
-    const glowRing = new THREE.Mesh(glowGeo, glowMat);
-    glowRing.position.set(0, -0.05, 0.08);
-    glowRing.visible = false;
-    group.add(glowRing);
+    // 2b. Generous Invisible Touch Hitbox (radius 0.46) for reliable thumb presses
+    const hitGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.24, 24);
+    hitGeo.rotateX(Math.PI / 2);
+    const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+    hitMesh.position.set(0, -0.05, 0.13);
+    hitMesh.userData = { isButton: true };
+    group.add(hitMesh);
 
-    // 3. Reactor Button Mesh
-    const btnRadius = 0.32;
+    // 2c. Radial Hold-Progress Arc Overlay around Collar
+    const progressCanvas = createCanvas2D(256, 256);
+    const progressTexture = new THREE.CanvasTexture(progressCanvas);
+    const progressGeo = new THREE.PlaneGeometry(0.92, 0.92);
+    const progressMat = new THREE.MeshBasicMaterial({
+      map: progressTexture,
+      transparent: true,
+      depthWrite: false
+    });
+    const progressRing = new THREE.Mesh(progressGeo, progressMat);
+    progressRing.position.set(0, -0.05, 0.085);
+    progressRing.visible = false;
+    group.add(progressRing);
+
+    // 3. Reactor Button Plunger Mesh
+    const btnRadius = 0.34;
     const btnHeight = 0.14;
-    const btnGeo = new THREE.CylinderGeometry(btnRadius, btnRadius, btnHeight, 24);
+    const btnGeo = new THREE.CylinderGeometry(btnRadius, btnRadius, btnHeight, 28);
     btnGeo.rotateX(Math.PI / 2);
 
     const btnMat = new THREE.MeshLambertMaterial({
@@ -82,9 +124,17 @@ export const buttonClientModule = {
     group.add(btnMesh);
 
     // 4. Button Cap Label (Canvas Texture)
-    const labelCanvas = createButtonLabelTexture('دکمه', isBlind);
+    const labelCanvas = createCanvas2D(256, 256);
+    drawButtonCapCanvas(
+      labelCanvas,
+      'دکمه',
+      isBlind ? 'TAP / HOLD' : '',
+      isBlind ? '#3f3f46' : '#1e293b',
+      isBlind ? '#71717a' : '#475569',
+      '#ffffff'
+    );
     const labelTexture = new THREE.CanvasTexture(labelCanvas);
-    const capGeo = new THREE.PlaneGeometry(btnRadius * 1.5, btnRadius * 1.5);
+    const capGeo = new THREE.PlaneGeometry(btnRadius * 1.52, btnRadius * 1.52);
     const capMat = new THREE.MeshBasicMaterial({
       map: labelTexture,
       transparent: true
@@ -102,57 +152,151 @@ export const buttonClientModule = {
     group.add(ledMesh);
 
     // 6. Side Indicator Strip
-    const stripGeo = new THREE.BoxGeometry(0.5, 0.08, 0.04);
+    const stripGeo = new THREE.BoxGeometry(0.52, 0.085, 0.04);
     const stripMat = new THREE.MeshBasicMaterial({
       color: isBlind ? 0x3f3f46 : 0x1e293b
     });
     const stripMesh = new THREE.Mesh(stripGeo, stripMat);
-    stripMesh.position.set(0, 0.32, 0.06);
+    stripMesh.position.set(0, 0.33, 0.06);
     group.add(stripMesh);
 
-    // Keep references on group for easy visual updates
     group.userData = {
       btnMesh,
       capMesh,
-      glowRing,
+      hitMesh,
+      progressRing,
+      progressCanvas,
+      progressTexture,
       ledMesh,
       stripMesh,
       labelCanvas,
       labelTexture,
       defaultBtnZ: 0.14,
-      pressStartTime: null,
-      holdTimer: null
+      isActivelyInteracting: false,
+      pressStartTime: null
     };
 
     return group;
   },
 
+  resolveControl(hit, state, role, config = {}) {
+    if ((role !== 'blind' && role !== 'operator') || state?.solved) return null;
+    let obj = hit?.object;
+    while (obj && !obj.userData?.isButton && obj.parent) {
+      obj = obj.parent;
+    }
+    if (!obj?.userData?.isButton) return null;
+
+    return {
+      moduleId: 'button',
+      controlId: 'plunger',
+      interactionMode: 'tap_or_hold',
+      holdDurationMs: config.holdThresholdMs || 380,
+      label: 'دکمه کاتالیزور',
+      buildAction({ isHold, lastTimerDigit }) {
+        if (isHold) {
+          return {
+            moduleId: 'button',
+            action: 'release',
+            data: { releaseDigit: lastTimerDigit }
+          };
+        }
+        return {
+          moduleId: 'button',
+          action: 'press'
+        };
+      }
+    };
+  },
+
+  onVisualState(moduleView, visualEvent, role, state) {
+    if (!moduleView?.userData) return;
+    const {
+      btnMesh,
+      capMesh,
+      stripMesh,
+      progressRing,
+      progressCanvas,
+      progressTexture,
+      labelCanvas,
+      labelTexture,
+      defaultBtnZ
+    } = moduleView.userData;
+
+    const st = visualEvent?.state;
+
+    if (st === 'press_start' || st === 'pressing') {
+      moduleView.userData.isActivelyInteracting = true;
+      btnMesh.position.z = defaultBtnZ - 0.04;
+      capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
+      stripMesh.material.color.setHex(0xa1a1aa);
+
+      drawButtonCapCanvas(labelCanvas, 'ضربه کوتاه', 'TAP...', '#27272a', '#38bdf8', '#e0f2fe');
+      labelTexture.needsUpdate = true;
+
+      drawProgressArcCanvas(progressCanvas, visualEvent.progress ?? 0.08, false);
+      progressTexture.needsUpdate = true;
+      progressRing.visible = true;
+      return;
+    }
+
+    if (st === 'holding') {
+      moduleView.userData.isActivelyInteracting = true;
+      btnMesh.position.z = defaultBtnZ - 0.045;
+      capMesh.position.z = defaultBtnZ - 0.045 + 0.075;
+      stripMesh.material.color.setHex(0xe4e4e7);
+
+      const digitTxt = visualEvent.lastTimerDigit !== undefined ? `رقم: ${visualEvent.lastTimerDigit}` : 'HOLD';
+      drawButtonCapCanvas(labelCanvas, 'نگه‌دار (HOLD)', digitTxt, '#451a03', '#f59e0b', '#fef3c7');
+      labelTexture.needsUpdate = true;
+
+      drawProgressArcCanvas(progressCanvas, 1, true);
+      progressTexture.needsUpdate = true;
+      progressRing.visible = true;
+      return;
+    }
+
+    // Idle / Cancelled / Committed -> restore resting plunger & re-apply state label
+    moduleView.userData.isActivelyInteracting = false;
+    btnMesh.position.z = defaultBtnZ;
+    capMesh.position.z = defaultBtnZ + 0.075;
+    progressRing.visible = false;
+    stripMesh.material.color.setHex(0x3f3f46);
+
+    if (st === 'committed') {
+      const doneSub = visualEvent.mode === 'hold_release' ? `✓ رقم ${visualEvent.lastTimerDigit}` : '✓ TAP';
+      drawButtonCapCanvas(labelCanvas, 'ارسال شد', doneSub, '#14532d', '#22c55e', '#dcfce7');
+      labelTexture.needsUpdate = true;
+    } else {
+      this.update(moduleView, role, state || { solved: false });
+    }
+  },
+
   update(moduleView, role, state) {
     if (!moduleView || !state) return;
-    const { btnMesh, capMesh, ledMesh, stripMesh, labelCanvas, labelTexture } = moduleView.userData;
+    const { btnMesh, ledMesh, stripMesh, labelCanvas, labelTexture, isActivelyInteracting } = moduleView.userData;
     const isBlind = role === 'blind' || role === 'operator';
 
     // 1. Solved Status LED
-    if (state.solved) {
-      ledMesh.material.color.setHex(0x10b981);
-    } else {
-      ledMesh.material.color.setHex(0x475569);
+    ledMesh.material.color.setHex(state.solved ? 0x10b981 : 0x475569);
+
+    // Do not overwrite live TAP/HOLD cap feedback mid-press unless solved
+    if (isActivelyInteracting && !state.solved) {
+      return;
     }
 
-    // 2. Button Colors & Labels
     if (isBlind) {
-      btnMesh.material.color.setHex(0x52525b);
-      const ctx = labelCanvas.getContext('2d');
-      ctx.fillStyle = '#3f3f46';
-      ctx.fillRect(0, 0, 256, 256);
-      ctx.font = 'bold 34px sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(state.solved ? 'خنثی شد' : 'دکمه', 128, 128);
+      btnMesh.material.color.setHex(state.solved ? 0x14532d : 0x52525b);
+      drawButtonCapCanvas(
+        labelCanvas,
+        state.solved ? '✓ خنثی شد' : 'دکمه',
+        state.solved ? 'SOLVED' : 'TAP / HOLD',
+        state.solved ? '#14532d' : '#3f3f46',
+        state.solved ? '#22c55e' : '#71717a',
+        '#ffffff'
+      );
       labelTexture.needsUpdate = true;
     } else {
-      // Deaf sees actual color and label
       const colorMap = {
         red: 0xdc2626,
         blue: 0x2563eb,
@@ -161,17 +305,17 @@ export const buttonClientModule = {
       };
       btnMesh.material.color.setHex(colorMap[state.color] || 0xdc2626);
 
-      const ctx = labelCanvas.getContext('2d');
-      ctx.fillStyle = state.color === 'white' ? '#e2e8f0' : '#1e293b';
-      ctx.fillRect(0, 0, 256, 256);
-      ctx.font = 'bold 32px sans-serif';
-      ctx.fillStyle = state.color === 'white' ? '#0f172a' : '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(state.solved ? 'خنثی شد' : (state.label || 'کاتالیزور'), 128, 128);
+      const isWhite = state.color === 'white' && !state.solved;
+      drawButtonCapCanvas(
+        labelCanvas,
+        state.solved ? '✓ خنثی شد' : (state.label || 'کاتالیزور'),
+        '',
+        state.solved ? '#14532d' : (isWhite ? '#e2e8f0' : '#1e293b'),
+        state.solved ? '#22c55e' : '#475569',
+        isWhite ? '#0f172a' : '#ffffff'
+      );
       labelTexture.needsUpdate = true;
 
-      // Side strip color for Deaf
       if (state.holdStripColor) {
         const stripMap = {
           yellow: 0xfacc15,
@@ -185,80 +329,38 @@ export const buttonClientModule = {
   },
 
   onPointer(hit, event, send, moduleView, role, state) {
-    if ((role !== 'blind' && role !== 'operator') || state?.solved) return;
-    const { btnMesh, capMesh, stripMesh, glowRing, defaultBtnZ } = moduleView.userData;
+    const desc = this.resolveControl(hit, state, role, { holdThresholdMs: event?.holdThresholdMs || 380 });
+    if (event.type === 'pointercancel') {
+      moduleView.userData.pressStartTime = null;
+      this.onVisualState(moduleView, { state: 'cancelled' }, role, state);
+      return true;
+    }
+    if (!desc) return false;
 
     if (event.type === 'pointerdown') {
       moduleView.userData.pressStartTime = Date.now();
-      btnMesh.position.z = defaultBtnZ - 0.04;
-      capMesh.position.z = defaultBtnZ - 0.04 + 0.075;
-      stripMesh.material.color.setHex(0xa1a1aa); // Monochrome active strip
-      if (glowRing) {
-        glowRing.visible = true;
-        glowRing.material.opacity = 0.85;
-      }
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(30); } catch (e) {}
-      }
-      if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
-        window.soundEngine.playTactileTick();
-      }
-      return true;
-    }
-
-    if (event.type === 'pointercancel') {
-      moduleView.userData.pressStartTime = null;
-      btnMesh.position.z = defaultBtnZ;
-      capMesh.position.z = defaultBtnZ + 0.075;
-      stripMesh.material.color.setHex(0x3f3f46);
-      if (glowRing) {
-        glowRing.visible = false;
-        glowRing.material.opacity = 0;
-      }
+      this.onVisualState(moduleView, { state: 'press_start', progress: 0 }, role, state);
       return true;
     }
 
     if (event.type === 'pointerup') {
       const startTime = moduleView.userData.pressStartTime;
-      btnMesh.position.z = defaultBtnZ;
-      capMesh.position.z = defaultBtnZ + 0.075;
-      stripMesh.material.color.setHex(0x3f3f46);
-      if (glowRing) {
-        glowRing.visible = false;
-        glowRing.material.opacity = 0;
-      }
-
-      if (!startTime) return false;
-      const duration = Date.now() - startTime;
       moduleView.userData.pressStartTime = null;
-
-      if (duration < 350) {
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          try { navigator.vibrate(35); } catch (e) {}
-        }
-        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
-          window.soundEngine.playClick();
-        }
-        send('action', {
-          moduleId: 'button',
-          action: 'press'
-        });
-      } else {
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          try { navigator.vibrate([40, 30, 40]); } catch (e) {}
-        }
-        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
-          window.soundEngine.playClick();
-        }
-        send('action', {
-          moduleId: 'button',
-          action: 'release',
-          data: { releaseDigit: event.lastTimerDigit }
-        });
+      if (!startTime) {
+        this.onVisualState(moduleView, { state: 'cancelled' }, role, state);
+        return false;
       }
+      const duration = Date.now() - startTime;
+      const isHold = duration >= desc.holdDurationMs;
+      this.onVisualState(
+        moduleView,
+        { state: 'committed', mode: isHold ? 'hold_release' : 'tap', lastTimerDigit: event.lastTimerDigit },
+        role,
+        state
+      );
+      send('action', desc.buildAction({ isHold, lastTimerDigit: event.lastTimerDigit }));
       return true;
     }
-
     return false;
   }
 };

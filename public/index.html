@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BananaBomb — خنثی‌سازی همکارانه ۳ نفره حضوری</title>
   <meta name="description" content="بازی حضوری و همکارانه خنثی‌سازی بمب ۳ نفره با نقش‌های اپراتور (Operator)، ناظر (Observer) و دفترچه راهنما (Manual-holder).">
   <meta property="og:title" content="BananaBomb — خنثی‌سازی همکارانه ۳ نفره حضوری">
@@ -410,9 +410,9 @@
           <div id="blindTactileHelper" style="display: none;" class="tactile-instructions">
             <strong>دستورالعمل‌های عملیاتی اپراتور (Operator — بدون کلام):</strong>
             <br>• <strong>تنها لمس‌کننده بمب:</strong> صحبت نکنید و به دارنده دفترچه نگاه نکنید؛ فرامین کلامی را فقط از <strong>ناظر</strong> بشنوید.
-            <br>• <strong>دکمه کاتالیزور:</strong> ضربه کوتاه (Tap) یا نگه‌داشتن و رهاسازی روی رقم ثانیه اعلامی ناظر.
-            <br>• <strong>سیم‌ها و کیپد:</strong> سیم اعلامی را لمس کنید؛ کلیدهای ۱ تا ۴ را طبق ترتیب اعلام‌شده توسط ناظر بزنید.
-            <br>• <strong>فانوس صوتی:</strong> ریتم بوق پخش‌شده از گوشی خود را بدون کلام (با ضربه روی میز) به ناظر منتقل کنید، سپس کانال اعلامی ناظر را تنظیم و TX را بزنید.
+            <br>• <strong>دکمه کاتالیزور:</strong> ضربه کوتاه (Tap) یا نگه‌داشتن (Hold) تا نمایش رقم ثانیه اعلامی ناظر؛ کشیدن انگشت به بیرون دکمه بدون خطا لغو می‌کند.
+            <br>• <strong>سیم‌های ۱ تا ۴ و کیپد:</strong> برای بریدن سیم ~۰.۴ ثانیه روی آن نگه دارید تا حلقه تایید پر شود (رهاسازی زودتر = لغو ایمن)؛ کلیدهای بزرگ ۱ تا ۴ را طبق ترتیب ناظر بزنید.
+            <br>• <strong>فانوس صوتی:</strong> ریتم بوق را با ضربه روی میز به ناظر برسانید، کانال ۱–۳ را تنظیم کرده و کلید TX را نگه دارید تا ارسال شود.
           </div>
 
           <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
@@ -442,14 +442,14 @@
 
           <div class="desktop-keyboard-hint" id="desktopKeyboardHint">
             ⌨️ <strong>کلیدهای میانبر دسکتاپ:</strong>
-            <br>• جهت‌نما: چرخش بمب | R: روبرو | B: پشت
-            <br>• ویژه اپراتور: Space (دکمه) | 1-4 (کیپد) | W + 1-4 (سیم‌ها) | C (کانال فانوس) | T (ارسال TX)
+            <br>• جهت‌نما: چرخش بمب | R: روبرو | B: پشت | Esc: لغو ایمن نگه‌داشتن
+            <br>• ویژه اپراتور: Space (ضربه/نگه‌داشتن دکمه) | 1-4 (کیپد) | W + 1-4 (بریدن سیم) | C (کانال فانوس) | T (ارسال TX)
           </div>
         </div>
 
         <div class="bomb-3d-wrapper">
-          <!-- Quick Camera Toolbar -->
-          <div class="bomb-view-toolbar" role="toolbar" aria-label="تنظیمات زاویه دید دوربین">
+          <!-- Quick Camera & Hold Threshold Toolbar -->
+          <div class="bomb-view-toolbar" role="toolbar" aria-label="تنظیمات زاویه دید و حساسیت تعامل">
             <button type="button" class="view-btn" id="btnViewFront" title="نمای روبروی ماژول‌ها">👀 روبرو</button>
             <button type="button" class="view-btn" id="btnViewBack" title="نمای پشت و پلاک سریال">🔄 پشت (پلاک)</button>
             <button type="button" class="view-btn" id="btnResetView" title="تنظیم مجدد زاویه و زوم">🎯 بازنشانی</button>
@@ -457,13 +457,28 @@
               <label for="cameraSensitivity"><span>سرعت:</span> <span id="sensitivityValue">1.0x</span></label>
               <input type="range" id="cameraSensitivity" min="0.5" max="2.0" step="0.1" value="1.0" aria-label="سرعت چرخش دوربین">
             </div>
+            <div class="camera-sensitivity-control" id="holdThresholdControl" style="display: none;" title="آستانه زمانی تمایز ضربه کوتاه (Tap) و نگه‌داشتن (Hold) دکمه">
+              <label for="holdThresholdSlider"><span>آستانه Hold:</span> <span id="holdThresholdValue">380ms</span></label>
+              <input type="range" id="holdThresholdSlider" min="250" max="700" step="20" value="380" aria-label="آستانه زمانی نگه‌داشتن دکمه به میلی‌ثانیه">
+            </div>
           </div>
 
           <div id="bomb3dContainer" class="bomb-3d-canvas-container" role="region" aria-label="محیط ۳ بعدی بمب"></div>
+
+          <!-- Accessible Live Operator Interaction Status & Hold Progress Bar -->
+          <div id="operatorInteractionHud" class="operator-interaction-hud" role="status" aria-live="polite" style="display: none;">
+            <div class="operator-hud-text">
+              <strong id="operatorHudLabel">آماده تعامل لمسی / کلیدی</strong>
+              <span id="operatorHudDetail">ضربه کوتاه یا نگه‌داشتن دکمه • نگه‌داشتن ۰.۴ ثانیه برای بریدن سیم</span>
+            </div>
+            <div class="operator-hud-progress-track" aria-hidden="true">
+              <div id="operatorHudProgressFill" class="operator-hud-progress-fill" style="width: 0%;"></div>
+            </div>
+          </div>
           
           <div class="bomb-3d-hint">
-            <span>🔄 با کشیدن ماوس یا لمس بچرخانید</span>
-            <span>🔍 اسکرول یا دو انگشت: زوم</span>
+            <span>🔄 کشیدن روی بدنه: چرخش (لغو ایمن لمس تصادفی)</span>
+            <span>🔍 دو انگشت / اسکرول: زوم</span>
           </div>
         </div>
       </section>

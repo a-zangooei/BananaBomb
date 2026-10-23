@@ -18,7 +18,23 @@
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
+}
+
+button,
+.role-card,
+.preset-btn {
   user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Visible Keyboard Focus Indicators for Accessibility */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+.role-card:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
 }
 
 body {
@@ -276,7 +292,7 @@ body {
   padding: 2px 4px;
 }
 
-/* 3D Bomb Viewport Container */
+/* 3D Bomb Viewport Container — Browser scroll/zoom suppressed ONLY on active 3D game surface */
 .bomb-3d-wrapper {
   background: #030712;
   border: 2px solid #1f293d;
@@ -287,41 +303,57 @@ body {
   box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.85);
   position: relative;
   flex: 1;
-  min-height: 300px;
+  min-height: 320px;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .bomb-3d-canvas-container {
   width: 100%;
   flex: 1;
-  min-height: 280px;
+  min-height: 270px;
   touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   display: block;
   cursor: grab;
   position: relative;
+}
+
+.bomb-3d-canvas-container canvas {
+  display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .bomb-3d-canvas-container:active {
   cursor: grabbing;
 }
 
-/* Canvas Toolbar / Quick View Shortcuts & Sensitivity */
+/* Canvas Toolbar / Quick View Shortcuts & Hold Threshold (Opaque surface over WebGL — no backdrop-filter) */
 .bomb-view-toolbar {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  width: fit-content;
+  max-width: calc(100% - 16px);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   z-index: 10;
   pointer-events: auto;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(51, 65, 85, 0.7);
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid #334155;
   border-radius: 10px;
   padding: 4px 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
 }
 
 .view-btn {
@@ -376,18 +408,88 @@ body {
   color: #e2e8f0;
 }
 
-.camera-sensitivity-control #sensitivityValue {
+.camera-sensitivity-control #sensitivityValue,
+.camera-sensitivity-control #holdThresholdValue {
   color: var(--neon-amber);
   font-family: monospace;
   font-weight: 700;
-  min-width: 28px;
+  min-width: 34px;
 }
 
 .camera-sensitivity-control input[type="range"] {
   width: 72px;
-  height: 5px;
+  min-height: 28px;
   accent-color: var(--neon-amber);
   cursor: pointer;
+}
+
+/* Accessible Operator Live Interaction Status & Hold Progress Bar */
+.operator-interaction-hud {
+  background: #0f172a;
+  border-top: 2px solid #334155;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.operator-interaction-hud[data-variant="info"] {
+  border-top-color: #38bdf8;
+  background: #0c192c;
+}
+
+.operator-interaction-hud[data-variant="hold"],
+.operator-interaction-hud[data-variant="warning"] {
+  border-top-color: #f59e0b;
+  background: #1c160b;
+}
+
+.operator-interaction-hud[data-variant="success"] {
+  border-top-color: #10b981;
+  background: #09221b;
+}
+
+.operator-hud-text {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.operator-hud-text strong {
+  font-size: 0.82rem;
+  color: #f8fafc;
+}
+
+.operator-hud-text span {
+  font-size: 0.73rem;
+  color: #cbd5e1;
+}
+
+.operator-hud-progress-track {
+  width: 100%;
+  height: 7px;
+  background: #1e293b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.operator-hud-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #38bdf8;
+  transition: width 0.05s linear;
+}
+
+.operator-interaction-hud[data-variant="hold"] .operator-hud-progress-fill,
+.operator-interaction-hud[data-variant="warning"] .operator-hud-progress-fill {
+  background: #f59e0b;
+}
+
+.operator-interaction-hud[data-variant="success"] .operator-hud-progress-fill {
+  background: #10b981;
 }
 
 .bomb-3d-hint {
@@ -986,6 +1088,30 @@ body {
   .bomb-3d-hint {
     padding: 3px 8px;
     font-size: 0.68rem;
+  }
+
+  .operator-interaction-hud {
+    padding: 4px 10px;
+    gap: 4px;
+  }
+
+  .operator-hud-text strong {
+    font-size: 0.75rem;
+  }
+
+  .operator-hud-text span {
+    font-size: 0.68rem;
+  }
+
+  .bomb-view-toolbar {
+    padding: 3px 5px;
+    gap: 4px;
+  }
+
+  .view-btn {
+    padding: 4px 8px;
+    min-height: 32px;
+    font-size: 0.7rem;
   }
 
   /* Mute section in landscape: 2-column rulebook */

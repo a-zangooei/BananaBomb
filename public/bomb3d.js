@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { clientModules, clientModulesById } from './modules/index.js';
+import { clientModules } from './modules/index.js';
+import { createCanvas2D, prefersReducedMotion } from './modules/canvas-utils.js';
+import { BombInteractionController, INTERACTION_DEFAULTS } from './interaction-controller.js';
 
 /**
  * Checks if WebGL is available in the current browser environment.
@@ -25,9 +27,7 @@ function isObserverRole(role) {
  * Procedural Serial Number Plate Texture
  */
 function createSerialPlateTexture(serialNumber, isMonochrome) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
+  const canvas = createCanvas2D(512, 128);
   const ctx = canvas.getContext('2d');
 
   ctx.fillStyle = isMonochrome ? '#27272a' : '#1e293b';
@@ -65,11 +65,12 @@ function createSerialPlateTexture(serialNumber, isMonochrome) {
  * Standalone Responsive 3D Bomb Scene Manager
  */
 export class Bomb3DScene {
-  constructor(containerEl, role, onActionSend, getTimerRemaining) {
+  constructor(containerEl, role, onActionSend, getTimerRemaining, options = {}) {
     this.container = containerEl;
     this.role = role;
     this.send = onActionSend;
     this.getTimerRemaining = getTimerRemaining || (() => 300);
+    this.onInteractionStatus = options.onInteractionStatus || (() => {});
 
     this.scene = null;
     this.camera = null;
@@ -80,9 +81,9 @@ export class Bomb3DScene {
     this.resizeObserver = null;
 
     // Camera Framing & Distance Adaptation
-    this.baseCameraDist = 3.6;
-    this.cameraDist = 3.6;
-    this.targetCameraDist = 3.6;
+    this.baseCameraDist = 3.55;
+    this.cameraDist = 3.55;
+    this.targetCameraDist = 3.55;
 
     // Rotation state
     this.targetRotX = 0;
@@ -90,15 +91,6 @@ export class Bomb3DScene {
     this.currentRotX = 0;
     this.currentRotY = 0;
     this.sensitivity = 1.0;
-
-    // Pointer & Multi-touch Gesture tracking
-    this.pointers = new Map();
-    this.isDragging = false;
-    this.dragStartPos = { x: 0, y: 0 };
-    this.lastPointerPos = { x: 0, y: 0 };
-    this.pinchStartDist = 0;
-    this.hasMovedSignificantly = false;
-    this.candidateModule = null;
 
     this.raycaster = new THREE.Raycaster();
     this.mouseVec = new THREE.Vector2();
@@ -108,6 +100,35 @@ export class Bomb3DScene {
     this.serialPlateTexture = null;
     this.currentState = null;
 
+    // Production Interaction State Machine
+    this.interaction = new BombInteractionController({
+      getRole: () => this.role,
+      getState: () => this.currentState,
+      getTimerRemaining: () => this.getTimerRemaining(),
+      raycastAt: (cx, cy) => this.raycast(cx, cy),
+      resolveHitModule: (obj) => this.findHitModule(obj),
+      holdThresholdMs: options.holdThresholdMs ?? INTERACTION_DEFAULTS.buttonHoldThresholdMs,
+      onSendAction: (actionPayload) => {
+        if (this.send) {
+          this.send('action', actionPayload);
+        }
+      },
+      onCameraRotate: (dx, dy) => {
+        const sens = this.sensitivity || 1.0;
+        this.targetRotY += dx * 0.008 * sens;
+        this.targetRotX = Math.max(-1.4, Math.min(1.4, this.targetRotX + dy * 0.008 * sens));
+      },
+      onCameraZoom: (delta) => {
+        this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + delta * 0.008));
+      },
+      onStatusChange: (status) => {
+        this.onInteractionStatus(status);
+      },
+      onFeedback: (feedbackType, descriptor) => {
+        this.handleTactileAndAudioFeedback(feedbackType, descriptor);
+      }
+    });
+
     // Bound event handlers for clean disposal
     this.boundPointerDown = null;
     this.boundPointerMove = null;
@@ -116,6 +137,9 @@ export class Bomb3DScene {
     this.boundWheel = null;
     this.boundLostCapture = null;
     this.boundWindowBlur = null;
+    this.boundVisibilityChange = null;
+    this.boundOrientationChange = null;
+    this.boundContextMenu = null;
 
     this.init();
   }
@@ -129,7 +153,7 @@ export class Bomb3DScene {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x070b12);
 
-    // 2. Camera with Adaptive Framing
+    // 2. Camera with Adaptive Framing across Portrait & Landscape
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 50);
     this.targetCameraDist = this.calcOptimalCameraDist(width, height);
     this.cameraDist = this.targetCameraDist;
@@ -141,13 +165,13 @@ export class Bomb3DScene {
       powerPreference: 'high-performance'
     });
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // capped at 2 for mobile efficiency
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.container.innerHTML = '';
     this.container.appendChild(this.renderer.domElement);
 
     // 4. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.96);
     this.scene.add(ambientLight);
 
     const dirLight = new THREE.DirectionalLight(0xfff5eb, 1.4);
@@ -161,7 +185,7 @@ export class Bomb3DScene {
     // 5. Build Bomb Model
     this.buildBombModel();
 
-    // 6. Bind Native Pointer / Touch Events
+    // 6. Bind Native Pointer / Touch / Lifecycle Events
     this.setupTouchControls();
 
     // 7. Setup Container-Driven ResizeObserver
@@ -173,17 +197,27 @@ export class Bomb3DScene {
   }
 
   /**
-   * Calculates ideal camera distance based on viewport width & height.
-   * On tall/narrow aspect ratios (portrait mobile), scales distance inversely
-   * with aspect ratio so the horizontal edges of the bomb are never clipped.
+   * Calculates ideal camera distance based on viewport width & height so all
+   * active controls fit cleanly in both narrow portrait and short landscape screens
+   * without forcing the Operator to manually zoom just to reach a module.
    */
   calcOptimalCameraDist(width, height) {
-    const aspect = (width && height) ? (width / height) : 1;
-    if (aspect < 1.0) {
-      // In portrait: bomb width requires more distance to fit in narrower horizontal FOV
-      return this.baseCameraDist / Math.max(0.62, aspect);
-    }
-    return this.baseCameraDist;
+    const w = Math.max(120, width || 360);
+    const h = Math.max(120, height || 420);
+    const aspect = w / h;
+
+    // Bomb physical bounding box ~2.55w x 2.75h
+    const vFovRad = THREE.MathUtils.degToRad(45);
+    const tanHalfVFov = Math.tan(vHalf(vFovRad));
+    const tanHalfHFov = tanHalfVFov * aspect;
+
+    const halfBombW = 1.42;
+    const halfBombH = 1.54;
+
+    const distForHeight = halfBombH / tanHalfVFov;
+    const distForWidth = halfBombW / Math.max(0.28, tanHalfHFov);
+
+    return Math.max(this.baseCameraDist, distForHeight, distForWidth);
   }
 
   setupResizeObserver() {
@@ -210,10 +244,12 @@ export class Bomb3DScene {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
 
-    // Adapt camera framing smoothly if user hasn't zoomed manually far away
     const idealDist = this.calcOptimalCameraDist(w, h);
-    if (Math.abs(this.targetCameraDist - this.cameraDist) < 0.3) {
+    if (Math.abs(this.targetCameraDist - this.cameraDist) < 0.45) {
       this.targetCameraDist = idealDist;
+      if (prefersReducedMotion()) {
+        this.cameraDist = idealDist;
+      }
     }
   }
 
@@ -221,7 +257,17 @@ export class Bomb3DScene {
     this.handleResize();
   }
 
+  clearBeaconIntervals() {
+    for (const modInfo of this.moduleViews.values()) {
+      if (modInfo.group?.userData?.soundLoopInterval) {
+        clearInterval(modInfo.group.userData.soundLoopInterval);
+        modInfo.group.userData.soundLoopInterval = null;
+      }
+    }
+  }
+
   buildBombModel() {
+    this.clearBeaconIntervals();
     if (this.bombGroup) {
       this.scene.remove(this.bombGroup);
     }
@@ -230,19 +276,17 @@ export class Bomb3DScene {
     const isBlind = isOperatorRole(this.role);
     const numModules = clientModules.length;
 
-    // Calculate slots layout (supports up to 6 modules)
-    let cols = numModules <= 3 ? numModules : (numModules <= 4 ? 2 : 3);
-    let rows = Math.ceil(numModules / cols);
+    const cols = numModules <= 3 ? numModules : (numModules <= 4 ? 2 : 3);
+    const rows = Math.ceil(numModules / cols);
 
-    const slotW = 1.05;
-    const slotH = 1.05;
-    const spacing = 0.12;
+    const slotW = 1.08;
+    const slotH = 1.08;
+    const spacing = 0.13;
 
     const bodyWidth = cols * slotW + (cols + 1) * spacing;
-    const bodyHeight = rows * slotH + (rows + 1) * spacing + 0.2;
+    const bodyHeight = rows * slotH + (rows + 1) * spacing + 0.18;
     const bodyDepth = 0.5;
 
-    // Main Bomb Body Box
     const bodyGeo = new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth);
     const bodyMat = new THREE.MeshLambertMaterial({
       color: isBlind ? 0x27272a : 0x0f172a
@@ -250,7 +294,6 @@ export class Bomb3DScene {
     const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
     this.bombGroup.add(bodyMesh);
 
-    // Outer Beveled Edge Frame / Rim
     const rimGeo = new THREE.BoxGeometry(bodyWidth + 0.08, bodyHeight + 0.08, 0.1);
     const rimMat = new THREE.MeshLambertMaterial({
       color: isBlind ? 0x3f3f46 : 0x1e293b
@@ -259,7 +302,6 @@ export class Bomb3DScene {
     rimMesh.position.z = bodyDepth / 2 - 0.05;
     this.bombGroup.add(rimMesh);
 
-    // Corner Screws
     const screwGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.02, 10);
     screwGeo.rotateX(Math.PI / 2);
     const screwMat = new THREE.MeshLambertMaterial({ color: 0x94a3b8 });
@@ -275,11 +317,10 @@ export class Bomb3DScene {
       this.bombGroup.add(screw);
     });
 
-    // Serial Number Plate on the Back Face
     const plateW = Math.min(bodyWidth * 0.8, 2.2);
     const plateH = 0.45;
     const plateGeo = new THREE.PlaneGeometry(plateW, plateH);
-    plateGeo.rotateY(Math.PI); // facing back
+    plateGeo.rotateY(Math.PI);
 
     this.serialPlateCanvas = createSerialPlateTexture(null, isBlind);
     this.serialPlateTexture = new THREE.CanvasTexture(this.serialPlateCanvas);
@@ -291,7 +332,6 @@ export class Bomb3DScene {
     this.serialPlateMesh.position.set(0, 0, -bodyDepth / 2 - 0.005);
     this.bombGroup.add(this.serialPlateMesh);
 
-    // Mount Module Slots onto Front Face
     this.moduleViews.clear();
     clientModules.forEach((mod, idx) => {
       const col = idx % cols;
@@ -328,128 +368,69 @@ export class Bomb3DScene {
     const dom = this.renderer.domElement;
 
     this.boundPointerDown = (e) => {
-      e.preventDefault();
+      // Only ignore non-primary mouse clicks (e.g. right-click)
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (e.cancelable) e.preventDefault();
       try {
         dom.setPointerCapture(e.pointerId);
       } catch (err) {}
 
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      if (this.pointers.size === 1) {
-        this.isDragging = true;
-        this.hasMovedSignificantly = false;
-        this.dragStartPos = { x: e.clientX, y: e.clientY };
-        this.lastPointerPos = { x: e.clientX, y: e.clientY };
-        this.candidateModule = null;
-
-        // Interactive raycast check for Operator role
-        if (isOperatorRole(this.role)) {
-          const hit = this.raycast(e.clientX, e.clientY);
-          if (hit) {
-            const modInfo = this.findHitModule(hit.object);
-            if (modInfo && modInfo.group.visible) {
-              this.candidateModule = modInfo;
-              this.candidateHit = hit;
-              const lastDigit = Math.floor(Math.max(0, this.getTimerRemaining())) % 10;
-              // Notify module of pointerdown (e.g. for button visual depression)
-              modInfo.moduleDef.onPointer(
-                hit,
-                { type: 'pointerdown', lastTimerDigit: lastDigit },
-                this.send,
-                modInfo.group,
-                this.role,
-                this.currentState?.modules?.[modInfo.moduleDef.id]
-              );
-            }
-          }
-        }
-      } else if (this.pointers.size === 2) {
-        // Multi-touch pinch zoom start: cancel any pending single-finger module candidate
-        this.cancelCandidateModule();
-        const pts = Array.from(this.pointers.values());
-        this.pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      }
+      this.interaction.onPointerDown(e);
     };
 
     this.boundPointerMove = (e) => {
-      if (!this.pointers.has(e.pointerId)) return;
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      if (this.pointers.size === 1 && this.isDragging) {
-        const dx = e.clientX - this.lastPointerPos.x;
-        const dy = e.clientY - this.lastPointerPos.y;
-        this.lastPointerPos = { x: e.clientX, y: e.clientY };
-
-        const moveDist = Math.hypot(e.clientX - this.dragStartPos.x, e.clientY - this.dragStartPos.y);
-        if (moveDist > 10) {
-          this.hasMovedSignificantly = true;
-          // Crucial fix: user is rotating camera, cancel any accidental module tap/press!
-          this.cancelCandidateModule();
-        }
-
-        // Smooth drag-rotate with sensitivity scaling
-        const sens = this.sensitivity || 1.0;
-        this.targetRotY += dx * 0.008 * sens;
-        this.targetRotX = Math.max(-1.4, Math.min(1.4, this.targetRotX + dy * 0.008 * sens));
-      } else if (this.pointers.size === 2) {
-        // Pinch zoom
-        const pts = Array.from(this.pointers.values());
-        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        if (this.pinchStartDist > 0) {
-          const scaleDelta = (this.pinchStartDist - dist) * 0.008;
-          this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + scaleDelta));
-          this.pinchStartDist = dist;
-        }
-      }
+      if (e.cancelable) e.preventDefault();
+      this.interaction.onPointerMove(e);
     };
 
-    const handlePointerEnd = (e, isCancel = false) => {
-      if (this.pointers.has(e.pointerId)) {
-        this.pointers.delete(e.pointerId);
-      }
-
-      if (this.pointers.size === 0) {
-        this.isDragging = false;
-
-        if (isCancel) {
-          this.cancelCandidateModule();
-        } else if (isOperatorRole(this.role) && this.candidateModule) {
-          // If the pointer didn't move significantly, it is a deliberate tap / release!
-          if (!this.hasMovedSignificantly) {
-            const hit = this.raycast(e.clientX, e.clientY);
-            const lastDigit = Math.floor(Math.max(0, this.getTimerRemaining())) % 10;
-            this.candidateModule.moduleDef.onPointer(
-              hit || this.candidateHit || { object: null },
-              { type: 'pointerup', lastTimerDigit: lastDigit },
-              this.send,
-              this.candidateModule.group,
-              this.role,
-              this.currentState?.modules?.[this.candidateModule.moduleDef.id]
-            );
-          } else {
-            this.cancelCandidateModule();
-          }
-          this.candidateModule = null;
+    this.boundPointerUp = (e) => {
+      if (e.cancelable) e.preventDefault();
+      this.interaction.onPointerUp(e);
+      try {
+        if (dom.hasPointerCapture?.(e.pointerId)) {
+          dom.releasePointerCapture(e.pointerId);
         }
-      }
+      } catch (err) {}
     };
 
-    this.boundPointerUp = (e) => handlePointerEnd(e, false);
-    this.boundPointerCancel = (e) => handlePointerEnd(e, true);
+    this.boundPointerCancel = (e) => {
+      this.interaction.onPointerCancel(e);
+    };
 
     this.boundLostCapture = (e) => {
-      handlePointerEnd(e, true);
+      this.interaction.onLostPointerCapture(e);
     };
 
     this.boundWindowBlur = () => {
-      this.cancelCandidateModule();
-      this.pointers.clear();
-      this.isDragging = false;
+      this.interaction.onBlur();
+    };
+
+    this.boundVisibilityChange = () => {
+      this.interaction.onVisibilityChange(Boolean(document.hidden));
+    };
+
+    this.boundOrientationChange = () => {
+      this.interaction.onOrientationChange();
+      setTimeout(() => {
+        if (this.container) {
+          const w = this.container.clientWidth;
+          const h = this.container.clientHeight;
+          if (w > 0 && h > 0) {
+            this.targetCameraDist = this.calcOptimalCameraDist(w, h);
+            this.handleResize(w, h);
+          }
+        }
+      }, 80);
     };
 
     this.boundWheel = (e) => {
       e.preventDefault();
       this.targetCameraDist = Math.max(2.2, Math.min(6.5, this.targetCameraDist + e.deltaY * 0.003));
+    };
+
+    this.boundContextMenu = (e) => {
+      // Prevent Android long-press context menu from interrupting 400ms wire cut or button hold!
+      e.preventDefault();
     };
 
     dom.addEventListener('pointerdown', this.boundPointerDown);
@@ -458,23 +439,57 @@ export class Bomb3DScene {
     dom.addEventListener('pointercancel', this.boundPointerCancel);
     dom.addEventListener('lostpointercapture', this.boundLostCapture);
     dom.addEventListener('wheel', this.boundWheel, { passive: false });
+    dom.addEventListener('contextmenu', this.boundContextMenu);
+
     window.addEventListener('blur', this.boundWindowBlur);
+    window.addEventListener('orientationchange', this.boundOrientationChange);
+    document.addEventListener('visibilitychange', this.boundVisibilityChange);
   }
 
-  cancelCandidateModule() {
-    if (this.candidateModule) {
-      try {
-        this.candidateModule.moduleDef.onPointer(
-          { object: null },
-          { type: 'pointercancel' },
-          this.send,
-          this.candidateModule.group,
-          this.role,
-          this.currentState?.modules?.[this.candidateModule.moduleDef.id]
-        );
-      } catch (err) {}
-      this.candidateModule = null;
+  handleTactileAndAudioFeedback(type, descriptor) {
+    if (type === 'press_start') {
+      this.triggerTactileFeedback('tap');
+      if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
+        window.soundEngine.playTactileTick();
+      }
+      return;
     }
+
+    if (type === 'hold_start') {
+      this.triggerTactileFeedback('hold');
+      if (typeof window !== 'undefined' && window.soundEngine?.playTactileTick) {
+        window.soundEngine.playTactileTick();
+      }
+      return;
+    }
+
+    if (type === 'commit' || type === 'tap_commit' || type === 'hold_release') {
+      if (descriptor?.moduleId === 'wires') {
+        this.triggerTactileFeedback('cut');
+        if (typeof window !== 'undefined' && window.soundEngine?.playWireCut) {
+          window.soundEngine.playWireCut();
+        } else if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
+          window.soundEngine.playClick();
+        }
+      } else {
+        this.triggerTactileFeedback(type === 'hold_release' ? 'hold' : 'key');
+        if (typeof window !== 'undefined' && window.soundEngine?.playClick) {
+          window.soundEngine.playClick();
+        }
+      }
+    }
+  }
+
+  setHoldThreshold(ms) {
+    return this.interaction.setHoldThreshold(ms);
+  }
+
+  getHoldThreshold() {
+    return this.interaction.getHoldThreshold();
+  }
+
+  cancelActiveInteraction(reason = 'manual_cancel') {
+    return this.interaction.cancelActiveGesture(reason);
   }
 
   /**
@@ -483,11 +498,19 @@ export class Bomb3DScene {
   viewFront() {
     this.targetRotX = 0;
     this.targetRotY = 0;
+    if (prefersReducedMotion()) {
+      this.currentRotX = 0;
+      this.currentRotY = 0;
+    }
   }
 
   viewBack() {
     this.targetRotX = 0;
-    this.targetRotY = Math.PI; // Flip 180 degrees to back plate
+    this.targetRotY = Math.PI;
+    if (prefersReducedMotion()) {
+      this.currentRotX = 0;
+      this.currentRotY = Math.PI;
+    }
   }
 
   resetView() {
@@ -496,6 +519,11 @@ export class Bomb3DScene {
     const w = this.container ? this.container.clientWidth : 360;
     const h = this.container ? this.container.clientHeight : 420;
     this.targetCameraDist = this.calcOptimalCameraDist(w, h);
+    if (prefersReducedMotion()) {
+      this.currentRotX = 0;
+      this.currentRotY = 0;
+      this.cameraDist = this.targetCameraDist;
+    }
   }
 
   setSensitivity(val) {
@@ -511,11 +539,11 @@ export class Bomb3DScene {
         if (type === 'hold') {
           navigator.vibrate([40, 30, 40]);
         } else if (type === 'cut') {
-          navigator.vibrate([35, 25]);
+          navigator.vibrate([45, 25]);
         } else if (type === 'key') {
           navigator.vibrate(25);
         } else {
-          navigator.vibrate(30);
+          navigator.vibrate(20);
         }
       } catch (e) {}
     }
@@ -547,6 +575,7 @@ export class Bomb3DScene {
 
   setRole(newRole) {
     if (this.role !== newRole) {
+      this.interaction.cancelActiveGesture('role_change');
       this.role = newRole;
       this.buildBombModel();
       if (this.currentState) {
@@ -556,12 +585,16 @@ export class Bomb3DScene {
   }
 
   updateState(state) {
+    const prevStatus = this.currentState?.status;
     this.currentState = state;
     if (!state) return;
 
+    if (prevStatus === 'running' && state.status !== 'running') {
+      this.interaction.cancelActiveGesture('round_ended');
+    }
+
     const isBlind = isOperatorRole(this.role);
 
-    // Update Serial Number Plate
     if (this.serialPlateCanvas && this.serialPlateTexture) {
       const plateText = (isObserverRole(this.role) && state.serialNumber) ? state.serialNumber : null;
       const ctx = this.serialPlateCanvas.getContext('2d');
@@ -597,7 +630,6 @@ export class Bomb3DScene {
       this.serialPlateTexture.needsUpdate = true;
     }
 
-    // Update individual active modules (hide slots not active in current difficulty preset)
     if (state.modules) {
       for (const [modId, modInfo] of this.moduleViews.entries()) {
         const modState = state.modules[modId];
@@ -614,10 +646,13 @@ export class Bomb3DScene {
   animate() {
     this.animFrameId = requestAnimationFrame(this.animate);
 
-    // Smooth exponential damping on rotation & zoom
-    this.currentRotX += (this.targetRotX - this.currentRotX) * 0.14;
-    this.currentRotY += (this.targetRotY - this.currentRotY) * 0.14;
-    this.cameraDist += (this.targetCameraDist - this.cameraDist) * 0.14;
+    // Advance active touch/hold progress indicators every frame
+    this.interaction.tick();
+
+    const damping = prefersReducedMotion() ? 1.0 : 0.16;
+    this.currentRotX += (this.targetRotX - this.currentRotX) * damping;
+    this.currentRotY += (this.targetRotY - this.currentRotY) * damping;
+    this.cameraDist += (this.targetCameraDist - this.cameraDist) * damping;
 
     if (this.bombGroup) {
       this.bombGroup.rotation.x = this.currentRotX;
@@ -632,6 +667,9 @@ export class Bomb3DScene {
   }
 
   dispose() {
+    this.interaction.cancelActiveGesture('dispose');
+    this.clearBeaconIntervals();
+
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
@@ -651,10 +689,12 @@ export class Bomb3DScene {
         if (this.boundPointerCancel) dom.removeEventListener('pointercancel', this.boundPointerCancel);
         if (this.boundLostCapture) dom.removeEventListener('lostpointercapture', this.boundLostCapture);
         if (this.boundWheel) dom.removeEventListener('wheel', this.boundWheel);
+        if (this.boundContextMenu) dom.removeEventListener('contextmenu', this.boundContextMenu);
       }
       window.removeEventListener('blur', this.boundWindowBlur);
+      window.removeEventListener('orientationchange', this.boundOrientationChange);
+      document.removeEventListener('visibilitychange', this.boundVisibilityChange);
 
-      // Deep dispose scene objects
       if (this.scene) {
         this.scene.traverse((obj) => {
           if (obj.geometry) {
@@ -684,4 +724,8 @@ export class Bomb3DScene {
     this.bombGroup = null;
     this.moduleViews.clear();
   }
+}
+
+function vHalf(fovRad) {
+  return fovRad * 0.5;
 }

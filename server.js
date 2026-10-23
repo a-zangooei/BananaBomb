@@ -486,6 +486,11 @@ function startGame(customSeed = null) {
   gameState.processedActionIds = new Set();
   gameState.commAid = createCommAidState(gameState.difficulty);
 
+  // Reset per-session action flood buckets at the start of every new round
+  for (const sess of sessions.values()) {
+    sess.actionRateState = null;
+  }
+
   const totalDuration = (gameState.difficulty.duration || 300) + (gameState.difficulty.features?.timerGraceSeconds || 0);
   gameState.duration = totalDuration;
   gameState.remainingSeconds = totalDuration;
@@ -528,6 +533,9 @@ function resetGame(clearDisconnectedRoles = true) {
   gameState.roundRules = null;
   gameState.startTime = null;
   gameState.processedActionIds = new Set();
+  for (const sess of sessions.values()) {
+    sess.actionRateState = null;
+  }
 
   if (!gameState.difficulty) {
     gameState.difficulty = sanitizeDifficultyConfig(DEFAULT_DIFFICULTY_ID);
@@ -609,6 +617,63 @@ function registerStrike(reason) {
   } else {
     broadcastFullState();
   }
+}
+
+/**
+ * Strictly validates module action type and parameters on the server, returning
+ * a clean sanitizedData object stripped of any client-injected correctness claims
+ * (e.g. solved, strike, correct).
+ */
+function validateBombActionPayload(moduleId, action, rawData) {
+  const isPlainObj = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v));
+
+  if (moduleId === 'button') {
+    if (action === 'press') {
+      return { ok: true, sanitizedData: {}, targetKey: 'plunger_press' };
+    }
+    if (action === 'release') {
+      if (!isPlainObj(rawData) || !Number.isInteger(rawData.releaseDigit) || rawData.releaseDigit < 0 || rawData.releaseDigit > 9) {
+        return { ok: false, message: 'پارامتر رقم رهاسازی دکمه نامعتبر است (باید عدد صحیح ۰ تا ۹ باشد).' };
+      }
+      return { ok: true, sanitizedData: { releaseDigit: rawData.releaseDigit }, targetKey: 'plunger_release' };
+    }
+    return { ok: false, message: 'نوع عملیات دکمه نامعتبر است.' };
+  }
+
+  if (moduleId === 'wires') {
+    if (action === 'cut') {
+      if (!isPlainObj(rawData) || !Number.isInteger(rawData.wireIndex) || rawData.wireIndex < 0 || rawData.wireIndex > 3) {
+        return { ok: false, message: 'شماره سیم ارسالی نامعتبر است (باید عدد صحیح ۰ تا ۳ باشد).' };
+      }
+      return { ok: true, sanitizedData: { wireIndex: rawData.wireIndex }, targetKey: `wire_${rawData.wireIndex}` };
+    }
+    return { ok: false, message: 'نوع عملیات ماژول سیم‌ها نامعتبر است.' };
+  }
+
+  if (moduleId === 'keypad') {
+    if (action === 'press') {
+      if (!isPlainObj(rawData) || !Number.isInteger(rawData.slotIndex) || rawData.slotIndex < 0 || rawData.slotIndex > 3) {
+        return { ok: false, message: 'شناسه کلید کیپد نامعتبر است (باید عدد صحیح ۰ تا ۳ باشد).' };
+      }
+      return { ok: true, sanitizedData: { slotIndex: rawData.slotIndex }, targetKey: `slot_${rawData.slotIndex}` };
+    }
+    return { ok: false, message: 'نوع عملیات ماژول کیپد نامعتبر است.' };
+  }
+
+  if (moduleId === 'beacon') {
+    if (action === 'tune') {
+      if (!isPlainObj(rawData) || !Number.isInteger(rawData.channel) || rawData.channel < 1 || rawData.channel > 3) {
+        return { ok: false, message: 'شماره کانال فانوس صوتی نامعتبر است (باید ۱، ۲ یا ۳ باشد).' };
+      }
+      return { ok: true, sanitizedData: { channel: rawData.channel }, targetKey: `tune_${rawData.channel}` };
+    }
+    if (action === 'transmit') {
+      return { ok: true, sanitizedData: {}, targetKey: 'tx' };
+    }
+    return { ok: false, message: 'نوع عملیات ماژول فانوس صوتی نامعتبر است.' };
+  }
+
+  return { ok: false, message: 'ماژول یا عملیات پشتیبانی نمی‌شود.' };
 }
 
 // --- WebSocket Connection Lifecycle ---
@@ -938,15 +1003,18 @@ function handleClientEvent(ws, msg) {
     return;
   }
 
-  // 6. Bomb Defusal Action (STRICTLY allowed ONLY for 'blind' role)
+  // 6. Bomb Defusal Action (STRICTLY allowed ONLY for connected Operator / 'blind' role)
   if (type === 'action') {
-    if (gameState.status !== 'running') {
-      return;
-    }
-
     const socketInfo = activeSockets.get(ws);
     const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
-    const isAuthorizedOperator = session && (session.role === 'blind' || session.role === 'operator');
+    const isAuthorizedOperator = Boolean(
+      session &&
+      session.connected &&
+      canonicalRole(session.role) === 'blind' &&
+      roles.blind.playerId === session.playerId &&
+      roles.blind.connected
+    );
+
     if (!isAuthorizedOperator) {
       ws.send(
         JSON.stringify({
@@ -958,14 +1026,97 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    const actionData = payload || msg.data || msg;
-    const { moduleId, action, data } = actionData || {};
+    if (gameState.status !== 'running') {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'INVALID_PHASE',
+          message: 'اجرای فرمان روی بمب فقط در فاز در حال اجرا (Running) مجاز است.'
+        })
+      );
+      return;
+    }
+
+    const actionData = payload !== undefined ? payload : (msg.data !== undefined ? msg.data : msg);
+    if (!actionData || typeof actionData !== 'object' || Array.isArray(actionData)) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'MALFORMED_ACTION',
+          message: 'ساختار بسته فرمان ارسالی نامعتبر است.'
+        })
+      );
+      return;
+    }
+
+    // Reject stale actions originating from an older round or pre-round timestamp
+    if (typeof actionData.roundSeed === 'string' && actionData.roundSeed.trim() && actionData.roundSeed !== gameState.roundSeed) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'STALE_ACTION',
+          message: 'این فرمان مربوط به راند قبلی است و بدون ثبت خطا نادیده گرفته شد.'
+        })
+      );
+      return;
+    }
+    if (
+      typeof actionData.clientTimestamp === 'number' &&
+      Number.isFinite(actionData.clientTimestamp) &&
+      gameState.startTime &&
+      actionData.clientTimestamp < gameState.startTime - 1500
+    ) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'STALE_ACTION',
+          message: 'فرمان منقضی‌شده پیش از شروع راند نادیده گرفته شد.'
+        })
+      );
+      return;
+    }
+
+    const { moduleId, action, data } = actionData;
     if (typeof moduleId !== 'string' || typeof action !== 'string') {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'MALFORMED_ACTION',
+          message: 'شناسه ماژول یا نوع عملیات معتبر نیست.'
+        })
+      );
+      return;
+    }
+
+    const activeIds = gameState.activeModuleIds || activeModules.map((m) => m.id);
+    const mod = modulesById.get(moduleId);
+    if (!mod || !activeIds.includes(moduleId) || !gameState.modules?.[moduleId]) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'MALFORMED_ACTION',
+          message: 'ماژول هدف در این راند فعال یا موجود نیست.'
+        })
+      );
+      return;
+    }
+
+    const validation = validateBombActionPayload(moduleId, action, data);
+    if (!validation.ok) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'MALFORMED_ACTION',
+          message: validation.message
+        })
+      );
       return;
     }
 
     // Action idempotency & deduplication: Ignore duplicate action IDs
-    const actionId = actionData.actionId || msg.actionId;
+    const actionId = typeof (actionData.actionId || msg.actionId) === 'string'
+      ? (actionData.actionId || msg.actionId).trim()
+      : '';
     if (actionId) {
       if (gameState.processedActionIds && gameState.processedActionIds.has(actionId)) {
         ws.send(JSON.stringify({
@@ -983,16 +1134,66 @@ function handleClientEvent(ws, msg) {
       }
     }
 
-    // Flood protection / rate limiting based on difficulty interaction grace
+    // Two-tier rate limiter:
+    // 1) Per-target bounce guard (`cooldownMs`) blocks accidental rapid identical repeats
+    // 2) Token-bucket flood guard (burst 6, refills 1 token per refillStepMs) blocks abusive floods
+    //    without suppressing legitimate rapid interactions across distinct controls.
     const now = Date.now();
     const cooldownMs = gameState.difficulty?.interactionGraceMs || 70;
-    if (session.lastActionTime && (now - session.lastActionTime < cooldownMs)) {
+    const refillStepMs = Math.max(45, cooldownMs);
+    const maxBurstTokens = 6;
+
+    if (!session.actionRateState) {
+      session.actionRateState = {
+        tokens: maxBurstTokens,
+        lastRefill: now,
+        sigLastTime: new Map()
+      };
+    }
+
+    const rateState = session.actionRateState;
+    const elapsedSinceRefill = Math.max(0, now - rateState.lastRefill);
+    if (elapsedSinceRefill > 0) {
+      rateState.tokens = Math.min(maxBurstTokens, rateState.tokens + elapsedSinceRefill / refillStepMs);
+      rateState.lastRefill = now;
+    }
+
+    const actionSig = `${moduleId}:${action}:${validation.targetKey}`;
+    const prevSigTime = rateState.sigLastTime.get(actionSig) || 0;
+    if (now - prevSigTime < cooldownMs) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'RATE_LIMITED',
+          message: 'تکرار بسیار سریع همان فرمان مهار شد.'
+        })
+      );
       return;
     }
-    session.lastActionTime = now;
 
-    const mod = modulesById.get(moduleId);
-    if (!mod || !gameState.modules[moduleId]) {
+    if (rateState.tokens < 1) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          code: 'RATE_LIMITED',
+          message: 'تعداد فرمان‌های ارسالی بیش از حد مجاز است؛ لطفاً کمی مکث کنید.'
+        })
+      );
+      return;
+    }
+
+    rateState.tokens -= 1;
+    rateState.sigLastTime.set(actionSig, now);
+
+    // Ignore stale race packets targeting already-solved modules or already-cut/entered slots without penalty
+    const targetModState = gameState.modules[moduleId];
+    if (targetModState.solved) {
+      return;
+    }
+    if (moduleId === 'wires' && targetModState.cutWires?.includes(validation.sanitizedData.wireIndex)) {
+      return;
+    }
+    if (moduleId === 'keypad' && targetModState.enteredSlots?.includes(validation.sanitizedData.slotIndex)) {
       return;
     }
 
@@ -1004,7 +1205,8 @@ function handleClientEvent(ws, msg) {
       difficulty: gameState.difficulty
     };
 
-    const result = mod.handleAction(gameState.modules[moduleId], action, data, ctx);
+    // Never trust client claims of correctness: pass strictly sanitizedData
+    const result = mod.handleAction(targetModState, action, validation.sanitizedData, ctx);
 
     if (result.strike) {
       registerStrike(result.reason);
@@ -1177,5 +1379,6 @@ export {
   createRng,
   DIFFICULTY_PRESETS,
   DEFAULT_DIFFICULTY_ID,
-  sanitizeDifficultyConfig
+  sanitizeDifficultyConfig,
+  validateBombActionPayload
 };
