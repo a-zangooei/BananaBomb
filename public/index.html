@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BananaBomb — خنثی‌سازی همکارانه ۳ نفره حضوری</title>
-  <meta name="description" content="بازی حضوری و همکارانه خنثی‌سازی بمب ۳ نفره با نقش‌های اپراتور (Operator)، ناظر (Observer) و دفترچه راهنما (Manual-holder).">
-  <meta property="og:title" content="BananaBomb — خنثی‌سازی همکارانه ۳ نفره حضوری">
-  <meta property="og:description" content="بازی حضوری و همکارانه خنثی‌سازی بمب ۳ نفره با نقش‌های اپراتور، ناظر و دفترچه راهنما.">
+  <title>BananaBomb — بمب موز</title>
+  <meta name="description" content="بازی حضوری و همکارانه خنثی‌سازی بمب سه‌نفره در دنیای سه‌بعدی با نقش‌های اپراتور، ناظر و دفترچه راهنما.">
+  <meta property="og:title" content="BananaBomb — بمب موز">
+  <meta property="og:description" content="بازی حضوری و همکارانه خنثی‌سازی بمب سه‌نفره در دنیای سه‌بعدی با نقش‌های اپراتور، ناظر و دفترچه راهنما.">
   <link rel="stylesheet" href="/style.css">
 
   <!-- Offline Local Import Map for Three.js (No Internet / CDN needed) -->
@@ -21,122 +21,311 @@
   </script>
 </head>
 <body>
-  <div class="app-viewport">
-    
-    <!-- Top Network & Clock Status Bar -->
-    <header class="status-bar">
-      <div class="ping-tag">
-        <span class="ping-dot" id="pingDot"></span>
-        <span id="connStatus">اتصال...</span>
-        <span id="pingVal">(-- ms)</span>
+  <div class="app-viewport" data-phase="lobby">
+
+    <!-- Top Lobby Header Bar (Shown in Lobby Phase; zero raw network telemetry) -->
+    <header class="top-lobby-bar" id="lobbyTopBar">
+      <div class="brand-lockup">
+        <span class="brand-emblem" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="7" width="18" height="13" rx="2"></rect>
+            <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            <line x1="3" y1="13" x2="21" y2="13"></line>
+            <rect x="10" y="11" width="4" height="4" rx="0.5"></rect>
+          </svg>
+        </span>
+        <div class="brand-titles">
+          <strong class="brand-fa">بمب موز</strong>
+          <span class="brand-en" dir="ltr">BANANABOMB</span>
+        </div>
       </div>
-      <div class="clock-offset-tag" id="syncStatus">همگام‌سازی ساعت: در حال بررسی</div>
+
+      <div class="header-status-cluster">
+        <div class="conn-indicator" id="connIndicatorBox">
+          <span class="conn-diamond" id="pingDot" aria-hidden="true"></span>
+          <span id="connStatus">در حال اتصال...</span>
+        </div>
+        <span class="meta-sep" aria-hidden="true">·</span>
+        <div class="room-code-inline" title="کد راند فعلی">
+          <span class="room-code-label">کد:</span>
+          <strong class="tabular-num" id="lobbySeedDisplay" dir="ltr">------</strong>
+        </div>
+      </div>
+
+      <button type="button" class="btn-tactical-header" id="btnOpenReferenceSheet" aria-haspopup="dialog" aria-controls="lobbyReferenceSheet">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+        <span>راهنما و چک‌لیست</span>
+        <span class="header-check-count tabular-num" id="headerChecklistCount" dir="ltr">0/7</span>
+      </button>
     </header>
+
+    <!-- Active Round Compact Tactical HUD Strip (Hidden in Lobby; Opaque surface over WebGL) -->
+    <section class="timer-panel" id="activeRoundHud" style="display: none;" aria-label="نوار وضعیت عملیات بمب">
+      <div class="hud-timer-cluster" id="hudTimerCluster" data-urgency="normal">
+        <span class="hud-urgency-icon" id="timerUrgencyIcon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="12" cy="13" r="8"></circle>
+            <polyline points="12 9 12 13 14.5 14.5"></polyline>
+            <line x1="9" y1="2" x2="15" y2="2"></line>
+          </svg>
+        </span>
+        <div class="timer-digits-wrap">
+          <div class="timer-digits tabular-num" id="timerDisplay" dir="ltr">05:00</div>
+          <div class="timer-penalty-badge tabular-num" id="timerPenaltyBadge" dir="ltr" style="display: none;">-30s</div>
+        </div>
+      </div>
+
+      <div class="hud-metrics-cluster">
+        <div class="strikes-container" title="خطاهای ثبت‌شده در این راند">
+          <span class="strikes-label">خطاها:</span>
+          <span class="hud-ratio tabular-num" id="hudStrikeRatio" dir="ltr">0 / 3</span>
+          <div class="strike-boxes" id="strikeBoxes" aria-hidden="true">
+            <div class="strike-box" id="strike1">✕</div>
+            <div class="strike-box" id="strike2">✕</div>
+            <div class="strike-box" id="strike3">✕</div>
+          </div>
+        </div>
+
+        <span class="meta-sep hud-sep" aria-hidden="true">·</span>
+
+        <div class="hud-progress-stat" title="ماژول‌های خنثی‌شده">
+          <span class="hud-stat-label">خنثی‌شده:</span>
+          <strong class="hud-ratio tabular-num" id="hudDefusedRatio" dir="ltr">0 / 3</strong>
+        </div>
+
+        <div class="serial-tag" id="serialTag" style="display: none;">
+          <span class="serial-prefix">سریال:</span>
+          <strong class="tabular-num" id="serialValue" dir="ltr">------</strong>
+        </div>
+      </div>
+
+      <button type="button" class="btn-hud-help" id="btnInRoundHelp" aria-label="مشاهده راهنمای نقش و اشاره‌ها" title="راهنمای نقش و اشاره‌ها">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span class="btn-hud-help-text">راهنما</span>
+      </button>
+    </section>
 
     <!-- Non-blocking Toast Banner (replaces window.alert) -->
     <div id="appToastBanner" class="app-toast-banner" role="alert" aria-live="polite" style="display: none;"></div>
 
-    <!-- Synchronized Bomb Header & Timer Display -->
-    <section class="timer-panel">
-      <div class="serial-tag" id="serialTag">SERIAL: STANDBY</div>
-      <div class="timer-digits-wrap">
-        <div class="timer-digits" id="timerDisplay">05:00</div>
-        <div class="timer-penalty-badge" id="timerPenaltyBadge" style="display: none;">-30s</div>
-      </div>
-      
-      <div class="strikes-container">
-        <span class="strikes-label">خطاها (STRIKES):</span>
-        <div class="strike-boxes" id="strikeBoxes">
-          <div class="strike-box" id="strike1">X</div>
-          <div class="strike-box" id="strike2">X</div>
-          <div class="strike-box" id="strike3">X</div>
-        </div>
-      </div>
-    </section>
-
     <!-- WebGL Error Fallback Banner -->
     <div id="webglErrorBanner" class="webgl-error-box" style="display: none;">
-      ⚠️ مرورگر دستگاه شما از WebGL پشتیبانی نمی‌کند. لطفاً مرورگر Chrome یا Firefox را به‌روزرسانی کرده یا شتاب سخت‌افزاری را فعال کنید.
+      مرورگر دستگاه شما از WebGL پشتیبانی نمی‌کند. لطفاً مرورگر Chrome یا Firefox را به‌روزرسانی کرده یا شتاب سخت‌افزاری را فعال کنید.
     </div>
 
     <!-- Main Viewport Area -->
     <main class="main-content">
 
-      <!-- View 1: Lobby, Onboarding Tutorial, Role Selection & Pre-Round Checklist -->
+      <!-- View 1: Focused Tactical Game Lobby -->
       <section class="view-section active" id="lobbySection">
-        
-        <div class="audio-banner" id="audioBanner">
-          <div>
-            <strong>🔊 فعال‌سازی صدای بازی (روی گوشی اپراتور — Operator)</strong>
-            <p class="audio-banner-sub">صدا از گوشی اپراتور پخش می‌شود و در اتاق ممکن است شنیده شود؛ ناظر با هدفون ایمن (یا جایگزین توافقی) نباید از صدای بازی استفاده کند.</p>
+
+        <!-- Priority 1: Role Selection Deck -->
+        <div class="lobby-block">
+          <div class="lobby-section-bar">
+            <h1 class="section-heading">انتخاب نقش عملیاتی</h1>
+            <span class="section-meta">هر نقش دقیقاً ۱ بازیکن</span>
           </div>
-          <button type="button" class="audio-btn" id="btnUnlockAudio">فعال‌سازی صدا</button>
+
+          <div class="role-grid">
+            <!-- Role 1: Operator (legacy internal key: blind) -->
+            <div class="role-card" id="cardBlind" data-role="blind" data-slot-state="available" role="button" tabindex="0">
+              <div class="role-card-top">
+                <div class="role-icon" aria-hidden="true">
+                  <!-- Tactical Visor / Sunglasses SVG -->
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 10h20l-1.5 5a3 3 0 0 1-2.9 2.2H15a2.5 2.5 0 0 1-2.3-1.5l-.7-1.7-.7 1.7A2.5 2.5 0 0 1 9 17.2H6.4A3 3 0 0 1 3.5 15L2 10Z"></path>
+                    <path d="M2 10l2-4h3"></path>
+                    <path d="M22 10l-2-4h-3"></path>
+                  </svg>
+                </div>
+                <span class="role-status-badge" id="badgeBlind">آزاد — انتخاب کنید</span>
+              </div>
+              <div class="role-details">
+                <div class="role-title-row">
+                  <h2>اپراتور</h2>
+                  <span class="role-en" dir="ltr">OPERATOR</span>
+                </div>
+                <p>تنها لمس‌کننده بمب سه‌بعدی مونوکروم · بدون کلام · پخش صدای بازی روی این دستگاه.</p>
+              </div>
+              <div class="role-card-footer">
+                <span class="role-constraint-line">عینک آفتابی · فرامین شفاهی از ناظر</span>
+                <button type="button" class="role-info-link" data-open-perm="operator">جزئیات نقش</button>
+              </div>
+            </div>
+
+            <!-- Role 2: Observer (legacy internal key: deaf) -->
+            <div class="role-card" id="cardDeaf" data-role="deaf" data-slot-state="available" role="button" tabindex="0">
+              <div class="role-card-top">
+                <div class="role-icon" aria-hidden="true">
+                  <!-- Studio Headphones & Lateral Sight SVG -->
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 15v-3a9 9 0 0 1 18 0v3"></path>
+                    <rect x="2" y="13" width="4" height="7" rx="1.5"></rect>
+                    <rect x="18" y="13" width="4" height="7" rx="1.5"></rect>
+                    <circle cx="12" cy="14" r="2.2"></circle>
+                  </svg>
+                </div>
+                <span class="role-status-badge" id="badgeDeaf">آزاد — انتخاب کنید</span>
+              </div>
+              <div class="role-details">
+                <div class="role-title-row">
+                  <h2>ناظر</h2>
+                  <span class="role-en" dir="ltr">OBSERVER</span>
+                </div>
+                <p>مشاهده رنگ و شکل داخل کیف و پلاک سریال · تنها گوینده تیم و پل اشاره با راهنما.</p>
+              </div>
+              <div class="role-card-footer">
+                <span class="role-constraint-line">هدفون ایمن · بدون لمس بمب</span>
+                <button type="button" class="role-info-link" data-open-perm="observer">جزئیات نقش</button>
+              </div>
+            </div>
+
+            <!-- Role 3: Manual-holder (legacy internal key: mute) -->
+            <div class="role-card" id="cardMute" data-role="mute" data-slot-state="available" role="button" tabindex="0">
+              <div class="role-card-top">
+                <div class="role-icon" aria-hidden="true">
+                  <!-- Tactical Field Manual SVG -->
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"></path>
+                    <line x1="9" y1="7" x2="16" y2="7"></line>
+                    <line x1="9" y1="11" x2="16" y2="11"></line>
+                  </svg>
+                </div>
+                <span class="role-status-badge" id="badgeMute">آزاد — انتخاب کنید</span>
+              </div>
+              <div class="role-details">
+                <div class="role-title-row">
+                  <h2>دفترچه راهنما</h2>
+                  <span class="role-en" dir="ltr">MANUAL</span>
+                </div>
+                <p>دریافت دفترچه قوانین راند · بدون کلام و بدون دید به داخل کیف · ارتباط با اشاره با ناظر.</p>
+              </div>
+              <div class="role-card-footer">
+                <span class="role-constraint-line">نشسته پشت درب کیف · زبان اشاره</span>
+                <button type="button" class="role-info-link" data-open-perm="manual">جزئیات نقش</button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="lobby-seed-panel" id="lobbySeedContainer">
-          <div class="seed-info">
-            <span class="seed-label">🔑 کد راند (Match Seed):</span>
-            <span class="seed-badge" id="lobbySeedDisplay">------</span>
+        <!-- Priority 2: Squad Readiness & Contextual Operator Audio Strip -->
+        <div class="squad-readiness-panel" id="squadReadinessBar">
+          <div class="squad-readiness-row">
+            <div class="squad-progress-title">
+              <span>وضعیت آمادگی تیم:</span>
+              <strong class="tabular-num" id="squadReadyRatio" dir="ltr">0 / 3</strong>
+            </div>
+            <div class="squad-slots-inline" aria-label="وضعیت سه نقش تیم">
+              <span class="squad-slot-tag" id="slotIndBlind" data-ready="false">اپراتور: خالی</span>
+              <span class="meta-sep" aria-hidden="true">·</span>
+              <span class="squad-slot-tag" id="slotIndDeaf" data-ready="false">ناظر: خالی</span>
+              <span class="meta-sep" aria-hidden="true">·</span>
+              <span class="squad-slot-tag" id="slotIndMute" data-ready="false">راهنما: خالی</span>
+            </div>
           </div>
-          <div class="seed-custom-input-group" id="hostSeedControls" style="display: none;">
-            <input type="text" id="inputCustomSeed" placeholder="سید دلخواه (مثلاً MATCH1)" maxlength="16" aria-label="سید دلخواه راند" />
-            <button type="button" class="btn-secondary btn-compact-touch" id="btnApplySeed">ثبت سید</button>
+
+          <div class="audio-banner" id="audioBanner">
+            <div class="audio-banner-copy">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+              </svg>
+              <div>
+                <strong>تست و فعال‌سازی صدا (ویژه گوشی اپراتور)</strong>
+                <p class="audio-banner-sub">صدا از گوشی اپراتور پخش می‌شود؛ ناظر با هدفون ایمن از صدای بازی استفاده نمی‌کند.</p>
+              </div>
+            </div>
+            <button type="button" class="audio-btn" id="btnUnlockAudio">فعال‌سازی صدا</button>
           </div>
         </div>
 
-        <!-- Authoritative Difficulty Presets & Optional Easy-Mode Aid Configuration -->
+        <!-- Priority 3: Compact Mission & Difficulty Configuration -->
         <div class="difficulty-panel" id="difficultyPanel">
           <div class="difficulty-header">
-            <span>⚙️ درجه سختی عملیات:</span>
-            <span class="host-note" id="difficultyHostNotice">تنها میزبان مجاز به تغییر است</span>
+            <div class="difficulty-title-group">
+              <h2>پیکربندی ماموریت و درجه سختی</h2>
+              <span class="host-note" id="difficultyHostNotice">تنها میزبان مجاز به تغییر است</span>
+            </div>
+            <button type="button" class="btn-seed-toggle" id="btnToggleSeedForm" style="display: none;">
+              <span>کد راند سفارشی</span>
+            </button>
           </div>
 
-          <div class="difficulty-preset-grid">
+          <!-- Optional Host Custom Seed Row (Collapsed unless requested by Host) -->
+          <div class="lobby-seed-panel" id="lobbySeedContainer" style="display: none;">
+            <div class="seed-custom-input-group" id="hostSeedControls">
+              <label for="inputCustomSeed" class="seed-label">کد دلخواه راند:</label>
+              <input type="text" id="inputCustomSeed" dir="ltr" placeholder="MATCH1" maxlength="16" aria-label="سید دلخواه راند" />
+              <button type="button" class="btn-secondary btn-compact-touch" id="btnApplySeed">ثبت کد</button>
+            </div>
+          </div>
+
+          <!-- 4-Segment Tactical Preset Bar -->
+          <div class="difficulty-preset-grid" role="group" aria-label="انتخاب درجه سختی">
             <button type="button" class="preset-btn" id="btnPresetEasy" data-preset="easy">
-              <span>🌱 آسان</span>
-              <small class="preset-sub">۲ ماژول • ۵ دقیقه • کمک‌ارتباطی (۵)</small>
+              <span class="preset-title">آسان</span>
+              <small class="preset-sub">۲ ماژول · پل ارتباطی</small>
             </button>
             <button type="button" class="preset-btn active" id="btnPresetNormal" data-preset="normal">
-              <span>⚖️ متوسط</span>
-              <small class="preset-sub">۳ ماژول • ۵ دقیقه • بدون کمک‌ارتباطی</small>
+              <span class="preset-title">معمولی</span>
+              <small class="preset-sub">۳ ماژول · استاندارد</small>
             </button>
             <button type="button" class="preset-btn" id="btnPresetHard" data-preset="hard">
-              <span>🔥 سخت</span>
-              <small class="preset-sub">۴ ماژول • ۳.۵ دقیقه • ۲ خطا</small>
+              <span class="preset-title">سخت</span>
+              <small class="preset-sub">۴ ماژول · ۲ خطا</small>
+            </button>
+            <button type="button" class="preset-btn" id="btnPresetCustom" data-preset="custom">
+              <span class="preset-title">سفارشی</span>
+              <small class="preset-sub">تنظیم دستی میزبان</small>
             </button>
           </div>
 
+          <!-- Clean Unboxed Effective Configuration Summary (Zero Pills) -->
           <div class="difficulty-summary" id="difficultySummaryText">
-            درجه: <span class="chip" id="diffChipName">متوسط</span>
-            زمان: <span class="chip" id="diffChipTime">۵ دقیقه</span>
-            خطاها: <span class="chip" id="diffChipStrikes">۳ خطا</span>
-            ماژول‌ها: <span class="chip" id="diffChipModules">۳ ماژول</span>
-            جریمه خطا: <span class="chip chip-danger" id="diffChipPenalty">۳۰- ثانیه</span>
-            کمک‌ارتباطی: <span class="chip" id="diffChipCommAid">غیرفعال</span>
+            <span>درجه: <strong id="diffChipName">متوسط</strong></span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>زمان: <strong id="diffChipTime" class="tabular-num">۵ دقیقه</strong></span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>خطای مجاز: <strong id="diffChipStrikes" class="tabular-num">۳ خطا</strong></span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>ماژول‌ها: <strong id="diffChipModules" class="tabular-num">۳ ماژول</strong></span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>جریمه خطا: <strong id="diffChipPenalty" class="tabular-num text-danger-accent">۳۰- ثانیه</strong></span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>کمک‌ارتباطی: <strong id="diffChipCommAid">غیرفعال</strong></span>
           </div>
 
-          <details class="custom-overrides-details" id="customOverridesBox" style="display: none;">
-            <summary>🛠️ تنظیمات پیشرفته میزبان (سفارشی‌سازی زمان، خطا و کمک‌ارتباطی)</summary>
+          <!-- Expandable Custom Overrides (Visible strictly when Custom is selected) -->
+          <div class="custom-overrides-details" id="customOverridesBox" style="display: none;">
             <div class="custom-grid">
               <div class="custom-field">
                 <label for="overrideDuration">زمان پایه (ثانیه):</label>
-                <input type="number" id="overrideDuration" min="60" max="600" step="30" value="300" />
+                <input type="number" id="overrideDuration" dir="ltr" min="60" max="600" step="30" value="300" />
               </div>
               <div class="custom-field">
                 <label for="overrideStrikes">حداکثر خطا:</label>
-                <input type="number" id="overrideStrikes" min="1" max="5" value="3" />
+                <input type="number" id="overrideStrikes" dir="ltr" min="1" max="5" value="3" />
               </div>
               <div class="custom-field">
                 <label for="overrideModules">تعداد ماژول فعال:</label>
-                <input type="number" id="overrideModules" min="2" max="4" value="3" />
+                <input type="number" id="overrideModules" dir="ltr" min="2" max="4" value="3" />
               </div>
               <div class="custom-field">
-                <label for="overridePenalty">جریمه زمانی هر خطا (ثانیه):</label>
-                <input type="number" id="overridePenalty" min="0" max="90" step="5" value="30" />
+                <label for="overridePenalty">جریمه هر خطا (ثانیه):</label>
+                <input type="number" id="overridePenalty" dir="ltr" min="0" max="90" step="5" value="30" />
               </div>
               <div class="custom-field">
-                <label for="overrideCommAidBudget">سقف استفاده کمک‌ارتباطی (۱ تا ۱۵):</label>
-                <input type="number" id="overrideCommAidBudget" min="1" max="15" step="1" value="5" />
+                <label for="overrideCommAidBudget">سقف پل ۳ نمادی (۱ تا ۱۵):</label>
+                <input type="number" id="overrideCommAidBudget" dir="ltr" min="1" max="15" step="1" value="5" />
               </div>
             </div>
             <div class="custom-toggles-row">
@@ -146,249 +335,53 @@
               </label>
               <label class="touch-checkbox-inline">
                 <input type="checkbox" id="overrideCommAidEnabled" />
-                <span>فعال‌سازی کمک‌ارتباطی ۳ نمادی (پل ناظر ↔ دفترچه)</span>
+                <span>فعال‌سازی پل ۳ نمادی (ناظر ↔ دفترچه)</span>
               </label>
               <button type="button" class="btn-secondary btn-compact-touch" id="btnApplyCustomDifficulty">اعمال تنظیمات سفارشی</button>
             </div>
-          </details>
-        </div>
-
-        <!-- Short Tutorial: Communication Graph, Seating Arrangement & Physical Audio Reality -->
-        <section class="onboarding-panel" id="onboardingTutorialPanel" aria-labelledby="tutorialHeading">
-          <div class="onboarding-header">
-            <h3 id="tutorialHeading">🧭 راهنمای سریع پیش از شروع: چیدمان نشستن و گراف ارتباطی</h3>
-            <span class="onboarding-subtitle">قوانین پایه را پیش از راند اول در یک نگاه مرور کنید</span>
-          </div>
-
-          <!-- Communication Graph Diagram -->
-          <div class="comm-graph-box" role="region" aria-label="گراف ارتباطی سه بازیکن">
-            <div class="comm-node comm-node-manual">
-              <strong>📋 دفترچه راهنما</strong>
-              <span>Manual-holder</span>
-              <small>بدون کلام • دارای قوانین ۲D</small>
-            </div>
-
-            <div class="comm-edge">
-              <span class="comm-arrow">◄══ اشاره‌های توافقی ══►</span>
-              <small>بدون کلام (دو طرفه)</small>
-            </div>
-
-            <div class="comm-node comm-node-observer">
-              <strong>👁️ ناظر (پل ارتباطی)</strong>
-              <span>Observer</span>
-              <small>تنها گوینده • هدفون ایمن • دید رنگی</small>
-            </div>
-
-            <div class="comm-edge">
-              <span class="comm-arrow">══ فرمان کلامی ══►</span>
-              <small>◄── ضربه ریتم روی میز</small>
-            </div>
-
-            <div class="comm-node comm-node-operator">
-              <strong>⚡ اپراتور</strong>
-              <span>Operator</span>
-              <small>بدون کلام • عینک آفتابی • تنها لمس‌کننده بمب</small>
-            </div>
-          </div>
-
-          <div class="comm-forbidden-bar">
-            ⛔ <strong>قانون کلیدی پل ارتباطی:</strong> تنها <strong>ناظر</strong> صحبت می‌کند. <strong>دفترچه راهنما</strong> فقط با <strong>ناظر</strong> (با اشاره) ارتباط دارد و هرگز به صورت مستقیم با <strong>اپراتور</strong> ارتباط برقرار نمی‌کند. هیچ بازیکنی اجازه نشان دادن صفحه گوشی خود به دیگری را ندارد.
-          </div>
-
-          <!-- 3-Column Seating, Audio Reality & Safety -->
-          <div class="tutorial-info-grid">
-            <div class="tutorial-card">
-              <h4>🪑 ۱. چیدمان نشستن</h4>
-              <p><strong>اپراتور</strong> و <strong>دارنده دفترچه راهنما</strong> روبه‌روی هم پشت میز می‌نشینند و درب بازشده کیف بمب مانع دید مستقیم دفترچه راهنما به داخل کیف می‌شود. <strong>ناظر</strong> در ضلع کناری میز می‌نشیند تا هم از زاویه جانبی داخل کیف و پلاک سریال را ببیند، هم اشاره‌های دفترچه راهنما را ببیند و شفاهاً با اپراتور صحبت کند.</p>
-            </div>
-            <div class="tutorial-card">
-              <h4>🔊 ۲. واقعیت فیزیکی صدا</h4>
-              <p>صدای بازی از گوشی <strong>اپراتور</strong> پخش می‌شود و در اتاق ممکن است به گوش اپراتور و دفترچه راهنما برسد (صدا منحصر به اپراتور نیست). <strong>ناظر</strong> نباید از صدای بازی اطلاعات بگیرد و هیچ وظیفه‌ای برای <strong>دفترچه راهنما</strong> نیازمند شنیدن صدا نیست.</p>
-            </div>
-            <div class="tutorial-card tutorial-card-safety">
-              <h4>🛡️ ۳. ایمنی و دسترس‌پذیری</h4>
-              <p>هرگز از موسیقی یا صدای بلند و آسیب‌زا برای شبیه‌سازی ناشنوایی استفاده نکنید! اگر استفاده از هدفون یا عینک آفتابی راحت یا ممکن نیست، تیم می‌تواند از <strong>جایگزین ایمن و توافقی</strong> (مانند صدای ملایم در فاصله مناسب یا تنظیم زاویه دید و نور صفحه) استفاده کند.</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- Role Selection -->
-        <h3 class="section-heading">🎭 نقش خود را انتخاب کنید (هر نقش دقیقاً ۱ بازیکن):</h3>
-        
-        <div class="role-grid">
-          <!-- Role 1: Operator (legacy internal key: blind) -->
-          <div class="role-card" id="cardBlind" data-role="blind" role="button" tabindex="0">
-            <div class="role-card-content">
-              <div class="role-icon" aria-hidden="true">⚡</div>
-              <div class="role-details">
-                <h3>اپراتور (Operator)</h3>
-                <p>تنها فرد مجاز به لمس و تعامل با بمب ۳D مونوکروم • بدون کلام • با عینک آفتابی یا محدودیت دید توافقی • بدون دید به دفترچه راهنما • شنونده صدای بازی از گوشی خود.</p>
-              </div>
-            </div>
-            <span class="role-status-badge" id="badgeBlind">خالی</span>
-          </div>
-
-          <!-- Role 2: Observer (legacy internal key: deaf) -->
-          <div class="role-card" id="cardDeaf" data-role="deaf" role="button" tabindex="0">
-            <div class="role-card-content">
-              <div class="role-icon" aria-hidden="true">👁️</div>
-              <div class="role-details">
-                <h3>ناظر (Observer) — پل ارتباطی</h3>
-                <p>مشاهده رنگ‌ها، نمادها و پلاک سریال در نمای ۳D • تنها بازیکن مجاز به صحبت (با اپراتور) • ارتباط با دفترچه راهنما با اشاره‌های توافقی • هدفون ایمن (عدم اتکا به صدای بازی) • بدون لمس بمب.</p>
-              </div>
-            </div>
-            <span class="role-status-badge" id="badgeDeaf">خالی</span>
-          </div>
-
-          <!-- Role 3: Manual-holder (legacy internal key: mute) -->
-          <div class="role-card" id="cardMute" data-role="mute" role="button" tabindex="0">
-            <div class="role-card-content">
-              <div class="role-icon" aria-hidden="true">📋</div>
-              <div class="role-details">
-                <h3>دفترچه راهنما (Manual-holder)</h3>
-                <p>دریافت دفترچه قوانین راند جاری • بدون کلام • بدون دید به صفحه اپراتور • ارتباط فقط با ناظر از طریق اشاره‌های توافقی • بدون لمس بمب.</p>
-              </div>
-            </div>
-            <span class="role-status-badge" id="badgeMute">خالی</span>
           </div>
         </div>
 
-        <!-- Role-Specific "You Can / You Cannot" Panel -->
-        <section class="permissions-panel" id="rolePermissionsPanel" aria-labelledby="permissionsHeading">
-          <div class="permissions-header">
-            <h3 id="permissionsHeading">⚖️ حدود اختیارات نقش: «مجاز هستید / مجاز نیستید»</h3>
-            <div class="permissions-tabs" role="tablist" aria-label="انتخاب نقش برای مشاهده قوانین">
-              <button type="button" class="perm-tab-btn active" id="permTabOperator" data-perm-role="operator" role="tab">⚡ اپراتور</button>
-              <button type="button" class="perm-tab-btn" id="permTabObserver" data-perm-role="observer" role="tab">👁️ ناظر</button>
-              <button type="button" class="perm-tab-btn" id="permTabManual" data-perm-role="manual" role="tab">📋 دفترچه راهنما</button>
-            </div>
-          </div>
-          <div id="rolePermissionsBody" class="permissions-body">
-            <!-- Populated dynamically by app.js -->
-          </div>
-        </section>
-
-        <!-- Concise Gesture Vocabulary -->
-        <section class="gesture-panel" id="gestureVocabPanel" aria-labelledby="gestureHeading">
-          <div class="onboarding-header">
-            <h3 id="gestureHeading">🤟 واژگان اشاره‌های توافقی (مخصوص پل ناظر ↔ دفترچه راهنما)</h3>
-            <span class="onboarding-subtitle">مجموعه کوتاه و غیرقابل‌اشتباه در شرایط فشار زمانی</span>
-          </div>
-          <div class="gesture-grid" id="lobbyGestureGrid">
-            <div class="gesture-item">
-              <div class="gesture-title">۱ تا ۴ (اعداد پایه)</div>
-              <div class="gesture-desc">نمایش ثابت ۱ تا ۴ انگشت باز رو به بالا (برای ارقام ۵ تا ۹ ثانیه: ۵ انگشت باز + انگشتان دست دوم؛ صفر: مشت بسته).</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">بله / تأیید (Yes)</div>
-              <div class="gesture-desc">شست دست رو به بالا به صورت ثابت و واضح (👍).</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">خیر / رد (No)</div>
-              <div class="gesture-desc">ضربدر کردن دو ساعد دست جلوی سینه (✕) تا با علامت توقف اشتباه نشود.</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">تکرار کن (Repeat)</div>
-              <div class="gesture-desc">چرخاندن دایره‌ای انگشت اشاره در هوا به معنی «دوباره نشان بده».</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">توقف / صبر کن (Stop)</div>
-              <div class="gesture-desc">کف یک دست کاملاً باز و عمودی رو به مقابل، بدون حرکت (✋).</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">ضربه در برابر نگه‌داشتن</div>
-              <div class="gesture-desc"><strong>ضربه کوتاه (Tap):</strong> یک ضربه نوک انگشت به کف دست دیگر. <strong>نگه‌داشتن (Hold):</strong> مشت کردن و نگه داشتن محکم دست.</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">انجام شد (Completed)</div>
-              <div class="gesture-desc">چسباندن دو کف دست به هم یا برش افقی آرام دست به معنی «ماژول تمام شد».</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">نیاز به زمان بیشتر</div>
-              <div class="gesture-desc">ساختن حرف <strong>T</strong> (تایم‌اوت) با قرار دادن یک کف دست عمود بر کف دست دیگر.</div>
-            </div>
-            <div class="gesture-item">
-              <div class="gesture-title">عدم اطمینان (Uncertain)</div>
-              <div class="gesture-desc">باز کردن هر دو کف دست رو به بالا در طرفین همراه با بالا انداختن شانه (🤷).</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Pre-Round Equipment & Seating Checklist -->
-        <section class="checklist-panel" id="preRoundChecklistPanel" aria-labelledby="checklistHeading">
-          <div class="checklist-header">
-            <div>
-              <h3 id="checklistHeading">✅ چک‌لیست تجهیزات و چیدمان پیش از شروع راند</h3>
-              <p class="onboarding-subtitle">پیش از لمس دکمه شروع، هر ۷ مورد را با تیم بررسی کنید</p>
-            </div>
-            <div class="checklist-header-actions">
-              <span class="checklist-progress-badge" id="checklistProgressBadge">۰ از ۷ تایید شد</span>
-              <button type="button" class="btn-secondary btn-compact-touch" id="btnCheckAllReady">تایید همه</button>
-            </div>
-          </div>
-
-          <div class="checklist-items" id="preRoundChecklistItems">
-            <label class="checklist-row" for="chkRoleAssigned">
-              <input type="checkbox" id="chkRoleAssigned" data-check-key="role_assigned" />
-              <span class="checklist-text"><strong>۱. نقش صحیح هر بازیکن:</strong> اپراتور، ناظر و دفترچه راهنما به درستی انتخاب شده‌اند. <em id="chkLiveRoleHint" class="checklist-live-hint"></em></span>
-            </label>
-            <label class="checklist-row" for="chkObserverHeadphones">
-              <input type="checkbox" id="chkObserverHeadphones" data-check-key="observer_headphones" />
-              <span class="checklist-text"><strong>۲. هدفون ناظر (Observer):</strong> هدفون در حجم صدای ایمن (یا جایگزین ایمن توافقی، بدون نویز بلند) برقرار است تا ناظر از صدای بازی استفاده نکند.</span>
-            </label>
-            <label class="checklist-row" for="chkOperatorRestriction">
-              <input type="checkbox" id="chkOperatorRestriction" data-check-key="operator_visual" />
-              <span class="checklist-text"><strong>۳. محدودیت دید اپراتور (Operator):</strong> عینک آفتابی یا محدودیت دید راحت، ایمن و توافقی برای اپراتور برقرار است.</span>
-            </label>
-            <label class="checklist-row" for="chkSeating">
-              <input type="checkbox" id="chkSeating" data-check-key="seating_arrangement" />
-              <span class="checklist-text"><strong>۴. چیدمان نشستن تیم:</strong> ناظر در نقش پل ارتباطی نشسته، اپراتور دیدی به دارنده دفترچه ندارد و دفترچه راهنما صفحه اپراتور را نمی‌بیند.</span>
-            </label>
-            <label class="checklist-row" for="chkScreenPrivacy">
-              <input type="checkbox" id="chkScreenPrivacy" data-check-key="screen_privacy" />
-              <span class="checklist-text"><strong>۵. محرمانگی صفحه‌نمایش‌ها:</strong> زاویه هر گوشی طوری است که اطلاعات خصوصی آن توسط بازیکنان غیرمجاز دیده نمی‌شود.</span>
-            </label>
-            <label class="checklist-row" for="chkGesturesReady">
-              <input type="checkbox" id="chkGesturesReady" data-check-key="gestures_understood" />
-              <span class="checklist-text"><strong>۶. تسلط بر واژگان اشاره:</strong> اشاره‌های اعداد ۱–۴، بله/خیر، تکرار، توقف، ضربه/نگه‌داشتن، انجام شد، زمان بیشتر و عدم اطمینان مرور شده‌اند.</span>
-            </label>
-            <label class="checklist-row" for="chkPhonesResponsive">
-              <input type="checkbox" id="chkPhonesResponsive" data-check-key="phones_connected" />
-              <span class="checklist-text"><strong>۷. اتصال و پاسخگویی هر ۳ گوشی:</strong> هر سه دستگاه آنلاین، همگام و آماده دریافت وضعیت راند هستند. <em id="chkLiveConnHint" class="checklist-live-hint"></em></span>
-            </label>
-          </div>
-        </section>
-
-        <!-- Start / Leave Action Controls -->
+        <!-- Priority 4: Dominant Ready & Start Action Deck -->
         <div class="lobby-actions-stack">
+          <div class="lobby-secondary-actions" id="myRoleActionRow" style="display: none;">
+            <button type="button" class="btn-ready-toggle ready-active" id="btnToggleReady">
+              <span id="btnToggleReadyText">آماده‌ام ✓</span>
+            </button>
+            <button type="button" class="btn-secondary btn-leave-role" id="btnLeaveRole">
+              تغییر نقش
+            </button>
+          </div>
+
           <button type="button" class="btn-primary" id="btnStartGame" disabled>
-            💣 شروع عملیات خنثی‌سازی (منتظر ۳ بازیکن)
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+              <polygon points="6 4 20 12 6 20 6 4"></polygon>
+            </svg>
+            <span id="btnStartGameLabel">شروع عملیات خنثی‌سازی</span>
           </button>
-          
-          <button type="button" class="btn-secondary btn-leave-role" id="btnLeaveRole" style="display: none;">
-            انصراف از نقش و انتخاب مجدد
-          </button>
+
+          <p class="start-blocker-caption" id="startBlockerReason" role="status" aria-live="polite">
+            برای شروع عملیات، هر سه نقش اپراتور، ناظر و دفترچه راهنما باید انتخاب شوند.
+          </p>
         </div>
+
       </section>
 
-      <!-- View 2: 3D Bomb Viewport (Active for Operator and Observer) -->
+      <!-- View 2: Maximized 3D Bomb Viewport (Active for Operator and Observer) -->
       <section class="view-section" id="bomb3dSection">
-        
-        <div class="bomb-sidebar-desktop bomb-landscape-sidebar" id="bombSidebar">
-          <div class="role-roleplay-banner" id="bomb3dRoleBanner">
-            <!-- Populated dynamically based on Operator vs Observer -->
-          </div>
+        <div class="bomb-3d-wrapper">
 
-          <div id="orientationHint" class="orientation-hint">
-            <span>📱 برای کنترل راحت‌تر و دید وسیع‌تر، می‌توانید دستگاه را افقی (Landscape) بچرخانید.</span>
-            <button type="button" id="btnCloseOrientationHint" aria-label="بستن راهنما">✕</button>
+          <!-- Subtle Portrait Phone Hint -->
+          <div id="orientationHint" class="orientation-hint" style="display: none;">
+            <span>برای دید وسیع‌تر میز و کیف بمب، چرخش افقی گوشی (Landscape) پیشنهاد می‌شود.</span>
+            <button type="button" id="btnCloseOrientationHint" aria-label="بستن پیشنهاد چرخش صفحه">✕</button>
           </div>
 
           <!-- Easy-Mode 3-Symbol Communication Aid for Observer ONLY (never shown to Operator) -->
-          <div id="observerCommAidWidget" class="comm-aid-widget" style="display: none;">
+          <div id="observerCommAidWidget" class="comm-aid-widget comm-aid-floating" style="display: none;">
             <div class="comm-aid-header">
-              <strong>📡 کمک‌ارتباطی حالت آسان (پل ناظر ↔ دفترچه)</strong>
-              <span class="comm-aid-budget" id="observerCommAidBudget">۵ / ۵</span>
+              <strong>پل کمک‌ارتباطی (ناظر ↔ راهنما)</strong>
+              <span class="comm-aid-budget tabular-num" id="observerCommAidBudget" dir="ltr">5 / 5</span>
             </div>
             <div class="comm-aid-buttons">
               <button type="button" class="comm-aid-btn comm-btn-confirm" data-comm-symbol="confirm">
@@ -400,101 +393,104 @@
                 <span>رد</span>
               </button>
               <button type="button" class="comm-aid-btn comm-btn-urgent" data-comm-symbol="urgent">
-                <span class="comm-sym">⏱</span>
+                <span class="comm-sym">!</span>
                 <span>زمان / فوری</span>
               </button>
             </div>
-            <div class="comm-aid-feedback" id="observerCommAidFeedback">بدون پیام متنی؛ هر ارسال ۱ سهمیه مصرف می‌کند.</div>
+            <div class="comm-aid-feedback" id="observerCommAidFeedback">هر ارسال ۱ سهمیه مصرف می‌کند.</div>
           </div>
 
-          <div id="blindTactileHelper" style="display: none;" class="tactile-instructions">
-            <strong>دستورالعمل‌های عملیاتی اپراتور (Operator — بدون کلام):</strong>
-            <br>• <strong>تنها لمس‌کننده بمب:</strong> صحبت نکنید و به دارنده دفترچه نگاه نکنید؛ فرامین کلامی را فقط از <strong>ناظر</strong> بشنوید.
-            <br>• <strong>دکمه کاتالیزور:</strong> ضربه کوتاه (Tap) یا نگه‌داشتن (Hold) تا نمایش رقم ثانیه اعلامی ناظر؛ کشیدن انگشت به بیرون دکمه بدون خطا لغو می‌کند.
-            <br>• <strong>سیم‌های ۱ تا ۴ و کیپد:</strong> برای بریدن سیم ~۰.۴ ثانیه روی آن نگه دارید تا حلقه تایید پر شود (رهاسازی زودتر = لغو ایمن)؛ کلیدهای بزرگ ۱ تا ۴ را طبق ترتیب ناظر بزنید.
-            <br>• <strong>فانوس صوتی:</strong> ریتم بوق را با ضربه روی میز به ناظر برسانید، کانال ۱–۳ را تنظیم کرده و کلید TX را نگه دارید تا ارسال شود.
-          </div>
+          <!-- Unobstructed Central 3D WebGL Canvas -->
+          <div id="bomb3dContainer" class="bomb-3d-canvas-container" role="region" aria-label="محیط سه‌بعدی کیف بمب در ون"></div>
 
-          <div id="deafVisualHelper" style="display: none;" class="visual-instructions">
-            <strong>دستورالعمل‌های عملیاتی ناظر (Observer — تنها گوینده و پل ارتباطی):</strong>
-            <br>• <strong>حرمت صدا و لمس:</strong> بمب را لمس نکنید و با هدفون ایمن از صدای بازی در اتاق اطلاعات نگیرید.
-            <br>• <strong>مشاهده سرنخ‌ها:</strong> از زاویه جانبی داخل کیف بازشده رنگ دکمه، نوار کناری، ۴ سیم و نمادها را ببینید و با دکمه «پلاک سریال» شماره سریال بدنه کیف را بخوانید.
-            <br>• <strong>پل ارتباطی:</strong> سرنخ‌ها و ریتم ضربات میز اپراتور را با <strong>اشاره‌های توافقی</strong> با دفترچه راهنما تبادل کنید و دستور نهایی را <strong>شفاهاً به اپراتور</strong> بگویید.
-          </div>
-
-          <!-- In-Round Quick Reference Drawers -->
-          <details class="inround-ref-drawer" id="bombRoleRulesDrawer">
-            <summary>⚖️ یادآور «مجاز هستید / مجاز نیستید» نقش شما</summary>
-            <div id="bombInRoundPermissions" class="inround-ref-content"></div>
-          </details>
-
-          <details class="inround-ref-drawer" id="observerGestureDrawer" style="display: none;">
-            <summary>🤟 راهنمای سریع اشاره‌های توافقی (ناظر ↔ دفترچه)</summary>
-            <div class="inround-gesture-list">
-              <div><strong>۱ تا ۴:</strong> ۱ تا ۴ انگشت باز رو به بالا</div>
-              <div><strong>بله:</strong> شست بالا (👍) | <strong>خیر:</strong> ضربدر دو ساعد (✕)</div>
-              <div><strong>تکرار:</strong> چرخش انگشت اشاره | <strong>توقف:</strong> کف دست عمودی (✋)</div>
-              <div><strong>Tap / Hold:</strong> ضربه نوک انگشت به کف دست / مشت بسته ثابت</div>
-              <div><strong>انجام شد:</strong> جفت کردن کف دست‌ها | <strong>زمان بیشتر:</strong> علامت T با دو دست</div>
-              <div><strong>عدم اطمینان:</strong> باز کردن دو کف دست به طرفین (🤷)</div>
+          <!-- Upward Collapsible Control Tuning Popover (Keeps range sliders off the 3D scene) -->
+          <div class="tuning-popover" id="operatorTuningPopover" style="display: none;" role="region" aria-label="تنظیمات حساسیت دید و نگه‌داشتن">
+            <div class="tuning-popover-header">
+              <strong>تنظیمات کنترلی و میانبرها</strong>
+              <button type="button" class="btn-icon-close" id="btnCloseTuningPopover" aria-label="بستن تنظیمات">✕</button>
             </div>
-          </details>
 
-          <div class="desktop-keyboard-hint" id="desktopKeyboardHint">
-            ⌨️ <strong>کلیدهای میانبر دسکتاپ:</strong>
-            <br>• جهت‌نما: چرخش بمب | R: روبرو | B: پشت | Esc: لغو ایمن نگه‌داشتن
-            <br>• ویژه اپراتور: Space (ضربه/نگه‌داشتن دکمه) | 1-4 (کیپد) | W + 1-4 (بریدن سیم) | C (کانال فانوس) | T (ارسال TX)
-          </div>
-        </div>
-
-        <div class="bomb-3d-wrapper">
-          <!-- Quick Camera & Hold Threshold Toolbar -->
-          <div class="bomb-view-toolbar" role="toolbar" aria-label="تنظیمات زاویه دید و حساسیت تعامل">
-            <button type="button" class="view-btn" id="btnViewFront" title="زاویه دید اصلی نقش">🎛️ نمای اصلی</button>
-            <button type="button" class="view-btn" id="btnViewBack" title="زاویه دید دوم نقش">🏷️ نمای دوم</button>
-            <button type="button" class="view-btn" id="btnViewBridge" style="display: none;" title="نمای پل ارتباطی با هر دو هم‌تیمی">🤝 پل ارتباطی</button>
-            <button type="button" class="view-btn" id="btnResetView" title="تنظیم مجدد زاویه نگاه و زوم اپتیکال">🎯 بازنشانی</button>
-            <div class="camera-sensitivity-control" title="تنظیم سرعت چرخش دوربین">
-              <label for="cameraSensitivity"><span>سرعت:</span> <span id="sensitivityValue">1.0x</span></label>
+            <div class="camera-sensitivity-control">
+              <label for="cameraSensitivity">
+                <span>سرعت چرخش نگاه:</span>
+                <strong class="tabular-num" id="sensitivityValue" dir="ltr">1.0x</strong>
+              </label>
               <input type="range" id="cameraSensitivity" min="0.5" max="2.0" step="0.1" value="1.0" aria-label="سرعت چرخش دوربین">
             </div>
-            <div class="camera-sensitivity-control" id="holdThresholdControl" style="display: none;" title="آستانه زمانی تمایز ضربه کوتاه (Tap) و نگه‌داشتن (Hold) دکمه">
-              <label for="holdThresholdSlider"><span>آستانه Hold:</span> <span id="holdThresholdValue">380ms</span></label>
+
+            <div class="camera-sensitivity-control" id="holdThresholdControl" style="display: none;">
+              <label for="holdThresholdSlider">
+                <span>آستانه تشخیص Hold دکمه:</span>
+                <strong class="tabular-num" id="holdThresholdValue" dir="ltr">380ms</strong>
+              </label>
               <input type="range" id="holdThresholdSlider" min="250" max="700" step="20" value="380" aria-label="آستانه زمانی نگه‌داشتن دکمه به میلی‌ثانیه">
             </div>
-          </div>
 
-          <div id="bomb3dContainer" class="bomb-3d-canvas-container" role="region" aria-label="محیط ۳ بعدی بمب"></div>
-
-          <!-- Accessible Live Operator Interaction Status & Hold Progress Bar -->
-          <div id="operatorInteractionHud" class="operator-interaction-hud" role="status" aria-live="polite" style="display: none;">
-            <div class="operator-hud-text">
-              <strong id="operatorHudLabel">آماده تعامل لمسی / کلیدی</strong>
-              <span id="operatorHudDetail">ضربه کوتاه یا نگه‌داشتن دکمه • نگه‌داشتن ۰.۴ ثانیه برای بریدن سیم</span>
-            </div>
-            <div class="operator-hud-progress-track" aria-hidden="true">
-              <div id="operatorHudProgressFill" class="operator-hud-progress-fill" style="width: 0%;"></div>
+            <div class="desktop-keyboard-hint" id="desktopKeyboardHint">
+              <strong>کلیدهای دسکتاپ:</strong> جهت‌نما (نگاه) · R/B (نمای ۱ و ۲) · Esc (لغو ایمن) · Space (دکمه) · 1-4 (کیپد) · W+1-4 (سیم) · C/T (فانوس)
             </div>
           </div>
-          
-          <div class="bomb-3d-hint">
-            <span>🔄 کشیدن روی بدنه: چرخش (لغو ایمن لمس تصادفی)</span>
-            <span>🔍 دو انگشت / اسکرول: زوم</span>
+
+          <!-- Unified Opaque Bottom Tactical Dock -->
+          <div class="tactical-bottom-dock" id="bombBottomDock">
+            <!-- Accessible Live Operator Interaction Status & Hold Progress Bar -->
+            <div id="operatorInteractionHud" class="operator-interaction-hud" role="status" aria-live="polite" style="display: none;">
+              <div class="operator-hud-text">
+                <div class="operator-hud-primary">
+                  <span class="operator-mode-tag" id="operatorHudModeTag">آماده</span>
+                  <strong id="operatorHudLabel">آماده تعامل لمسی</strong>
+                </div>
+                <span id="operatorHudDetail">ضربه یا نگه‌داشتن دکمه · نگه‌داشتن ۰.۴ ثانیه برای بریدن سیم</span>
+              </div>
+              <div class="operator-hud-progress-track" aria-hidden="true">
+                <div id="operatorHudProgressFill" class="operator-hud-progress-fill" style="width: 0%;"></div>
+              </div>
+            </div>
+
+            <!-- Role-Specific Seated Camera Presets + Tuning Trigger -->
+            <div class="bomb-view-toolbar" role="toolbar" aria-label="زاویه دید نشسته و تنظیمات">
+              <div class="view-preset-group">
+                <button type="button" class="view-btn active" id="btnViewFront">نمای ماژول‌ها</button>
+                <button type="button" class="view-btn" id="btnViewBack">نمای کلی میز</button>
+                <button type="button" class="view-btn" id="btnViewBridge" style="display: none;">دید هم‌تیمی‌ها</button>
+                <button type="button" class="view-btn" id="btnResetView">بازنشانی دید</button>
+              </div>
+              <button type="button" class="view-btn btn-tuning-trigger" id="btnToggleTuningPopover" aria-expanded="false" aria-controls="operatorTuningPopover" title="تنظیم سرعت نگاه و زمان Hold">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <line x1="4" y1="21" x2="4" y2="14"></line>
+                  <line x1="4" y1="10" x2="4" y2="3"></line>
+                  <line x1="12" y1="21" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12" y2="3"></line>
+                  <line x1="20" y1="21" x2="20" y2="16"></line>
+                  <line x1="20" y1="12" x2="20" y2="3"></line>
+                  <line x1="1" y1="14" x2="7" y2="14"></line>
+                  <line x1="9" y1="8" x2="15" y2="8"></line>
+                  <line x1="17" y1="16" x2="23" y2="16"></line>
+                </svg>
+                <span>حساسیت</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Hidden legacy hooks kept synced for in-round Reference Sheet inspection -->
+          <div id="bombSidebar" style="display: none;" aria-hidden="true">
+            <div id="bomb3dRoleBanner"></div>
+            <div id="blindTactileHelper"></div>
+            <div id="deafVisualHelper"></div>
+            <div id="bombInRoundPermissions"></div>
+            <div id="observerGestureDrawer"></div>
           </div>
         </div>
       </section>
 
-      <!-- View 3: Manual-holder Player (Dynamic 2D Rulebook Manual & Threat Status Matrix, Silent) -->
+      <!-- View 3: Manual-holder Hybrid 3D Seated Viewpoint + Tactical Field Manual -->
       <section class="view-section" id="muteSection">
-        <div class="role-roleplay-banner mute-banner">
-          📋 <strong>دفترچه راهنما (Manual-holder — بدون کلام):</strong> صفحه اپراتور را نبینید، صحبت نکنید و صفحه خود را نشان ندهید. شما فقط از طریق <strong>اشاره‌های توافقی با ناظر (Observer)</strong> در ارتباط هستید تا ناظر شفاهاً به اپراتور فرمان دهد.
-        </div>
 
         <!-- Easy-Mode 3-Symbol Communication Aid for Manual-holder (Observer <-> Manual bridge) -->
         <div id="manualCommAidWidget" class="comm-aid-widget manual-comm-span" style="display: none;">
           <div class="comm-aid-header">
-            <strong>📡 کمک‌ارتباطی حالت آسان (پل دفترچه راهنما ↔ ناظر)</strong>
-            <span class="comm-aid-budget" id="manualCommAidBudget">۵ / ۵</span>
+            <strong>پل کمک‌ارتباطی حالت آسان (دفترچه راهنما ↔ ناظر)</strong>
+            <span class="comm-aid-budget tabular-num" id="manualCommAidBudget" dir="ltr">5 / 5</span>
           </div>
           <div class="comm-aid-buttons">
             <button type="button" class="comm-aid-btn comm-btn-confirm" data-comm-symbol="confirm">
@@ -506,88 +502,313 @@
               <span>رد</span>
             </button>
             <button type="button" class="comm-aid-btn comm-btn-urgent" data-comm-symbol="urgent">
-              <span class="comm-sym">⏱</span>
+              <span class="comm-sym">!</span>
               <span>زمان / فوری</span>
             </button>
           </div>
-          <div class="comm-aid-feedback" id="manualCommAidFeedback">ارسال فقط به ناظر (اپراتور دریافت نمی‌کند) • هر ارسال ۱ سهمیه مصرف می‌کند.</div>
-        </div>
-
-        <!-- In-Round Quick Reference Drawers for Manual-holder -->
-        <div class="manual-quick-refs manual-comm-span">
-          <details class="inround-ref-drawer">
-            <summary>🤟 یادآور اشاره‌های توافقی (ارتباط با ناظر)</summary>
-            <div class="inround-gesture-list">
-              <div><strong>۱ تا ۴:</strong> ۱ تا ۴ انگشت باز رو به بالا (۵–۹ برای رقم ثانیه با دو دست)</div>
-              <div><strong>بله:</strong> شست بالا (👍) | <strong>خیر:</strong> ضربدر دو ساعد (✕)</div>
-              <div><strong>تکرار:</strong> چرخش دایره‌ای انگشت اشاره | <strong>توقف:</strong> کف دست باز عمودی (✋)</div>
-              <div><strong>Tap / Hold:</strong> ضربه نوک انگشت به کف دست / مشت بسته ثابت</div>
-              <div><strong>انجام شد:</strong> جفت کردن کف دست‌ها | <strong>زمان بیشتر:</strong> علامت T با دو دست</div>
-              <div><strong>عدم اطمینان:</strong> باز کردن دو کف دست به طرفین همراه با بالا انداختن شانه (🤷)</div>
-            </div>
-          </details>
-
-          <details class="inround-ref-drawer">
-            <summary>⚖️ یادآور «مجاز هستید / مجاز نیستید» (دفترچه راهنما)</summary>
-            <div id="manualInRoundPermissions" class="inround-ref-content"></div>
-          </details>
+          <div class="comm-aid-feedback" id="manualCommAidFeedback">ارسال فقط به ناظر (اپراتور دریافت نمی‌کند) · هر ارسال ۱ سهمیه مصرف می‌کند.</div>
         </div>
 
         <!-- Hybrid 3D Seated Van Viewpoint + Dockable 2D Persian Rulebook Sheet -->
         <div id="manualHybridWorkspace" class="manual-hybrid-workspace manual-comm-span" data-dock-mode="split">
           <div class="manual-dock-controls" id="manualDockControls" role="toolbar" aria-label="حالت نمایش میز سه‌بعدی و دفترچه راهنما">
             <div class="manual-dock-modes">
-              <button type="button" class="manual-dock-btn active" data-manual-dock="split">🚐 نمای ترکیبی</button>
-              <button type="button" class="manual-dock-btn" data-manual-dock="sheet">📖 تمام‌صفحه دفترچه</button>
-              <button type="button" class="manual-dock-btn" data-manual-dock="world">🪑 نمای میز ۳D</button>
+              <button type="button" class="manual-dock-btn active" data-manual-dock="split">نمای ترکیبی</button>
+              <button type="button" class="manual-dock-btn" data-manual-dock="sheet">دفترچه کامل</button>
+              <button type="button" class="manual-dock-btn" data-manual-dock="world">نمای میز ۳D</button>
             </div>
             <div class="manual-camera-presets" id="manualCameraPresets">
-              <button type="button" class="view-btn" id="btnManualViewBridge" title="نمای کلی میز و هم‌تیمی‌ها">🤝 نمای میز</button>
-              <button type="button" class="view-btn" id="btnManualViewObserver" title="تمرکز نگاه روی ناظر">👁️ تمرکز بر ناظر</button>
+              <button type="button" class="view-btn active" id="btnManualViewBridge" title="نمای کلی میز و هم‌تیمی‌ها">نمای میز</button>
+              <button type="button" class="view-btn" id="btnManualViewObserver" title="تمرکز نگاه روی ناظر">تمرکز بر ناظر</button>
             </div>
           </div>
 
           <div class="manual-hybrid-grid">
             <div id="manual3dPanel" class="manual-3d-panel">
-              <div id="manual3dContainer" class="bomb-3d-canvas-container manual-3d-canvas" role="region" aria-label="نمای نشسته دارنده دفترچه راهنما در ون ۳ بعدی"></div>
+              <div id="manual3dContainer" class="bomb-3d-canvas-container manual-3d-canvas" role="region" aria-label="نمای نشسته دارنده دفترچه راهنما در ون سه‌بعدی"></div>
               <div class="manual-3d-caption">
-                <span>🔒 درب بازشده کیف، دید داخل بمب را مسدود کرده است</span>
-                <span>نگاه با کشیدن • زوم اپتیکال</span>
+                <span>درب بازشده کیف، دید داخل بمب را مسدود کرده است</span>
+                <span>کشیدن: نگاه · دو انگشت: زوم</span>
               </div>
             </div>
 
             <div id="manualSheetPanel" class="manual-sheet-panel">
               <div id="muteManualContainer">
-                <!-- Dynamically populated from state.roundManual and live state -->
                 <div class="manual-section manual-loading-placeholder">
-                  ⏳ در حال بارگذاری قوانین اختصاصی این راند...
+                  در انتظار دریافت دفترچه قوانین اختصاصی این راند...
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        <div id="manualInRoundPermissions" style="display: none;" aria-hidden="true"></div>
       </section>
 
     </main>
 
-    <!-- Overlay 1: Bomb Exploded -->
-    <div class="overlay-screen" id="overlayExploded">
-      <div class="overlay-icon">💥</div>
-      <h2 class="overlay-title danger">بمب منفجر شد!</h2>
-      <p class="overlay-desc" id="explodeReason">تایمر به صفر رسید یا خطاها به حد نصاب رسید.</p>
-      <button type="button" class="btn-primary btn-danger" id="btnRestartExploded">
-        🔄 تلاش دوباره
-      </button>
+    <!-- Dedicated Tabbed Reference & Pre-Round Checklist Sheet (Opened from Header / In-Round Help) -->
+    <div class="reference-sheet-backdrop" id="lobbyReferenceSheet" role="dialog" aria-modal="true" aria-labelledby="refSheetTitle" style="display: none;">
+      <div class="reference-sheet-dialog">
+        <div class="reference-sheet-header">
+          <div>
+            <h2 id="refSheetTitle">مرجع عملیات، زبان اشاره و چک‌لیست تیم</h2>
+            <p class="reference-sheet-sub">قوانین هماهنگی فیزیکی و آمادگی پیش از شروع راند</p>
+          </div>
+          <button type="button" class="btn-sheet-close" id="btnCloseReferenceSheet" aria-label="بستن پنجره راهنما">
+            <span>بستن</span>
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
+
+        <div class="reference-sheet-tabs" role="tablist" aria-label="بخش‌های راهنما و چک‌لیست">
+          <button type="button" class="ref-tab-btn active" data-ref-tab="checklist" role="tab" aria-selected="true">
+            <span>چک‌لیست شروع</span>
+            <span class="ref-tab-count tabular-num" id="sheetTabCheckCount" dir="ltr">0/7</span>
+          </button>
+          <button type="button" class="ref-tab-btn" data-ref-tab="tutorial" role="tab" aria-selected="false">
+            <span>چیدمان و صدا</span>
+          </button>
+          <button type="button" class="ref-tab-btn" data-ref-tab="gestures" role="tab" aria-selected="false">
+            <span>زبان اشاره (۹)</span>
+          </button>
+          <button type="button" class="ref-tab-btn" data-ref-tab="permissions" role="tab" aria-selected="false">
+            <span>اختیارات نقش‌ها</span>
+          </button>
+        </div>
+
+        <div class="reference-sheet-body">
+
+          <!-- Tab 1: 7-Item Pre-Round Equipment & Seating Checklist -->
+          <section class="checklist-panel ref-tab-pane active" id="preRoundChecklistPanel" data-ref-pane="checklist" aria-labelledby="checklistHeading">
+            <div class="checklist-header">
+              <div>
+                <h3 id="checklistHeading">چک‌لیست تجهیزات و چیدمان پیش از شروع راند</h3>
+                <p class="onboarding-subtitle">پیش از شروع، هر ۷ مورد را با تیم بررسی کنید</p>
+              </div>
+              <div class="checklist-header-actions">
+                <span class="checklist-progress-badge" id="checklistProgressBadge">۰ از ۷ تایید شد</span>
+                <button type="button" class="btn-secondary btn-compact-touch" id="btnCheckAllReady">تایید همه</button>
+              </div>
+            </div>
+
+            <div class="checklist-items" id="preRoundChecklistItems">
+              <label class="checklist-row" for="chkRoleAssigned">
+                <input type="checkbox" id="chkRoleAssigned" data-check-key="role_assigned" />
+                <span class="checklist-text"><strong>۱. نقش صحیح هر بازیکن:</strong> اپراتور، ناظر و دفترچه راهنما به درستی انتخاب شده‌اند. <em id="chkLiveRoleHint" class="checklist-live-hint"></em></span>
+              </label>
+              <label class="checklist-row" for="chkObserverHeadphones">
+                <input type="checkbox" id="chkObserverHeadphones" data-check-key="observer_headphones" />
+                <span class="checklist-text"><strong>۲. هدفون ناظر (Observer):</strong> هدفون در حجم صدای ایمن (یا جایگزین ایمن توافقی، بدون نویز بلند) برقرار است تا ناظر از صدای بازی استفاده نکند.</span>
+              </label>
+              <label class="checklist-row" for="chkOperatorRestriction">
+                <input type="checkbox" id="chkOperatorRestriction" data-check-key="operator_visual" />
+                <span class="checklist-text"><strong>۳. محدودیت دید اپراتور (Operator):</strong> عینک آفتابی یا محدودیت دید راحت، ایمن و توافقی برای اپراتور برقرار است.</span>
+              </label>
+              <label class="checklist-row" for="chkSeating">
+                <input type="checkbox" id="chkSeating" data-check-key="seating_arrangement" />
+                <span class="checklist-text"><strong>۴. چیدمان نشستن تیم:</strong> ناظر در ضلع کناری میز به عنوان پل ارتباطی نشسته و درب کیف مانع دید مستقیم دفترچه راهنما به داخل بمب است.</span>
+              </label>
+              <label class="checklist-row" for="chkScreenPrivacy">
+                <input type="checkbox" id="chkScreenPrivacy" data-check-key="screen_privacy" />
+                <span class="checklist-text"><strong>۵. محرمانگی صفحه‌نمایش‌ها:</strong> زاویه هر گوشی طوری است که اطلاعات خصوصی آن توسط بازیکنان دیگر دیده نمی‌شود.</span>
+              </label>
+              <label class="checklist-row" for="chkGesturesReady">
+                <input type="checkbox" id="chkGesturesReady" data-check-key="gestures_understood" />
+                <span class="checklist-text"><strong>۶. تسلط بر واژگان اشاره:</strong> اشاره‌های اعداد ۱–۴، بله/خیر، تکرار، توقف، ضربه/نگه‌داشتن، انجام شد، زمان بیشتر و عدم اطمینان مرور شده‌اند.</span>
+              </label>
+              <label class="checklist-row" for="chkPhonesResponsive">
+                <input type="checkbox" id="chkPhonesResponsive" data-check-key="phones_connected" />
+                <span class="checklist-text"><strong>۷. اتصال و پاسخگویی هر ۳ گوشی:</strong> هر سه دستگاه آنلاین، همگام و آماده دریافت وضعیت راند هستند. <em id="chkLiveConnHint" class="checklist-live-hint"></em></span>
+              </label>
+            </div>
+          </section>
+
+          <!-- Tab 2: Physical Seating, Communication Graph & Audio Reality -->
+          <section class="onboarding-panel ref-tab-pane" id="onboardingTutorialPanel" data-ref-pane="tutorial" aria-labelledby="tutorialHeading">
+            <div class="onboarding-header">
+              <h3 id="tutorialHeading">چیدمان نشستن، گراف ارتباطی و واقعیت صدا</h3>
+              <span class="onboarding-subtitle">ساختار ارتباطی سه‌گانه پیرامون میز ون</span>
+            </div>
+
+            <div class="comm-graph-box" role="region" aria-label="گراف ارتباطی سه بازیکن">
+              <div class="comm-node comm-node-manual">
+                <strong>دفترچه راهنما</strong>
+                <span dir="ltr">MANUAL-HOLDER</span>
+                <small>بدون کلام · دارای قوانین راند</small>
+              </div>
+
+              <div class="comm-edge">
+                <span class="comm-arrow">◄── اشاره‌های توافقی ──►</span>
+                <small>بی‌کلام (دوطرفه)</small>
+              </div>
+
+              <div class="comm-node comm-node-observer">
+                <strong>ناظر (پل ارتباطی)</strong>
+                <span dir="ltr">OBSERVER</span>
+                <small>تنها گوینده · هدفون ایمن · دید رنگی</small>
+              </div>
+
+              <div class="comm-edge">
+                <span class="comm-arrow">── فرمان کلامی ──►</span>
+                <small>◄── ضربه ریتم روی میز</small>
+              </div>
+
+              <div class="comm-node comm-node-operator">
+                <strong>اپراتور</strong>
+                <span dir="ltr">OPERATOR</span>
+                <small>بدون کلام · عینک آفتابی · لمس بمب</small>
+              </div>
+            </div>
+
+            <div class="comm-forbidden-bar">
+              <strong>قانون کلیدی پل ارتباطی:</strong> تنها <strong>ناظر</strong> صحبت می‌کند. <strong>دفترچه راهنما</strong> فقط با <strong>ناظر</strong> (با اشاره) ارتباط دارد و هرگز مستقیم با <strong>اپراتور</strong> ارتباط برقرار نمی‌کند. نشان دادن صفحه گوشی به یکدیگر ممنوع است.
+            </div>
+
+            <div class="tutorial-info-grid">
+              <div class="tutorial-card">
+                <h4>۱. چیدمان نشستن</h4>
+                <p><strong>اپراتور</strong> و <strong>دارنده دفترچه راهنما</strong> روبه‌روی هم پشت میز می‌نشینند و درب بازشده کیف بمب مانع دید مستقیم دفترچه راهنما به داخل کیف می‌شود. <strong>ناظر</strong> در ضلع کناری میز می‌نشیند تا از زاویه جانبی رنگ و شکل داخل کیف و پلاک سریال را ببیند، با دفترچه راهنما با اشاره تبادل کند و شفاهاً به اپراتور فرمان دهد.</p>
+              </div>
+              <div class="tutorial-card">
+                <h4>۲. واقعیت فیزیکی صدا</h4>
+                <p>صدای بازی از گوشی <strong>اپراتور</strong> پخش می‌شود و در اتاق ممکن است به گوش اپراتور و دفترچه راهنما برسد (صدا منحصر به اپراتور نیست). <strong>ناظر</strong> نباید از صدای بازی اطلاعات بگیرد و هیچ وظیفه‌ای برای <strong>دفترچه راهنما</strong> نیازمند شنیدن صدا نیست.</p>
+              </div>
+              <div class="tutorial-card tutorial-card-safety">
+                <h4>۳. ایمنی و دسترس‌پذیری</h4>
+                <p>هرگز از موسیقی یا صدای بلند و آسیب‌زا برای شبیه‌سازی ناشنوایی استفاده نکنید. اگر استفاده از هدفون یا عینک آفتابی راحت نیست، تیم می‌تواند از <strong>جایگزین ایمن و توافقی</strong> (مانند صدای ملایم در فاصله مناسب یا تنظیم زاویه دید و نور صفحه) استفاده کند.</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Tab 3: 9-Item Gesture Vocabulary -->
+          <section class="gesture-panel ref-tab-pane" id="gestureVocabPanel" data-ref-pane="gestures" aria-labelledby="gestureHeading">
+            <div class="onboarding-header">
+              <h3 id="gestureHeading">واژگان اشاره‌های توافقی (پل ناظر ↔ دفترچه راهنما)</h3>
+              <span class="onboarding-subtitle">۹ حرکت استاندارد و غیرقابل‌اشتباه زیر فشار زمان</span>
+            </div>
+            <div class="gesture-grid" id="lobbyGestureGrid">
+              <div class="gesture-item">
+                <div class="gesture-title">۱ تا ۴ (اعداد پایه)</div>
+                <div class="gesture-desc">نمایش ثابت ۱ تا ۴ انگشت باز رو به بالا (برای ارقام ۵ تا ۹ ثانیه: ۵ انگشت باز + انگشتان دست دوم؛ صفر: مشت بسته).</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">بله / تأیید (Yes)</div>
+                <div class="gesture-desc">شست دست رو به بالا به صورت ثابت و واضح در دید مستقیم هم‌تیمی.</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">خیر / رد (No)</div>
+                <div class="gesture-desc">ضربدر کردن دو ساعد دست جلوی سینه (✕) تا با علامت توقف اشتباه نشود.</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">تکرار کن (Repeat)</div>
+                <div class="gesture-desc">چرخاندن دایره‌ای انگشت اشاره در هوا به معنی «دوباره نشان بده».</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">توقف / صبر کن (Stop)</div>
+                <div class="gesture-desc">کف یک دست کاملاً باز و عمودی رو به مقابل، بدون حرکت.</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">ضربه در برابر نگه‌داشتن</div>
+                <div class="gesture-desc"><strong>ضربه کوتاه (Tap):</strong> یک ضربه نوک انگشت به کف دست دیگر. <strong>نگه‌داشتن (Hold):</strong> مشت کردن و نگه داشتن محکم دست.</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">انجام شد (Completed)</div>
+                <div class="gesture-desc">چسباندن دو کف دست به هم یا برش افقی آرام دست به معنی «ماژول تمام شد».</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">نیاز به زمان بیشتر</div>
+                <div class="gesture-desc">ساختن حرف <strong>T</strong> (تایم‌اوت) با قرار دادن یک کف دست عمود بر کف دست دیگر.</div>
+              </div>
+              <div class="gesture-item">
+                <div class="gesture-title">عدم اطمینان (Uncertain)</div>
+                <div class="gesture-desc">باز کردن هر دو کف دست رو به بالا در طرفین همراه با بالا انداختن شانه.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Tab 4: Role Permissions Matrix ("You Can / You Cannot") -->
+          <section class="permissions-panel ref-tab-pane" id="rolePermissionsPanel" data-ref-pane="permissions" aria-labelledby="permissionsHeading">
+            <div class="permissions-header">
+              <h3 id="permissionsHeading">حدود اختیارات نقش: «مجاز هستید / مجاز نیستید»</h3>
+              <div class="permissions-tabs" role="tablist" aria-label="انتخاب نقش برای مشاهده قوانین">
+                <button type="button" class="perm-tab-btn active" id="permTabOperator" data-perm-role="operator" role="tab">اپراتور</button>
+                <button type="button" class="perm-tab-btn" id="permTabObserver" data-perm-role="observer" role="tab">ناظر</button>
+                <button type="button" class="perm-tab-btn" id="permTabManual" data-perm-role="manual" role="tab">دفترچه راهنما</button>
+              </div>
+            </div>
+            <div id="rolePermissionsBody" class="permissions-body">
+              <!-- Populated dynamically by app.js -->
+            </div>
+          </section>
+
+        </div>
+      </div>
     </div>
 
-    <!-- Overlay 2: Bomb Defused -->
-    <div class="overlay-screen" id="overlayDefused">
-      <div class="overlay-icon">🏆</div>
-      <h2 class="overlay-title success">بمب خنثی شد!</h2>
-      <p class="overlay-desc" id="defusedStats">همکاری فوق‌العاده تیم ۳ نفره! همه ماژول‌ها بدون انفجار خنثی شدند.</p>
-      <button type="button" class="btn-primary" id="btnRestartDefused">
-        ⭐ بازی جدید
-      </button>
+    <!-- Overlay 1: Bomb Exploded Debrief -->
+    <div class="overlay-screen" id="overlayExploded" role="dialog" aria-modal="true" aria-labelledby="explodedTitle">
+      <div class="debrief-card debrief-danger">
+        <div class="overlay-icon danger" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <span class="debrief-kicker">گزارش پایان عملیات</span>
+        <h2 class="overlay-title danger" id="explodedTitle">انفجار بمب · پایان عملیات</h2>
+        <p class="overlay-desc" id="explodeReason">تایمر به صفر رسید یا خطاها به حد نصاب رسید.</p>
+        <div class="debrief-metrics-row" id="explodedMetricsRow">
+          <div class="debrief-metric">
+            <span>زمان باقی‌مانده</span>
+            <strong class="tabular-num" id="explodedTimeStat" dir="ltr">00:00</strong>
+          </div>
+          <div class="debrief-metric">
+            <span>خطاهای ثبت‌شده</span>
+            <strong class="tabular-num" id="explodedStrikesStat" dir="ltr">0 / 3</strong>
+          </div>
+          <div class="debrief-metric">
+            <span>ماژول‌های خنثی‌شده</span>
+            <strong class="tabular-num" id="explodedModulesStat" dir="ltr">0 / 3</strong>
+          </div>
+        </div>
+        <button type="button" class="btn-primary btn-danger" id="btnRestartExploded">
+          بازگشت به لابی و تلاش دوباره
+        </button>
+      </div>
+    </div>
+
+    <!-- Overlay 2: Bomb Defused Debrief -->
+    <div class="overlay-screen" id="overlayDefused" role="dialog" aria-modal="true" aria-labelledby="defusedTitle">
+      <div class="debrief-card debrief-success">
+        <div class="overlay-icon success" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <polyline points="9 12 11 14 15 10"></polyline>
+          </svg>
+        </div>
+        <span class="debrief-kicker">گزارش پایان عملیات</span>
+        <h2 class="overlay-title success" id="defusedTitle">عملیات موفق · بمب خنثی شد</h2>
+        <p class="overlay-desc" id="defusedStats">همه ماژول‌های مسلح با هماهنگی تیم خنثی شدند.</p>
+        <div class="debrief-metrics-row" id="defusedMetricsRow">
+          <div class="debrief-metric">
+            <span>زمان باقی‌مانده</span>
+            <strong class="tabular-num" id="defusedTimeStat" dir="ltr">00:00</strong>
+          </div>
+          <div class="debrief-metric">
+            <span>خطاهای ثبت‌شده</span>
+            <strong class="tabular-num" id="defusedStrikesStat" dir="ltr">0 / 3</strong>
+          </div>
+          <div class="debrief-metric">
+            <span>ماژول‌های خنثی‌شده</span>
+            <strong class="tabular-num" id="defusedModulesStat" dir="ltr">3 / 3</strong>
+          </div>
+        </div>
+        <button type="button" class="btn-primary" id="btnRestartDefused">
+          بازگشت به لابی · دور جدید
+        </button>
+      </div>
     </div>
 
   </div>

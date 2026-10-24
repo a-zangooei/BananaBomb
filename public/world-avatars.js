@@ -1,26 +1,33 @@
 /**
- * Stylized Cartoon Monkey Teammates, Role Accessories, Foreground Hands & 3D Manual Prop.
+ * Stylized Cartoon Monkey Teammates, Role Accessories, Floating Wrist-Only Gloved Hands & 3D Manual Prop.
  *
  * Visual Character Spec:
- * - Warm orange fur (#ea580c), cream belly & muzzle (#fef3c7), white gloves (#f8fafc),
+ * - Warm orange fur (#ea580c), cream belly & muzzle (#fef3c7), armless stylized torsos,
+ *   clean wrist-only floating white gloves (#f8fafc) with sealed dark wrist caps (#27272a),
  *   and bold, immediately readable role accessories:
- *   1. Operator (+Z South seat): Dark wrap-around sunglasses (#09090b) + foreground gloved hands.
- *   2. Observer (+X East seat): Over-ear cobalt headphones (#1d4ed8) + expressive bridge hands.
+ *   1. Operator (+Z South seat): Dark wrap-around sunglasses (#09090b) + foreground floating gloved hands.
+ *   2. Observer (+X East seat): Over-ear cobalt headphones (#1d4ed8) + expressive floating bridge hands.
  *   3. Manual-holder (-Z North seat): Field neckerchief/badge (#7e22ce) + HandheldManualProp3D
  *      whose opaque back cover ('manual_cover') blocks 100% of Observer sightlines to the inner page.
  *
- * Layer Isolation:
+ * Chirality & Occlusion Invariants:
+ * - Left and right gloved hands are built with explicit geometric chirality (`side: 'left' | 'right'`)
+ *   and positive scale (1, 1, 1) so `matrixWorld.determinant() > 0` on every mesh (zero inverted normals).
+ * - Zero forearm fur sleeves (`sleeveGeo`) and zero torso upper-arm stumps exist in the scene.
  * - Each character's head/torso/accessories live on its dedicated body layer (1, 2, or 3) so
- *   the local seated camera never clips inside its own head/accessory, while foreground hands
+ *   the local seated camera never clips inside its own head/accessory, while foreground floating hands
  *   live on WORLD_LAYERS.SHARED (0).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WORLD_LAYERS, setSubtreeLayer } from './camera-rig.js';
 
-function partSphere(r, wSeg, hSeg, sx, sy, sz, x, y, z) {
+function partSphere(r, wSeg, hSeg, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) {
   const g = new THREE.SphereGeometry(r, wSeg, hSeg).toNonIndexed();
   g.scale(sx, sy, sz);
+  if (rx) g.rotateX(rx);
+  if (ry) g.rotateY(ry);
+  if (rz) g.rotateZ(rz);
   g.translate(x, y, z);
   return g;
 }
@@ -46,15 +53,14 @@ function partCyl(rt, rb, h, segs, x, y, z, rx = 0, ry = 0, rz = 0) {
 function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMat, styleManager }) {
   const group = new THREE.Group();
   group.name = `MonkeyBody_${roleType}`;
+  group.userData.isArmlessTorso = true;
 
-  // Local space: monkey sits at local (0, 0, 0) = waist height (world y = 0.72m), facing +Z in local space
+  // Local space: monkey sits at local (0, 0, 0) = waist height (world y = 0.72m), facing +Z in local space.
+  // Intentionally armless stylized torso so floating gloved hands read as a clean, cohesive character design.
   const furParts = [
-    // Torso & shoulders
-    partCyl(0.115, 0.135, 0.3, 12, 0, 0.15, 0),
-    partSphere(0.125, 12, 10, 1.08, 0.75, 0.88, 0, 0.28, 0),
-    // Upper arms
-    partCyl(0.038, 0.034, 0.22, 8, -0.155, 0.19, 0.05, 0.45, 0, 0.22),
-    partCyl(0.038, 0.034, 0.22, 8, 0.155, 0.19, 0.05, 0.45, 0, -0.22),
+    // Smooth armless torso & rounded chest/shoulder cap
+    partCyl(0.112, 0.132, 0.3, 12, 0, 0.15, 0),
+    partSphere(0.118, 12, 10, 0.96, 0.72, 0.88, 0, 0.275, 0),
     // Head & round monkey ears
     partSphere(0.125, 14, 12, 1.04, 1.0, 0.98, 0, 0.44, 0.01),
     partSphere(0.048, 10, 8, 0.55, 1.0, 0.85, -0.132, 0.44, 0.0),
@@ -66,12 +72,13 @@ function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMa
   furParts.forEach((g) => g.dispose());
 
   const furMesh = new THREE.Mesh(furGeo, furMat);
+  furMesh.name = `MonkeyFurTorsoHead_${roleType}`;
   furMesh.userData.isAvatar = true;
   group.add(furMesh);
 
   // Cream belly, facial mask, muzzle, and inner ears
   const creamParts = [
-    partSphere(0.095, 10, 8, 0.95, 1.18, 0.52, 0, 0.155, 0.088),
+    partSphere(0.095, 10, 8, 0.92, 1.18, 0.52, 0, 0.155, 0.088),
     partSphere(0.092, 12, 10, 1.04, 0.88, 0.58, 0, 0.445, 0.088),
     partSphere(0.068, 10, 8, 1.12, 0.76, 0.78, 0, 0.402, 0.118),
     partSphere(0.03, 8, 6, 0.4, 0.8, 0.6, -0.134, 0.44, 0.012),
@@ -81,6 +88,7 @@ function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMa
   creamParts.forEach((g) => g.dispose());
 
   const creamMesh = new THREE.Mesh(creamGeo, creamMat);
+  creamMesh.name = `MonkeyCreamMask_${roleType}`;
   creamMesh.userData.isAvatar = true;
   group.add(creamMesh);
 
@@ -94,6 +102,7 @@ function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMa
   faceParts.forEach((g) => g.dispose());
 
   const faceMesh = new THREE.Mesh(faceGeo, darkMat);
+  faceMesh.name = `MonkeyFaceFeatures_${roleType}`;
   faceMesh.userData.isAvatar = true;
   group.add(faceMesh);
 
@@ -128,6 +137,7 @@ function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMa
   const accGeo = mergeGeometries(accParts, false);
   accParts.forEach((g) => g.dispose());
   const accMesh = new THREE.Mesh(accGeo, accessoryMat);
+  accMesh.name = `MonkeyRoleAccessory_${roleType}`;
   accMesh.userData.isAvatar = true;
   group.add(accMesh);
 
@@ -146,34 +156,61 @@ function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMa
   return group;
 }
 
-function buildGlovedHandUnit({ furMat, gloveMat, styleManager }) {
-  const handGroup = new THREE.Group();
+/**
+ * Builds a clean, wrist-only floating gloved hand with explicit left/right chirality
+ * and a sealed recessed wrist cap (zero forearm sleeve cylinders and zero negative scaling).
+ */
+export function buildGlovedHandUnit({ side = 'right', gloveMat, cuffSealMat, styleManager }) {
+  const resolvedSide = side === 'left' ? 'left' : 'right';
+  // In local space, fingers extend toward -Z and palm faces -Y.
+  // Medial (thumb) side is +X for the left hand and -X for the right hand.
+  const thumbSign = resolvedSide === 'left' ? 1 : -1;
 
-  const sleeveGeo = partCyl(0.028, 0.032, 0.13, 8, 0, 0.015, 0.075, Math.PI * 0.42, 0, 0);
-  const sleeveMesh = new THREE.Mesh(sleeveGeo, furMat);
-  sleeveMesh.userData.isAvatar = true;
-  handGroup.add(sleeveMesh);
+  const handGroup = new THREE.Group();
+  handGroup.name = `FloatingGlovedHand_${resolvedSide}`;
+  handGroup.userData.isFloatingGlovedHand = true;
+  handGroup.userData.handSide = resolvedSide;
 
   const gloveParts = [
-    // Glove cuff + rounded palm + thumb + 3 cartoon fingers
-    partCyl(0.034, 0.034, 0.028, 10, 0, 0.004, 0.018, Math.PI * 0.45, 0, 0),
-    partSphere(0.036, 10, 8, 1.05, 0.65, 1.15, 0, 0, -0.018),
-    partSphere(0.016, 8, 6, 1.0, 0.75, 1.35, 0.034, -0.002, -0.015),
-    partBox(0.016, 0.016, 0.036, -0.02, -0.003, -0.056),
-    partBox(0.016, 0.016, 0.04, 0.0, -0.002, -0.058),
-    partBox(0.016, 0.016, 0.036, 0.02, -0.003, -0.056)
+    // Rolled cartoon wrist cuff collar (closed cylinder + rounded roll)
+    partCyl(0.034, 0.032, 0.024, 12, 0, 0.004, 0.018, Math.PI * 0.48, 0, 0),
+    partSphere(0.033, 10, 8, 1.04, 0.88, 0.56, 0, 0.004, 0.018),
+    // Sculpted rounded palm
+    partSphere(0.035, 12, 10, 1.06, 0.64, 1.12, 0, 0, -0.016),
+    // Chirality-accurate inward thumb (base + tip)
+    partSphere(0.015, 8, 6, 1.0, 0.82, 1.25, thumbSign * 0.031, -0.003, -0.011, 0, thumbSign * -0.38, 0),
+    partSphere(0.013, 8, 6, 0.95, 0.82, 1.18, thumbSign * 0.04, -0.004, -0.025, 0, thumbSign * -0.22, 0),
+    // Four articulated cartoon fingers ordered anatomically from index to pinky
+    partBox(0.013, 0.014, 0.035, thumbSign * 0.021, -0.002, -0.052, 0.08, 0, 0),
+    partBox(0.0135, 0.0145, 0.039, thumbSign * 0.007, -0.001, -0.055, 0.08, 0, 0),
+    partBox(0.013, 0.014, 0.036, thumbSign * -0.007, -0.002, -0.053, 0.08, 0, 0),
+    partBox(0.012, 0.013, 0.031, thumbSign * -0.021, -0.003, -0.049, 0.08, 0, 0)
   ];
   const gloveGeo = mergeGeometries(gloveParts, false);
   gloveParts.forEach((g) => g.dispose());
+
   const gloveMesh = new THREE.Mesh(gloveGeo, gloveMat);
+  gloveMesh.name = `GloveBody_${resolvedSide}`;
   gloveMesh.userData.isAvatar = true;
+  gloveMesh.userData.isGloveBody = true;
   handGroup.add(gloveMesh);
 
+  // Recessed closed wrist seal cap closing the back of the cuff cleanly from every angle
+  const cuffCapGeo = partCyl(0.026, 0.026, 0.006, 12, 0, 0.005, 0.029, Math.PI * 0.48, 0, 0);
+  const cuffCapMesh = new THREE.Mesh(cuffCapGeo, cuffSealMat);
+  cuffCapMesh.name = `GloveWristSealCap_${resolvedSide}`;
+  cuffCapMesh.userData.isAvatar = true;
+  cuffCapMesh.userData.isWristCap = true;
+  handGroup.add(cuffCapMesh);
+
+  handGroup.userData.gloveMesh = gloveMesh;
+  handGroup.userData.cuffCapMesh = cuffCapMesh;
+
   if (styleManager) {
-    styleManager.trackGeometry(sleeveGeo);
     styleManager.trackGeometry(gloveGeo);
-    styleManager.registerMesh(sleeveMesh, { tier: 'secondary', edgeAngle: 24 });
+    styleManager.trackGeometry(cuffCapGeo);
     styleManager.registerMesh(gloveMesh, { tier: 'secondary', edgeAngle: 24 });
+    styleManager.registerMesh(cuffCapMesh, { tier: 'secondary', edgeAngle: 24 });
   }
 
   return handGroup;
@@ -185,13 +222,14 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
 
   const furMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.78, metalness: 0.04 });
   const creamMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.75, metalness: 0.03 });
-  const gloveMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.58, metalness: 0.05 });
+  const gloveMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.56, metalness: 0.05 });
+  const cuffSealMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.72, metalness: 0.12 });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.28, metalness: 0.35 });
   const headphoneMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.42, metalness: 0.22 });
   const manualScarfMat = new THREE.MeshStandardMaterial({ color: 0x7e22ce, roughness: 0.65, metalness: 0.08 });
 
   if (styleManager) {
-    for (const m of [furMat, creamMat, gloveMat, darkMat, headphoneMat, manualScarfMat]) {
+    for (const m of [furMat, creamMat, gloveMat, cuffSealMat, darkMat, headphoneMat, manualScarfMat]) {
       styleManager.trackMaterial(m);
     }
   }
@@ -210,19 +248,20 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   setSubtreeLayer(operatorBody, WORLD_LAYERS.OPERATOR_BODY);
   root.add(operatorBody);
 
-  // Operator Foreground Hands on SHARED layer 0 (South edge of table, clear of briefcase)
+  // Operator Foreground Floating Hands on SHARED layer 0 (South edge of table, clear of briefcase)
   const operatorHandsGroup = new THREE.Group();
   operatorHandsGroup.name = 'OperatorForegroundHands';
 
   const opLeftRest = new THREE.Vector3(-0.205, 0.768, 0.315);
   const opRightRest = new THREE.Vector3(0.205, 0.768, 0.315);
 
-  const opLeftHand = buildGlovedHandUnit({ furMat, gloveMat, styleManager });
+  const opLeftHand = buildGlovedHandUnit({ side: 'left', gloveMat, cuffSealMat, styleManager });
+  opLeftHand.name = 'OperatorLeftHand';
   opLeftHand.position.copy(opLeftRest);
-  opLeftHand.scale.x = -1; // Mirror thumb inward
   operatorHandsGroup.add(opLeftHand);
 
-  const opRightHand = buildGlovedHandUnit({ furMat, gloveMat, styleManager });
+  const opRightHand = buildGlovedHandUnit({ side: 'right', gloveMat, cuffSealMat, styleManager });
+  opRightHand.name = 'OperatorRightHand';
   opRightHand.position.copy(opRightRest);
   operatorHandsGroup.add(opRightHand);
 
@@ -243,19 +282,20 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   setSubtreeLayer(observerBody, WORLD_LAYERS.OBSERVER_BODY);
   root.add(observerBody);
 
-  // Observer Foreground Hands on SHARED layer 0 (wide Z spacing so 0% lateral clue occlusion)
+  // Observer Foreground Floating Hands on SHARED layer 0 (wide Z spacing so 0% lateral clue occlusion)
   const observerHandsGroup = new THREE.Group();
   observerHandsGroup.name = 'ObserverForegroundHands';
 
-  const obsNorthHand = buildGlovedHandUnit({ furMat, gloveMat, styleManager });
+  const obsNorthHand = buildGlovedHandUnit({ side: 'right', gloveMat, cuffSealMat, styleManager });
+  obsNorthHand.name = 'ObserverRightHand';
   obsNorthHand.position.set(0.465, 0.768, -0.235);
   obsNorthHand.rotation.y = Math.PI * 0.5;
   observerHandsGroup.add(obsNorthHand);
 
-  const obsSouthHand = buildGlovedHandUnit({ furMat, gloveMat, styleManager });
+  const obsSouthHand = buildGlovedHandUnit({ side: 'left', gloveMat, cuffSealMat, styleManager });
+  obsSouthHand.name = 'ObserverLeftHand';
   obsSouthHand.position.set(0.465, 0.768, 0.295);
   obsSouthHand.rotation.y = Math.PI * 0.5;
-  obsSouthHand.scale.x = -1;
   observerHandsGroup.add(obsSouthHand);
 
   setSubtreeLayer(observerHandsGroup, WORLD_LAYERS.SHARED);
@@ -275,7 +315,7 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   setSubtreeLayer(manualBody, WORLD_LAYERS.MANUAL_BODY);
   root.add(manualBody);
 
-  // --- 4. Manual-holder Foreground Hands & HandheldManualProp3D ---
+  // --- 4. Manual-holder Floating Hands & HandheldManualProp3D ---
   // Positioned at North-East table zone (+0.17, 0.845, -0.46), angled toward Manual-holder
   // at (0, 1.16, -0.64) so Manual-holder sees 5/5 of the inner page while the opaque back cover
   // + side privacy wings ('manual_cover') directly block 100% of Observer (+0.64, 1.16, +0.06) rays!
@@ -327,17 +367,18 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   manualInnerPageMesh.userData.surfaceRole = 'manual_inner_page';
   manualPropGroup.add(manualInnerPageMesh);
 
-  // Manual-holder's gloved hands holding the binder & resting for gestures
-  const manLeftHand = buildGlovedHandUnit({ furMat, gloveMat, styleManager });
-  manLeftHand.position.set(-0.18, 0.772, -0.34);
+  // Manual-holder's floating gloved hands holding the binder & resting for gestures
+  const manRightHand = buildGlovedHandUnit({ side: 'right', gloveMat, cuffSealMat, styleManager });
+  manRightHand.name = 'ManualRightHand';
+  manRightHand.position.set(-0.18, 0.772, -0.34);
+  manRightHand.rotation.y = Math.PI;
+  root.add(manRightHand);
+
+  const manLeftHand = buildGlovedHandUnit({ side: 'left', gloveMat, cuffSealMat, styleManager });
+  manLeftHand.name = 'ManualLeftHand';
+  manLeftHand.position.set(0.295, 0.818, -0.465);
   manLeftHand.rotation.y = Math.PI;
   root.add(manLeftHand);
-
-  const manRightHand = buildGlovedHandUnit({ furMat, gloveMat, styleManager });
-  manRightHand.position.set(0.295, 0.818, -0.465);
-  manRightHand.rotation.y = Math.PI;
-  manRightHand.scale.x = -1;
-  root.add(manRightHand);
 
   if (styleManager) {
     styleManager.trackGeometry(coverGeo);
@@ -350,12 +391,21 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   }
 
   setSubtreeLayer(manualPropGroup, WORLD_LAYERS.SHARED);
-  setSubtreeLayer(manLeftHand, WORLD_LAYERS.SHARED);
   setSubtreeLayer(manRightHand, WORLD_LAYERS.SHARED);
+  setSubtreeLayer(manLeftHand, WORLD_LAYERS.SHARED);
   root.add(manualPropGroup);
 
+  const hands = [
+    opLeftHand,
+    opRightHand,
+    obsNorthHand,
+    obsSouthHand,
+    manRightHand,
+    manLeftHand
+  ];
+
   /**
-   * Subtle reach offset for Operator's nearer foreground gloved hand during active press/hold,
+   * Subtle reach offset for Operator's nearer foreground floating gloved hand during active press/hold,
    * staying South/below the active control so it never occludes progress rings or labels.
    */
   function setActiveReachTarget(worldTargetPos) {
@@ -388,6 +438,7 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
     manualPropGroup,
     manualBackCoverMesh,
     manualInnerPageMesh,
+    hands,
     setActiveReachTarget
   };
 }

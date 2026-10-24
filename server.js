@@ -174,9 +174,9 @@ function generateRandomSeed() {
 }
 
 let roles = {
-  blind: { playerId: null, connected: false, joinedAt: null },
-  deaf: { playerId: null, connected: false, joinedAt: null },
-  mute: { playerId: null, connected: false, joinedAt: null }
+  blind: { playerId: null, connected: false, joinedAt: null, ready: false },
+  deaf: { playerId: null, connected: false, joinedAt: null, ready: false },
+  mute: { playerId: null, connected: false, joinedAt: null, ready: false }
 };
 roles.operator = roles.blind;
 roles.observer = roles.deaf;
@@ -228,6 +228,7 @@ function releaseRole(roleName) {
   roles[roleName].playerId = null;
   roles[roleName].connected = false;
   roles[roleName].joinedAt = null;
+  roles[roleName].ready = false;
 
   if (pId) {
     const sess = sessions.get(pId);
@@ -330,12 +331,12 @@ function getFilteredStateForRole(rawRole) {
     modulesDefusedCount,
     totalModulesCount,
     roles: {
-      operator: { playerId: roles.blind.playerId, connected: roles.blind.connected, title: roleMeta.operator.title, subtitle: roleMeta.operator.subtitle },
-      observer: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, title: roleMeta.observer.title, subtitle: roleMeta.observer.subtitle },
-      manual: { playerId: roles.mute.playerId, connected: roles.mute.connected, title: roleMeta.manual.title, subtitle: roleMeta.manual.subtitle },
-      blind: { playerId: roles.blind.playerId, connected: roles.blind.connected, title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
-      deaf: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, title: roleMeta.deaf.title, subtitle: roleMeta.deaf.subtitle },
-      mute: { playerId: roles.mute.playerId, connected: roles.mute.connected, title: roleMeta.mute.title, subtitle: roleMeta.mute.subtitle }
+      operator: { playerId: roles.blind.playerId, connected: roles.blind.connected, ready: Boolean(roles.blind.connected && roles.blind.ready !== false), title: roleMeta.operator.title, subtitle: roleMeta.operator.subtitle },
+      observer: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, ready: Boolean(roles.deaf.connected && roles.deaf.ready !== false), title: roleMeta.observer.title, subtitle: roleMeta.observer.subtitle },
+      manual: { playerId: roles.mute.playerId, connected: roles.mute.connected, ready: Boolean(roles.mute.connected && roles.mute.ready !== false), title: roleMeta.manual.title, subtitle: roleMeta.manual.subtitle },
+      blind: { playerId: roles.blind.playerId, connected: roles.blind.connected, ready: Boolean(roles.blind.connected && roles.blind.ready !== false), title: roleMeta.blind.title, subtitle: roleMeta.blind.subtitle },
+      deaf: { playerId: roles.deaf.playerId, connected: roles.deaf.connected, ready: Boolean(roles.deaf.connected && roles.deaf.ready !== false), title: roleMeta.deaf.title, subtitle: roleMeta.deaf.subtitle },
+      mute: { playerId: roles.mute.playerId, connected: roles.mute.connected, ready: Boolean(roles.mute.connected && roles.mute.ready !== false), title: roleMeta.mute.title, subtitle: roleMeta.mute.subtitle }
     },
     serverTimestamp: Date.now()
   };
@@ -432,7 +433,9 @@ function broadcastEvent(data) {
 }
 
 function checkReadyStatus() {
-  const allRolesAssignedAndConnected = ROLES.every((r) => roles[r].playerId && roles[r].connected);
+  const allRolesAssignedAndConnected = ROLES.every(
+    (r) => roles[r].playerId && roles[r].connected && roles[r].ready !== false
+  );
   if (gameState.status === 'waiting' && allRolesAssignedAndConnected) {
     gameState.status = 'ready';
   } else if (gameState.status === 'ready' && !allRolesAssignedAndConnected) {
@@ -564,6 +567,10 @@ function resetGame(clearDisconnectedRoles = true) {
         sess.role = null;
       }
     }
+  }
+
+  for (const r of ROLES) {
+    roles[r].ready = Boolean(roles[r].playerId && roles[r].connected);
   }
 
   updateHost();
@@ -832,10 +839,11 @@ function handleClientEvent(ws, msg) {
       releaseRole(targetRole);
     }
 
-    // Assign target role to this player
+    // Assign target role to this player (default ready = true on join)
     currentRole.playerId = cleanPlayerId;
     currentRole.connected = true;
     currentRole.joinedAt = currentRole.joinedAt || Date.now();
+    currentRole.ready = true;
     session.role = targetRole;
 
     updateHost();
@@ -868,6 +876,23 @@ function handleClientEvent(ws, msg) {
         ws.send(JSON.stringify({ type: 'role_released' }));
         broadcastFullState();
       }
+    }
+    return;
+  }
+
+  // 3b. Toggle Player Ready Status in Lobby
+  if (type === 'set_ready') {
+    if (gameState.status !== 'waiting' && gameState.status !== 'ready') {
+      return;
+    }
+    const socketInfo = activeSockets.get(ws);
+    const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
+    const roleKey = session?.role ? canonicalRole(session.role) : null;
+    if (roleKey && roles[roleKey] && roles[roleKey].playerId === session.playerId && roles[roleKey].connected) {
+      const nextReady = payload?.ready !== undefined ? Boolean(payload.ready) : !roles[roleKey].ready;
+      roles[roleKey].ready = nextReady;
+      checkReadyStatus();
+      broadcastFullState();
     }
     return;
   }

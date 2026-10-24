@@ -17,28 +17,43 @@ let myRole = sessionStorage.getItem('defusal_role') || null;
 let currentGameState = null;
 let lastGameStatus = null;
 let lastTickSecond = null;
+let lastUrgencyLevel = 'normal';
 let bombScene = null;
 let manualWorldScene = null;
 let manualDockMode = 'split';
 let selectedPermTabRole = 'operator';
+let activeRefTab = 'checklist';
+let lastRefTriggerEl = null;
+let isCustomDifficultyOpen = false;
+let isSeedPanelOpen = false;
+let audioUnlocked = false;
 let toastTimeoutId = null;
 
 // Initialize Transport Abstraction
 const transport = new GameTransport();
 
-// DOM Element References
+// --- Core Shell & Phase Elements ---
+const appViewport = document.querySelector('.app-viewport');
+const lobbyTopBar = document.getElementById('lobbyTopBar');
+const activeRoundHud = document.getElementById('activeRoundHud');
 const pingDot = document.getElementById('pingDot');
 const connStatus = document.getElementById('connStatus');
-const pingVal = document.getElementById('pingVal');
-const syncStatus = document.getElementById('syncStatus');
 const appToastBanner = document.getElementById('appToastBanner');
-const serialTag = document.getElementById('serialTag');
+const webglErrorBanner = document.getElementById('webglErrorBanner');
+
+// Active Round HUD Elements
+const hudTimerCluster = document.getElementById('hudTimerCluster');
+const timerUrgencyIcon = document.getElementById('timerUrgencyIcon');
 const timerDisplay = document.getElementById('timerDisplay');
 const timerPenaltyBadge = document.getElementById('timerPenaltyBadge');
-const webglErrorBanner = document.getElementById('webglErrorBanner');
+const hudStrikeRatio = document.getElementById('hudStrikeRatio');
 const strikeBoxesContainer = document.getElementById('strikeBoxes');
+const hudDefusedRatio = document.getElementById('hudDefusedRatio');
+const serialTag = document.getElementById('serialTag');
+const serialValue = document.getElementById('serialValue');
+const btnInRoundHelp = document.getElementById('btnInRoundHelp');
 
-// Views
+// Views & Debrief Overlays
 const lobbySection = document.getElementById('lobbySection');
 const bomb3dSection = document.getElementById('bomb3dSection');
 const muteSection = document.getElementById('muteSection');
@@ -46,8 +61,23 @@ const overlayExploded = document.getElementById('overlayExploded');
 const overlayDefused = document.getElementById('overlayDefused');
 const explodeReason = document.getElementById('explodeReason');
 const defusedStats = document.getElementById('defusedStats');
+const explodedTimeStat = document.getElementById('explodedTimeStat');
+const explodedStrikesStat = document.getElementById('explodedStrikesStat');
+const explodedModulesStat = document.getElementById('explodedModulesStat');
+const defusedTimeStat = document.getElementById('defusedTimeStat');
+const defusedStrikesStat = document.getElementById('defusedStrikesStat');
+const defusedModulesStat = document.getElementById('defusedModulesStat');
 
-// 3D Viewport Controls & Banners
+// Reference & Checklist Modal Sheet Elements
+const btnOpenReferenceSheet = document.getElementById('btnOpenReferenceSheet');
+const headerChecklistCount = document.getElementById('headerChecklistCount');
+const lobbyReferenceSheet = document.getElementById('lobbyReferenceSheet');
+const btnCloseReferenceSheet = document.getElementById('btnCloseReferenceSheet');
+const sheetTabCheckCount = document.getElementById('sheetTabCheckCount');
+const refTabButtons = Array.from(document.querySelectorAll('[data-ref-tab]'));
+const refTabPanes = Array.from(document.querySelectorAll('[data-ref-pane]'));
+
+// 3D Viewport & Legacy Hidden Sync Hooks
 const bomb3dContainer = document.getElementById('bomb3dContainer');
 const bomb3dRoleBanner = document.getElementById('bomb3dRoleBanner');
 const blindTactileHelper = document.getElementById('blindTactileHelper');
@@ -77,6 +107,11 @@ const badgeBlindEl = document.getElementById('badgeBlind');
 const badgeDeafEl = document.getElementById('badgeDeaf');
 const badgeMuteEl = document.getElementById('badgeMute');
 
+const slotIndBlind = document.getElementById('slotIndBlind');
+const slotIndDeaf = document.getElementById('slotIndDeaf');
+const slotIndMute = document.getElementById('slotIndMute');
+const squadReadyRatio = document.getElementById('squadReadyRatio');
+
 const roleCards = {
   blind: cardBlindEl,
   deaf: cardDeafEl,
@@ -85,6 +120,7 @@ const roleCards = {
   observer: cardDeafEl,
   manual: cardMuteEl
 };
+
 const roleBadges = {
   blind: badgeBlindEl,
   deaf: badgeDeafEl,
@@ -92,6 +128,12 @@ const roleBadges = {
   operator: badgeBlindEl,
   observer: badgeDeafEl,
   manual: badgeMuteEl
+};
+
+const slotIndicators = {
+  blind: { el: slotIndBlind, shortTitle: 'اپراتور' },
+  deaf: { el: slotIndDeaf, shortTitle: 'ناظر' },
+  mute: { el: slotIndMute, shortTitle: 'راهنما' }
 };
 
 // Functional Role Normalizers
@@ -126,7 +168,7 @@ const ROLE_PERMISSIONS_SPEC = {
   observer: {
     title: 'ناظر (Observer) — پل ارتباطی تیم',
     can: [
-      'مشاهده سرنخ‌های رنگی، نمادهای کیپد، نوار کناری دکمه و پلاک شماره سریال کناری کیف بمب در نمای ۳D.',
+      'مشاهده رنگ و شکل اجزای داخل کیف، نمادهای کیپد، نوار کناری دکمه و پلاک شماره سریال از زاویه جانبی ۳D.',
       'صحبت کردن شفاهی با اپراتور (شما تنها بازیکنی هستید که اجازه صحبت کردن دارد).',
       'برقراری ارتباط دوطرفه با دارنده دفترچه راهنما از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
       'نگاه به اطراف و زوم اپتیکال از صندلی کناری میز بدون لمس عملیاتی ماژول‌های بمب.'
@@ -170,7 +212,7 @@ function buildPermissionsHtml(roleKey) {
   `;
 }
 
-// Lobby Permissions Panel Tabs
+// --- Reference & Checklist Modal Sheet Wiring ---
 const rolePermissionsBody = document.getElementById('rolePermissionsBody');
 const permTabButtons = document.querySelectorAll('[data-perm-role]');
 
@@ -195,11 +237,89 @@ permTabButtons.forEach((btn) => {
 
 renderLobbyPermissionsPanel(myRole ? toFunctionalRoleKey(myRole) : 'operator');
 
-// Non-blocking Toast Helper (replaces window.alert)
+function setActiveReferenceTab(tabId) {
+  activeRefTab = tabId || 'checklist';
+  refTabButtons.forEach((btn) => {
+    const isMatch = btn.getAttribute('data-ref-tab') === activeRefTab;
+    btn.classList.toggle('active', isMatch);
+    btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+  });
+  refTabPanes.forEach((pane) => {
+    pane.classList.toggle('active', pane.getAttribute('data-ref-pane') === activeRefTab);
+  });
+}
+
+function isReferenceSheetOpen() {
+  return Boolean(lobbyReferenceSheet && lobbyReferenceSheet.style.display !== 'none');
+}
+
+function openReferenceSheet(tabId = activeRefTab, permRole = null, triggerEl = null) {
+  if (!lobbyReferenceSheet) return;
+  if (triggerEl) {
+    lastRefTriggerEl = triggerEl;
+  }
+  if (permRole) {
+    renderLobbyPermissionsPanel(permRole);
+  }
+  setActiveReferenceTab(tabId);
+  lobbyReferenceSheet.style.display = 'flex';
+  btnCloseReferenceSheet?.focus();
+}
+
+function closeReferenceSheet() {
+  if (!lobbyReferenceSheet || lobbyReferenceSheet.style.display === 'none') return;
+  lobbyReferenceSheet.style.display = 'none';
+  if (lastRefTriggerEl && typeof lastRefTriggerEl.focus === 'function') {
+    lastRefTriggerEl.focus();
+  }
+}
+
+refTabButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    setActiveReferenceTab(btn.getAttribute('data-ref-tab') || 'checklist');
+  });
+});
+
+if (btnOpenReferenceSheet) {
+  btnOpenReferenceSheet.addEventListener('click', () => {
+    openReferenceSheet(activeRefTab || 'checklist', myRole ? toFunctionalRoleKey(myRole) : null, btnOpenReferenceSheet);
+  });
+}
+
+if (btnInRoundHelp) {
+  btnInRoundHelp.addEventListener('click', () => {
+    const targetTab = isOperator(myRole) ? 'permissions' : 'gestures';
+    openReferenceSheet(targetTab, myRole ? toFunctionalRoleKey(myRole) : 'operator', btnInRoundHelp);
+  });
+}
+
+if (btnCloseReferenceSheet) {
+  btnCloseReferenceSheet.addEventListener('click', closeReferenceSheet);
+}
+
+if (lobbyReferenceSheet) {
+  lobbyReferenceSheet.addEventListener('click', (e) => {
+    if (e.target === lobbyReferenceSheet) {
+      closeReferenceSheet();
+    }
+  });
+}
+
+document.querySelectorAll('[data-open-perm]').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const roleTarget = btn.getAttribute('data-open-perm') || 'operator';
+    openReferenceSheet('permissions', roleTarget, btn);
+  });
+});
+
+// Non-blocking Toast Helper
 function showToast(message, variant = 'info', durationMs = 3600) {
   if (!appToastBanner || !message) return;
   appToastBanner.textContent = message;
-  appToastBanner.className = 'app-toast-banner' + (variant === 'error' ? ' toast-error' : (variant === 'success' ? ' toast-success' : ''));
+  appToastBanner.className =
+    'app-toast-banner' +
+    (variant === 'error' ? ' toast-error' : variant === 'success' ? ' toast-success' : '');
   appToastBanner.style.display = 'block';
   if (toastTimeoutId) clearTimeout(toastTimeoutId);
   toastTimeoutId = setTimeout(() => {
@@ -207,7 +327,7 @@ function showToast(message, variant = 'info', durationMs = 3600) {
   }, durationMs);
 }
 
-// Pre-Round Checklist Management
+// --- Pre-Round Checklist Management ---
 const checklistInputs = Array.from(document.querySelectorAll('#preRoundChecklistItems input[type="checkbox"]'));
 const checklistProgressBadge = document.getElementById('checklistProgressBadge');
 const btnCheckAllReady = document.getElementById('btnCheckAllReady');
@@ -232,12 +352,21 @@ function saveChecklistState(mapObj) {
 function syncChecklistUI(state = currentGameState) {
   const checkedCount = checklistInputs.filter((el) => el.checked).length;
   const totalCount = checklistInputs.length || 7;
+  const isComplete = checkedCount === totalCount;
+
   if (checklistProgressBadge) {
     checklistProgressBadge.textContent = `${checkedCount} از ${totalCount} تایید شد`;
-    checklistProgressBadge.classList.toggle('complete', checkedCount === totalCount);
+    checklistProgressBadge.classList.toggle('complete', isComplete);
+  }
+  if (headerChecklistCount) {
+    headerChecklistCount.textContent = `${checkedCount}/${totalCount}`;
+    headerChecklistCount.classList.toggle('complete', isComplete);
+  }
+  if (sheetTabCheckCount) {
+    sheetTabCheckCount.textContent = `${checkedCount}/${totalCount}`;
   }
   if (btnCheckAllReady) {
-    btnCheckAllReady.textContent = checkedCount === totalCount ? 'بازنشانی چک‌لیست' : 'تایید همه';
+    btnCheckAllReady.textContent = isComplete ? 'بازنشانی چک‌لیست' : 'تایید همه';
   }
   if (chkLiveRoleHint) {
     if (myRole) {
@@ -287,16 +416,23 @@ if (btnCheckAllReady) {
 
 syncChecklistUI();
 
-// Buttons
+// --- Lobby Action & Configuration Elements ---
 const btnUnlockAudio = document.getElementById('btnUnlockAudio');
 const audioBanner = document.getElementById('audioBanner');
-const btnStartGame = document.getElementById('btnStartGame');
+const myRoleActionRow = document.getElementById('myRoleActionRow');
+const btnToggleReady = document.getElementById('btnToggleReady');
+const btnToggleReadyText = document.getElementById('btnToggleReadyText');
 const btnLeaveRole = document.getElementById('btnLeaveRole');
+const btnStartGame = document.getElementById('btnStartGame');
+const btnStartGameLabel = document.getElementById('btnStartGameLabel');
+const startBlockerReason = document.getElementById('startBlockerReason');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
 // Lobby Seed Controls & Dynamic Manual
 const lobbySeedDisplay = document.getElementById('lobbySeedDisplay');
+const btnToggleSeedForm = document.getElementById('btnToggleSeedForm');
+const lobbySeedContainer = document.getElementById('lobbySeedContainer');
 const hostSeedControls = document.getElementById('hostSeedControls');
 const inputCustomSeed = document.getElementById('inputCustomSeed');
 const btnApplySeed = document.getElementById('btnApplySeed');
@@ -306,6 +442,7 @@ const muteManualContainer = document.getElementById('muteManualContainer');
 const btnPresetEasy = document.getElementById('btnPresetEasy');
 const btnPresetNormal = document.getElementById('btnPresetNormal');
 const btnPresetHard = document.getElementById('btnPresetHard');
+const btnPresetCustom = document.getElementById('btnPresetCustom');
 const difficultyHostNotice = document.getElementById('difficultyHostNotice');
 const diffChipName = document.getElementById('diffChipName');
 const diffChipTime = document.getElementById('diffChipTime');
@@ -323,23 +460,51 @@ const overrideCommAidEnabled = document.getElementById('overrideCommAidEnabled')
 const overrideCommAidBudget = document.getElementById('overrideCommAidBudget');
 const btnApplyCustomDifficulty = document.getElementById('btnApplyCustomDifficulty');
 
-function renderStrikeBoxes(currentStrikes, maxStrikes = 3) {
+const CANONICAL_PRESET_BASELINES = {
+  easy: { duration: 330, maxStrikes: 4, moduleCount: 2, timePenaltySeconds: 15, wireIndexLabels: true, commAidEnabled: true, commAidBudget: 5 },
+  normal: { duration: 300, maxStrikes: 3, moduleCount: 3, timePenaltySeconds: 30, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 },
+  hard: { duration: 240, maxStrikes: 2, moduleCount: 4, timePenaltySeconds: 45, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 }
+};
+
+function hasCustomDifficultyOverrides(diff) {
+  if (!diff || !diff.preset) return false;
+  const base = CANONICAL_PRESET_BASELINES[diff.preset];
+  if (!base) return true;
+  return (
+    diff.duration !== base.duration ||
+    diff.maxStrikes !== base.maxStrikes ||
+    diff.moduleCount !== base.moduleCount ||
+    diff.timePenaltySeconds !== base.timePenaltySeconds ||
+    Boolean(diff.features?.wireIndexLabels) !== base.wireIndexLabels ||
+    Boolean(diff.features?.commAidEnabled) !== base.commAidEnabled ||
+    (diff.features?.commAidEnabled && Number(diff.features?.commAidBudget || 0) !== base.commAidBudget)
+  );
+}
+
+function renderStrikeBoxes(currentStrikes = 0, maxStrikes = 3) {
+  if (hudStrikeRatio) {
+    hudStrikeRatio.textContent = `${currentStrikes} / ${maxStrikes}`;
+  }
   if (!strikeBoxesContainer) return;
   strikeBoxesContainer.innerHTML = '';
   for (let i = 0; i < maxStrikes; i++) {
     const box = document.createElement('div');
     box.className = 'strike-box' + (i < currentStrikes ? ' active' : '');
     box.id = `strike${i + 1}`;
-    box.textContent = 'X';
+    box.textContent = '✕';
     strikeBoxesContainer.appendChild(box);
   }
 }
 
-// Quick Camera Views, Hold Threshold & Sensitivity Toolbar
+// --- Quick Camera Views, Tuning Popover & Operator HUD ---
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
 const btnViewBridge = document.getElementById('btnViewBridge');
 const btnResetView = document.getElementById('btnResetView');
+const btnToggleTuningPopover = document.getElementById('btnToggleTuningPopover');
+const operatorTuningPopover = document.getElementById('operatorTuningPopover');
+const btnCloseTuningPopover = document.getElementById('btnCloseTuningPopover');
+
 const manualHybridWorkspace = document.getElementById('manualHybridWorkspace');
 const manualDockControls = document.getElementById('manualDockControls');
 const manual3dContainer = document.getElementById('manual3dContainer');
@@ -351,22 +516,73 @@ const holdThresholdControl = document.getElementById('holdThresholdControl');
 const holdThresholdSlider = document.getElementById('holdThresholdSlider');
 const holdThresholdValue = document.getElementById('holdThresholdValue');
 const operatorInteractionHud = document.getElementById('operatorInteractionHud');
+const operatorHudModeTag = document.getElementById('operatorHudModeTag');
 const operatorHudLabel = document.getElementById('operatorHudLabel');
 const operatorHudDetail = document.getElementById('operatorHudDetail');
 const operatorHudProgressFill = document.getElementById('operatorHudProgressFill');
 const orientationHint = document.getElementById('orientationHint');
 const btnCloseOrientationHint = document.getElementById('btnCloseOrientationHint');
 
-let operatorHoldThresholdMs = Number(localStorage.getItem('bomb_hold_threshold_ms')) || INTERACTION_DEFAULTS.buttonHoldThresholdMs;
+let operatorHoldThresholdMs =
+  Number(localStorage.getItem('bomb_hold_threshold_ms')) || INTERACTION_DEFAULTS.buttonHoldThresholdMs;
 operatorHoldThresholdMs = Math.max(
   INTERACTION_DEFAULTS.minHoldThresholdMs,
   Math.min(INTERACTION_DEFAULTS.maxHoldThresholdMs, operatorHoldThresholdMs)
 );
 
+function setTuningPopoverOpen(open) {
+  if (!operatorTuningPopover) return;
+  operatorTuningPopover.style.display = open ? 'flex' : 'none';
+  if (btnToggleTuningPopover) {
+    btnToggleTuningPopover.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+if (btnToggleTuningPopover) {
+  btnToggleTuningPopover.addEventListener('click', () => {
+    const currentlyOpen = operatorTuningPopover?.style.display !== 'none';
+    setTuningPopoverOpen(!currentlyOpen);
+  });
+}
+
+if (btnCloseTuningPopover) {
+  btnCloseTuningPopover.addEventListener('click', () => setTuningPopoverOpen(false));
+}
+
+if (bomb3dContainer) {
+  bomb3dContainer.addEventListener('pointerdown', () => {
+    if (operatorTuningPopover && operatorTuningPopover.style.display !== 'none') {
+      setTuningPopoverOpen(false);
+    }
+  });
+}
+
+function setActiveBombViewButton(targetBtn) {
+  [btnViewFront, btnViewBack, btnViewBridge].forEach((btn) => {
+    if (btn) btn.classList.toggle('active', btn === targetBtn);
+  });
+}
+
+function setActiveManualViewButton(targetBtn) {
+  [btnManualViewBridge, btnManualViewObserver].forEach((btn) => {
+    if (btn) btn.classList.toggle('active', btn === targetBtn);
+  });
+}
+
 function renderOperatorHudStatus(status) {
   if (!operatorInteractionHud || !status) return;
-  if (operatorHudLabel) operatorHudLabel.textContent = status.label || 'آماده تعامل';
+  if (operatorHudLabel) operatorHudLabel.textContent = status.label || 'آماده تعامل لمسی';
   if (operatorHudDetail) operatorHudDetail.textContent = status.detail || '';
+  if (operatorHudModeTag) {
+    const modeMap = {
+      hold: 'HOLD فعال',
+      tap: 'ضربه TAP',
+      wire_hold: 'برش سیم',
+      committed: 'ثبت شد',
+      cancelled: 'لغو ایمن'
+    };
+    operatorHudModeTag.textContent = modeMap[status.mode] || 'آماده';
+  }
   if (operatorHudProgressFill) {
     const pct = Math.max(0, Math.min(100, Math.round((status.progress || 0) * 100)));
     operatorHudProgressFill.style.width = `${pct}%`;
@@ -378,7 +594,9 @@ function sendOperatorBombAction(actionPayload) {
   if (!actionPayload || typeof actionPayload !== 'object') return;
   const enriched = {
     ...actionPayload,
-    actionId: actionPayload.actionId || `${playerId || 'p'}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+    actionId:
+      actionPayload.actionId ||
+      `${playerId || 'p'}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
     roundSeed: currentGameState?.roundSeed || null,
     clientTimestamp: Date.now()
   };
@@ -387,28 +605,32 @@ function sendOperatorBombAction(actionPayload) {
 
 if (btnViewFront) {
   btnViewFront.addEventListener('click', () => {
+    setActiveBombViewButton(btnViewFront);
     if (bombScene) bombScene.viewFront();
   });
 }
 if (btnViewBack) {
   btnViewBack.addEventListener('click', () => {
+    setActiveBombViewButton(btnViewBack);
     if (bombScene) bombScene.viewBack();
   });
 }
 if (btnViewBridge) {
   btnViewBridge.addEventListener('click', () => {
+    setActiveBombViewButton(btnViewBridge);
     if (bombScene) bombScene.viewTertiary();
   });
 }
 if (btnResetView) {
   btnResetView.addEventListener('click', () => {
+    setActiveBombViewButton(btnViewFront);
     if (bombScene) bombScene.resetView();
   });
 }
 
 function setManualDockMode(mode) {
   const webglReady = isWebGLAvailable();
-  manualDockMode = webglReady ? (mode || 'split') : 'sheet';
+  manualDockMode = webglReady ? mode || 'split' : 'sheet';
   if (manualHybridWorkspace) {
     manualHybridWorkspace.setAttribute('data-dock-mode', manualDockMode);
   }
@@ -435,11 +657,13 @@ document.querySelectorAll('[data-manual-dock]').forEach((btn) => {
 
 if (btnManualViewBridge) {
   btnManualViewBridge.addEventListener('click', () => {
+    setActiveManualViewButton(btnManualViewBridge);
     manualWorldScene?.viewFront();
   });
 }
 if (btnManualViewObserver) {
   btnManualViewObserver.addEventListener('click', () => {
+    setActiveManualViewButton(btnManualViewObserver);
     manualWorldScene?.viewBack();
   });
 }
@@ -488,7 +712,10 @@ if (holdThresholdSlider) {
   holdThresholdSlider.addEventListener('input', (e) => {
     const nextMs = Math.max(
       INTERACTION_DEFAULTS.minHoldThresholdMs,
-      Math.min(INTERACTION_DEFAULTS.maxHoldThresholdMs, Number(e.target.value) || INTERACTION_DEFAULTS.buttonHoldThresholdMs)
+      Math.min(
+        INTERACTION_DEFAULTS.maxHoldThresholdMs,
+        Number(e.target.value) || INTERACTION_DEFAULTS.buttonHoldThresholdMs
+      )
     );
     operatorHoldThresholdMs = nextMs;
     if (holdThresholdValue) holdThresholdValue.textContent = `${nextMs}ms`;
@@ -499,13 +726,25 @@ if (holdThresholdSlider) {
   });
 }
 
-// Host Custom Seed Input Handling
+// Host Custom Seed Toggle & Input Handling
+if (btnToggleSeedForm && lobbySeedContainer) {
+  btnToggleSeedForm.addEventListener('click', () => {
+    isSeedPanelOpen = !isSeedPanelOpen;
+    lobbySeedContainer.style.display = isSeedPanelOpen ? 'flex' : 'none';
+    if (isSeedPanelOpen) {
+      inputCustomSeed?.focus();
+    }
+  });
+}
+
 if (btnApplySeed && inputCustomSeed) {
   const submitCustomSeed = () => {
     const raw = inputCustomSeed.value.trim();
     if (raw) {
       transport.send('set_seed', { seed: raw });
       inputCustomSeed.value = '';
+      isSeedPanelOpen = false;
+      if (lobbySeedContainer) lobbySeedContainer.style.display = 'none';
     }
   };
 
@@ -543,15 +782,20 @@ if (!isWebGLAvailable()) {
 }
 
 // Audio activation (played from Operator's device)
+function syncAudioBannerVisibility() {
+  if (!audioBanner) return;
+  const showForRole = !myRole || isOperator(myRole);
+  audioBanner.style.display = !audioUnlocked && showForRole ? 'flex' : 'none';
+}
+
 function unlockAudio() {
+  audioUnlocked = true;
   sound.init();
   if (isOperator(myRole)) {
     sound.setEnabled(true);
     sound.playClick();
   }
-  if (audioBanner) {
-    audioBanner.style.display = 'none';
-  }
+  syncAudioBannerVisibility();
 }
 
 if (btnUnlockAudio) {
@@ -603,12 +847,12 @@ function renderCommAidWidgets(state) {
   const isExhausted = remaining <= 0;
 
   let feedbackText = isExhausted
-    ? 'سهمیه کمک‌ارتباطی این راند تمام شد؛ ادامه ارتباط را با اشاره‌های توافقی انجام دهید.'
-    : 'ارسال فقط در پل ناظر ↔ دفترچه راهنما؛ هر نماد ۱ سهمیه مصرف می‌کند.';
+    ? 'سهمیه کمک‌ارتباطی تمام شد؛ با اشاره‌های توافقی ادامه دهید.'
+    : 'ارسال فقط در پل ناظر ↔ دفترچه راهنما · هر ارسال ۱ سهمیه';
 
   if (commAid.lastSignal) {
     const sig = commAid.lastSignal;
-    feedbackText = `آخرین نماد (${sig.senderTitle}): «${sig.symbol} ${sig.label}» • ۱ سهمیه مصرف شد (باقی‌مانده: ${remaining} از ${total})`;
+    feedbackText = `آخرین پیام (${sig.senderTitle}): «${sig.symbol} ${sig.label}» · باقی‌مانده: ${remaining} از ${total}`;
   }
 
   [
@@ -633,21 +877,20 @@ function renderCommAidWidgets(state) {
 transport.onEvent((eventType, data) => {
   if (eventType === '_connection_change') {
     if (data.connected) {
-      pingDot.classList.remove('disconnected');
-      connStatus.textContent = 'آنلاین';
+      if (pingDot) pingDot.classList.remove('disconnected');
+      if (connStatus) connStatus.textContent = 'متصل به اتاق';
       if (myRole && playerId) {
         transport.send('join', { role: myRole, playerId });
       }
     } else {
-      pingDot.classList.add('disconnected');
-      connStatus.textContent = 'قطع اتصال...';
+      if (pingDot) pingDot.classList.add('disconnected');
+      if (connStatus) connStatus.textContent = 'در حال اتصال مجدد...';
     }
     return;
   }
 
   if (eventType === '_time_synced') {
-    pingVal.textContent = `(${data.latency} ms)`;
-    syncStatus.textContent = `همگام‌سازی: ${Math.abs(data.serverOffset)}ms`;
+    // Clock offset is maintained internally by transport.getServerTime() without exposing raw telemetry in UI
     return;
   }
 
@@ -694,9 +937,10 @@ transport.onEvent((eventType, data) => {
       } else {
         sessionStorage.removeItem('defusal_role');
       }
-      if (btnLeaveRole) btnLeaveRole.style.display = myRole ? 'block' : 'none';
       if (bombScene) bombScene.setRole(myRole);
     }
+
+    syncAudioBannerVisibility();
 
     // Device audio output is active only on the Operator's device
     sound.setEnabled(isOperator(myRole));
@@ -706,6 +950,12 @@ transport.onEvent((eventType, data) => {
       if (isOperator(myRole)) sound.playExplosion();
     } else if (prevState?.status !== 'defused' && currentGameState.status === 'defused') {
       if (isOperator(myRole)) sound.playDefused();
+    }
+
+    // Automatically close overlays/sheets when transitioning into an active round
+    if (prevState?.status !== 'running' && currentGameState.status === 'running') {
+      closeReferenceSheet();
+      setTuningPopoverOpen(false);
     }
 
     lastGameStatus = currentGameState.status;
@@ -720,8 +970,8 @@ transport.onEvent((eventType, data) => {
     if (isOperator(myRole)) {
       sound.playClick();
     }
-    if (btnLeaveRole) btnLeaveRole.style.display = 'block';
     renderLobbyPermissionsPanel(toFunctionalRoleKey(myRole));
+    syncAudioBannerVisibility();
     syncChecklistUI();
     if (bombScene) {
       bombScene.setRole(myRole);
@@ -733,7 +983,7 @@ transport.onEvent((eventType, data) => {
     myRole = null;
     sessionStorage.removeItem('defusal_role');
     sound.setEnabled(false);
-    if (btnLeaveRole) btnLeaveRole.style.display = 'none';
+    syncAudioBannerVisibility();
     syncChecklistUI();
     return;
   }
@@ -754,7 +1004,7 @@ transport.onEvent((eventType, data) => {
       timerPenaltyBadge.style.animation = null;
       setTimeout(() => {
         if (timerPenaltyBadge) timerPenaltyBadge.style.display = 'none';
-      }, 1800);
+      }, 1600);
     }
     return;
   }
@@ -771,7 +1021,6 @@ transport.onEvent((eventType, data) => {
       if (myRole && currentGameState?.roles?.[myRole]?.playerId !== playerId) {
         myRole = null;
         sessionStorage.removeItem('defusal_role');
-        if (btnLeaveRole) btnLeaveRole.style.display = 'none';
       }
     }
     showToast(data.message || 'خطا در عملیات بازی', 'error');
@@ -779,12 +1028,13 @@ transport.onEvent((eventType, data) => {
   }
 });
 
-// --- Role Selection Cards (Click & Keyboard Accessible) ---
+// --- Role Selection Cards, Ready Toggle & Start Controls ---
 ['blind', 'deaf', 'mute'].forEach((roleKey) => {
   const card = roleCards[roleKey];
   if (!card) return;
 
-  const selectCardRole = () => {
+  const selectCardRole = (e) => {
+    if (e?.target?.closest?.('[data-open-perm]')) return;
     sound.init();
     renderLobbyPermissionsPanel(toFunctionalRoleKey(roleKey));
     if (myRole === roleKey) return;
@@ -797,12 +1047,22 @@ transport.onEvent((eventType, data) => {
 
   card.addEventListener('click', selectCardRole);
   card.addEventListener('keydown', (e) => {
+    if (e.target?.closest?.('[data-open-perm]')) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      selectCardRole();
+      selectCardRole(e);
     }
   });
 });
+
+if (btnToggleReady) {
+  btnToggleReady.addEventListener('click', () => {
+    if (!myRole || !currentGameState?.roles) return;
+    const myInfo = currentGameState.roles[myRole];
+    const currentlyReady = myInfo ? myInfo.ready !== false : true;
+    transport.send('set_ready', { ready: !currentlyReady });
+  });
+}
 
 if (btnLeaveRole) {
   btnLeaveRole.addEventListener('click', () => {
@@ -833,41 +1093,77 @@ if (btnRestartDefused) {
 function renderState(state) {
   if (!state) return;
 
-  const isHost = (state.hostPlayerId === playerId);
+  const isHost = state.hostPlayerId === playerId;
+  const isLobbyPhase = state.status === 'waiting' || state.status === 'ready';
 
-  // 1. Serial Number Tag
-  if (isObserver(myRole) && state.serialNumber) {
-    serialTag.textContent = `SERIAL: ${state.serialNumber} (پلاک کناری کیف بمب — ویژه ناظر)`;
-  } else if (state.status === 'running') {
-    serialTag.textContent = 'SERIAL: [فقط در دید ناظر / Observer]';
-  } else {
-    serialTag.textContent = 'SERIAL: STANDBY';
+  // 1. Viewport Phase & Top Bar vs Active Round HUD
+  if (appViewport) {
+    appViewport.setAttribute('data-phase', isLobbyPhase ? 'lobby' : 'active');
+  }
+  if (lobbyTopBar) {
+    lobbyTopBar.style.display = isLobbyPhase ? 'flex' : 'none';
+  }
+  if (activeRoundHud) {
+    activeRoundHud.style.display = isLobbyPhase ? 'none' : 'flex';
   }
 
-  // 2. Dynamic Strikes Rendering
-  renderStrikeBoxes(state.strikes, state.maxStrikes || 3);
+  // 2. Active Round HUD Metrics & Strict Observer-Only Serial Visibility
+  const maxStrikes = state.maxStrikes || 3;
+  const defusedCount =
+    state.modulesDefusedCount ??
+    Object.values(state.modules || {}).filter((m) => m?.solved).length;
+  const totalModules = state.totalModulesCount || state.difficulty?.moduleCount || 3;
 
-  // 2b. Difficulty Preset & Host Controls
+  renderStrikeBoxes(state.strikes || 0, maxStrikes);
+  if (hudDefusedRatio) {
+    hudDefusedRatio.textContent = `${defusedCount} / ${totalModules}`;
+  }
+
+  if (serialTag && serialValue) {
+    if (isObserver(myRole) && state.serialNumber) {
+      serialTag.style.display = 'inline-flex';
+      serialValue.textContent = state.serialNumber;
+    } else {
+      serialTag.style.display = 'none';
+      serialValue.textContent = '------';
+    }
+  }
+
+  // 3. Difficulty Preset & Host Controls
   if (state.difficulty) {
-    if (btnPresetEasy) btnPresetEasy.classList.toggle('active', state.difficulty.preset === 'easy');
-    if (btnPresetNormal) btnPresetNormal.classList.toggle('active', state.difficulty.preset === 'normal');
-    if (btnPresetHard) btnPresetHard.classList.toggle('active', state.difficulty.preset === 'hard');
+    const canChangeDifficulty = isHost && isLobbyPhase;
+    const isCustomActive = isCustomDifficultyOpen || hasCustomDifficultyOverrides(state.difficulty);
 
-    const canChangeDifficulty = isHost && (state.status === 'waiting' || state.status === 'ready');
-    if (btnPresetEasy) btnPresetEasy.disabled = !canChangeDifficulty;
-    if (btnPresetNormal) btnPresetNormal.disabled = !canChangeDifficulty;
-    if (btnPresetHard) btnPresetHard.disabled = !canChangeDifficulty;
-    if (customOverridesBox) customOverridesBox.style.display = canChangeDifficulty ? 'block' : 'none';
+    if (btnPresetEasy) btnPresetEasy.classList.toggle('active', !isCustomActive && state.difficulty.preset === 'easy');
+    if (btnPresetNormal) btnPresetNormal.classList.toggle('active', !isCustomActive && state.difficulty.preset === 'normal');
+    if (btnPresetHard) btnPresetHard.classList.toggle('active', !isCustomActive && state.difficulty.preset === 'hard');
+    if (btnPresetCustom) btnPresetCustom.classList.toggle('active', isCustomActive);
 
-    if (difficultyHostNotice) {
-      difficultyHostNotice.textContent = isHost ? 'شما میزبان هستید (تنظیمات فعال)' : 'تنها میزبان مجاز به تغییر است';
+    [btnPresetEasy, btnPresetNormal, btnPresetHard, btnPresetCustom].forEach((btn) => {
+      if (btn) btn.disabled = !canChangeDifficulty;
+    });
+
+    if (customOverridesBox) {
+      customOverridesBox.style.display = canChangeDifficulty && isCustomActive ? 'flex' : 'none';
     }
 
-    if (diffChipName) diffChipName.textContent = state.difficulty.name || 'متوسط';
+    if (difficultyHostNotice) {
+      difficultyHostNotice.textContent = isHost
+        ? 'شما میزبان هستید · تنظیمات فعال'
+        : 'تنظیمات در اختیار میزبان تیم است';
+      difficultyHostNotice.classList.toggle('is-host', isHost);
+    }
+
+    if (diffChipName) {
+      diffChipName.textContent = hasCustomDifficultyOverrides(state.difficulty)
+        ? `${state.difficulty.name || 'متوسط'} (سفارشی)`
+        : state.difficulty.name || 'متوسط';
+    }
     if (diffChipTime) {
-      const durMins = Math.floor((state.difficulty.duration || 300) / 60);
-      const grace = state.difficulty.features?.timerGraceSeconds;
-      diffChipTime.textContent = `${durMins} دقیقه${grace ? ` (+${grace}ثانیه)` : ''}`;
+      const totalSecs = (state.difficulty.duration || 300) + (state.difficulty.features?.timerGraceSeconds || 0);
+      const mins = Math.floor(totalSecs / 60);
+      const remSecs = totalSecs % 60;
+      diffChipTime.textContent = remSecs > 0 ? `${mins} دقیقه و ${remSecs} ثانیه` : `${mins} دقیقه`;
     }
     if (diffChipStrikes) diffChipStrikes.textContent = `${state.difficulty.maxStrikes || 3} خطا`;
     if (diffChipModules) diffChipModules.textContent = `${state.difficulty.moduleCount || 3} ماژول`;
@@ -876,10 +1172,9 @@ function renderState(state) {
     const aidEnabled = Boolean(state.difficulty.features?.commAidEnabled);
     const aidBudget = state.difficulty.features?.commAidBudget || 0;
     if (diffChipCommAid) {
-      diffChipCommAid.textContent = aidEnabled && aidBudget > 0 ? `فعال (${aidBudget} بار • ۳ نماد)` : 'غیرفعال';
+      diffChipCommAid.textContent = aidEnabled && aidBudget > 0 ? `فعال (${aidBudget} سهمیه)` : 'غیرفعال';
     }
 
-    // Sync custom override form fields when not actively focused
     if (overrideDuration && document.activeElement !== overrideDuration) {
       overrideDuration.value = state.difficulty.duration || 300;
     }
@@ -903,108 +1198,206 @@ function renderState(state) {
     }
   }
 
-  // 3. Lobby Seed Display & Host Controls
+  // 4. Lobby Seed Display & Host Seed Form Toggle
   if (lobbySeedDisplay) {
     lobbySeedDisplay.textContent = state.roundSeed || '------';
   }
+  const canEditSeed = isHost && isLobbyPhase;
+  if (btnToggleSeedForm) {
+    btnToggleSeedForm.style.display = canEditSeed ? 'inline-flex' : 'none';
+  }
+  if (!canEditSeed) {
+    isSeedPanelOpen = false;
+  }
+  if (lobbySeedContainer) {
+    lobbySeedContainer.style.display = canEditSeed && isSeedPanelOpen ? 'flex' : 'none';
+  }
   if (hostSeedControls) {
-    hostSeedControls.style.display = (isHost && (state.status === 'waiting' || state.status === 'ready')) ? 'flex' : 'none';
+    hostSeedControls.style.display = canEditSeed ? 'flex' : 'none';
   }
 
-  // 4. Role Badges in Lobby
+  // 5. Role Selection Cards & Squad Readiness Strip
+  const missingRoleTitles = [];
+  const disconnectedRoleTitles = [];
+  const unreadyRoleTitles = [];
+  let readyPlayersCount = 0;
+
   if (state.roles) {
     ['blind', 'deaf', 'mute'].forEach((rKey) => {
       const rInfo = state.roles[rKey];
       const card = roleCards[rKey];
       const badge = roleBadges[rKey];
+      const slotMeta = slotIndicators[rKey];
       if (!card || !badge || !rInfo) return;
 
       const isMine = rInfo.playerId === playerId;
-      const isRoleHost = (rInfo.playerId && rInfo.playerId === state.hostPlayerId);
-      const hostIcon = isRoleHost ? ' 👑' : '';
+      const isRoleHost = Boolean(rInfo.playerId && rInfo.playerId === state.hostPlayerId);
+      const hostSuffix = isRoleHost ? ' · میزبان' : '';
+      const isPlayerReady = Boolean(rInfo.connected && rInfo.ready !== false);
+
+      if (isPlayerReady) {
+        readyPlayersCount += 1;
+      }
 
       card.classList.toggle('selected', isMine);
 
       if (rInfo.connected) {
         card.classList.add('taken');
-        badge.className = 'role-status-badge ready';
-        badge.textContent = isMine ? `شما (متصل)${hostIcon}` : `متصل${hostIcon}`;
+        if (isPlayerReady) {
+          card.setAttribute('data-slot-state', isMine ? 'selected' : 'occupied-ready');
+          badge.className = 'role-status-badge ready';
+          badge.textContent = isMine ? `شما · آماده${hostSuffix}` : `آماده${hostSuffix}`;
+          if (slotMeta?.el) {
+            slotMeta.el.textContent = `${slotMeta.shortTitle}: آماده`;
+            slotMeta.el.setAttribute('data-ready', 'true');
+          }
+        } else {
+          unreadyRoleTitles.push(slotMeta.shortTitle);
+          card.setAttribute('data-slot-state', isMine ? 'selected' : 'occupied-waiting');
+          badge.className = 'role-status-badge waiting';
+          badge.textContent = isMine ? `شما · در انتظار تایید${hostSuffix}` : `متصل · منتظر تایید${hostSuffix}`;
+          if (slotMeta?.el) {
+            slotMeta.el.textContent = `${slotMeta.shortTitle}: منتظر تایید`;
+            slotMeta.el.setAttribute('data-ready', 'waiting');
+          }
+        }
       } else if (rInfo.playerId) {
+        disconnectedRoleTitles.push(slotMeta.shortTitle);
         card.classList.add('taken');
+        card.setAttribute('data-slot-state', isMine ? 'selected' : 'offline');
         badge.className = 'role-status-badge offline';
-        badge.textContent = isMine ? `شما (قطع شده)${hostIcon}` : `قطع ارتباط${hostIcon}`;
+        badge.textContent = isMine ? `شما · قطع ارتباط${hostSuffix}` : `قطع ارتباط${hostSuffix}`;
+        if (slotMeta?.el) {
+          slotMeta.el.textContent = `${slotMeta.shortTitle}: قطع ارتباط`;
+          slotMeta.el.setAttribute('data-ready', 'offline');
+        }
       } else {
+        missingRoleTitles.push(slotMeta.shortTitle);
         card.classList.remove('taken');
+        card.setAttribute('data-slot-state', 'available');
         badge.className = 'role-status-badge';
-        badge.textContent = 'خالی';
+        badge.textContent = 'آزاد — انتخاب کنید';
+        if (slotMeta?.el) {
+          slotMeta.el.textContent = `${slotMeta.shortTitle}: خالی`;
+          slotMeta.el.setAttribute('data-ready', 'false');
+        }
       }
     });
   }
 
+  if (squadReadyRatio) {
+    squadReadyRatio.textContent = `${readyPlayersCount} / 3`;
+  }
+
+  // Secondary Role Actions (Ready Toggle + Leave Role)
+  if (myRoleActionRow) {
+    myRoleActionRow.style.display = myRole && isLobbyPhase ? 'flex' : 'none';
+  }
+  if (myRole && state.roles?.[myRole] && btnToggleReady && btnToggleReadyText) {
+    const amIReady = state.roles[myRole].ready !== false;
+    btnToggleReady.classList.toggle('ready-active', amIReady);
+    btnToggleReadyText.textContent = amIReady ? 'آماده‌ام ✓' : 'اعلام آمادگی برای شروع';
+  }
+
   syncChecklistUI(state);
+  syncAudioBannerVisibility();
   renderCommAidWidgets(state);
 
-  // 5. Start Button Readiness & Host Authority Guard
+  // 6. Start Button Readiness & Clear Blocker Reason
   if (btnStartGame) {
-    const isReady = state.status === 'ready';
+    const isTeamReady = state.status === 'ready';
+    const labelTarget = btnStartGameLabel || btnStartGame;
 
-    if (isReady) {
+    if (isTeamReady) {
       if (isHost) {
         btnStartGame.disabled = false;
-        btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (شما میزبان هستید)';
+        labelTarget.textContent = 'شروع عملیات خنثی‌سازی';
+        if (startBlockerReason) {
+          startBlockerReason.textContent = 'هر ۳ بازیکن آماده هستند. شما میزبان هستید و می‌توانید عملیات را آغاز کنید.';
+          startBlockerReason.classList.add('ready-ok');
+        }
       } else {
         btnStartGame.disabled = true;
-        btnStartGame.textContent = '💣 تیم آماده است (منتظر شروع توسط میزبان...)';
+        labelTarget.textContent = 'منتظر شروع عملیات توسط میزبان';
+        if (startBlockerReason) {
+          startBlockerReason.textContent = 'هر ۳ بازیکن آماده هستند؛ منتظر فرمان شروع میزبان باشید.';
+          startBlockerReason.classList.add('ready-ok');
+        }
       }
     } else if (state.status === 'waiting') {
       btnStartGame.disabled = true;
-      btnStartGame.textContent = '💣 شروع عملیات خنثی‌سازی (منتظر ۳ بازیکن)';
+      labelTarget.textContent = 'شروع عملیات خنثی‌سازی';
+      if (startBlockerReason) {
+        startBlockerReason.classList.remove('ready-ok');
+        if (missingRoleTitles.length > 0) {
+          startBlockerReason.textContent = `برای شروع عملیات، انتخاب نقش‌های خالی الزامی است: ${missingRoleTitles.join('، ')}.`;
+        } else if (disconnectedRoleTitles.length > 0) {
+          startBlockerReason.textContent = `ارتباط بازیکن نقش «${disconnectedRoleTitles.join('، ')}» قطع شده است؛ منتظر اتصال مجدد باشید.`;
+        } else if (unreadyRoleTitles.length > 0) {
+          startBlockerReason.textContent = `منتظر تایید آمادگی بازیکن نقش «${unreadyRoleTitles.join('، ')}» هستیم.`;
+        } else {
+          startBlockerReason.textContent = 'برای شروع عملیات، هر ۳ بازیکن باید متصل و آماده باشند.';
+        }
+      }
     } else {
       btnStartGame.disabled = true;
-      btnStartGame.textContent = 'عملیات در جریان است...';
+      labelTarget.textContent = 'عملیات در جریان است';
     }
   }
 
-  // 6. Overlays Management (Reset Button with Host Guard)
+  // 7. Endgame Debrief Overlays Management
   overlayExploded.classList.remove('active');
   overlayDefused.classList.remove('active');
+
+  const formattedRemaining = formatTime(Math.max(0, state.remainingSeconds ?? 0));
+  const strikeSummary = `${state.strikes || 0} / ${maxStrikes}`;
+  const moduleSummary = `${defusedCount} / ${totalModules}`;
 
   if (state.status === 'exploded') {
     overlayExploded.classList.add('active');
     if (state.endReason === 'time_out') {
-      explodeReason.textContent = '⏰ زمان بمب به اتمام رسید!';
+      explodeReason.textContent = 'زمان شمارش معکوس بمب به پایان رسید.';
     } else if (state.endReason === 'max_strikes') {
-      explodeReason.textContent = `💥 تعداد خطاها (Strikes) به ${state.maxStrikes || 3} رسید و بمب منفجر شد!`;
+      explodeReason.textContent = `تعداد خطاهای تیم به سقف مجاز (${maxStrikes}) رسید و چاشنی فعال شد.`;
     } else {
-      explodeReason.textContent = 'بمب منفجر شد!';
+      explodeReason.textContent = 'عملیات خنثی‌سازی ناموفق بود و بمب منفجر شد.';
     }
+    if (explodedTimeStat) explodedTimeStat.textContent = formattedRemaining;
+    if (explodedStrikesStat) explodedStrikesStat.textContent = strikeSummary;
+    if (explodedModulesStat) explodedModulesStat.textContent = moduleSummary;
 
     if (btnRestartExploded) {
       btnRestartExploded.disabled = !isHost;
-      btnRestartExploded.textContent = isHost ? '🔄 تلاش دوباره (میزبان)' : 'منتظر ریست توسط میزبان...';
+      btnRestartExploded.textContent = isHost
+        ? 'بازگشت به لابی و تلاش دوباره'
+        : 'منتظر بازگشت به لابی توسط میزبان...';
     }
     return;
   }
 
   if (state.status === 'defused') {
     overlayDefused.classList.add('active');
-    defusedStats.textContent = `تبریک به تیم! بمب با ${state.strikes} خطا و در زمان ${formatTime(state.remainingSeconds)} با موفقیت خنثی شد.`;
+    defusedStats.textContent = `همه ماژول‌ها با ${state.strikes || 0} خطا و با ${formattedRemaining} زمان ذخیره خنثی شدند.`;
+    if (defusedTimeStat) defusedTimeStat.textContent = formattedRemaining;
+    if (defusedStrikesStat) defusedStrikesStat.textContent = strikeSummary;
+    if (defusedModulesStat) defusedModulesStat.textContent = moduleSummary;
 
     if (btnRestartDefused) {
       btnRestartDefused.disabled = !isHost;
-      btnRestartDefused.textContent = isHost ? '⭐ بازی جدید (میزبان)' : 'منتظر بازی جدید توسط میزبان...';
+      btnRestartDefused.textContent = isHost
+        ? 'بازگشت به لابی · دور جدید'
+        : 'منتظر شروع دور جدید توسط میزبان...';
     }
     return;
   }
 
-  // 7. Section Router
+  // 8. Active View Router
   [lobbySection, bomb3dSection, muteSection].forEach((sec) => sec.classList.remove('active'));
 
   if (state.status === 'running') {
     if (isOperator(myRole) || isObserver(myRole)) {
       bomb3dSection.classList.add('active');
 
-      // Lazy initialize or update Three.js scene
       if (!bombScene && bomb3dContainer && isWebGLAvailable()) {
         bombScene = new Bomb3DScene(
           bomb3dContainer,
@@ -1033,30 +1426,25 @@ function renderState(state) {
         bombScene.resize();
       }
 
-      // Banner, camera preset labels, helper instructions, and in-round "You can / You cannot" reference
       if (isOperator(myRole)) {
-        bomb3dRoleBanner.className = 'role-roleplay-banner blind-banner';
-        bomb3dRoleBanner.innerHTML = '⚡ <strong>اپراتور (Operator — بدون کلام):</strong> تنها فرد مجاز به لمس بمب ۳D! با عینک آفتابی و بدون دید به دفترچه راهنما؛ صدای بازی از گوشی شما پخش می‌شود. فرامین را فقط شفاهاً از ناظر بشنوید.';
-        blindTactileHelper.style.display = 'block';
-        deafVisualHelper.style.display = 'none';
-        if (btnViewFront) btnViewFront.textContent = '🎛️ پنل ماژول‌ها';
-        if (btnViewBack) btnViewBack.textContent = '🚐 نمای کلی میز';
+        if (bomb3dRoleBanner) {
+          bomb3dRoleBanner.textContent = 'اپراتور: تنها لمس‌کننده بمب سه‌بعدی مونوکروم · بدون کلام · فرامین را شفاهاً از ناظر دریافت کنید.';
+        }
+        if (btnViewFront) btnViewFront.textContent = 'پنل ماژول‌ها';
+        if (btnViewBack) btnViewBack.textContent = 'نمای کلی میز';
         if (btnViewBridge) btnViewBridge.style.display = 'none';
         if (holdThresholdControl) holdThresholdControl.style.display = 'flex';
         if (operatorInteractionHud) operatorInteractionHud.style.display = 'flex';
-        if (observerGestureDrawer) observerGestureDrawer.style.display = 'none';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('operator');
       } else {
-        bomb3dRoleBanner.className = 'role-roleplay-banner deaf-banner';
-        bomb3dRoleBanner.innerHTML = '👁️ <strong>ناظر (Observer — تنها گوینده و پل ارتباطی):</strong> هدفون ایمن در گوش (عدم استفاده از صدای بازی) و بدون لمس بمب. از زاویه جانبی سرنخ‌های رنگی و پلاک سریال کیف را ببینید، با دفترچه راهنما با اشاره تبادل کنید و به اپراتور شفاهاً فرمان دهید.';
-        blindTactileHelper.style.display = 'none';
-        deafVisualHelper.style.display = 'block';
-        if (btnViewFront) btnViewFront.textContent = '🔍 سرنخ‌های کیف';
-        if (btnViewBack) btnViewBack.textContent = '🏷️ پلاک سریال';
+        if (bomb3dRoleBanner) {
+          bomb3dRoleBanner.textContent = 'ناظر: مشاهده رنگ و شکل داخل کیف و پلاک سریال · بدون لمس بمب · تنها گوینده تیم و پل اشاره با راهنما.';
+        }
+        if (btnViewFront) btnViewFront.textContent = 'سرنخ‌های کیف';
+        if (btnViewBack) btnViewBack.textContent = 'پلاک سریال';
         if (btnViewBridge) btnViewBridge.style.display = 'inline-flex';
         if (holdThresholdControl) holdThresholdControl.style.display = 'none';
         if (operatorInteractionHud) operatorInteractionHud.style.display = 'none';
-        if (observerGestureDrawer) observerGestureDrawer.style.display = 'block';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('observer');
       }
     } else if (isManual(myRole)) {
@@ -1085,7 +1473,7 @@ window.addEventListener('resize', () => {
   }
 });
 
-// --- Synchronized Timer Calculation ---
+// --- Synchronized Timer Calculation & Progressive Urgency ---
 function getCurrentRemainingSeconds() {
   if (!currentGameState || currentGameState.status !== 'running') {
     return currentGameState?.remainingSeconds ?? 300;
@@ -1101,18 +1489,41 @@ function formatTime(totalSeconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-// Timer Render Loop (runs smoothly every 100ms)
+const URGENCY_ICONS = {
+  normal: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="13" r="8"></circle><polyline points="12 9 12 13 14.5 14.5"></polyline><line x1="9" y1="2" x2="15" y2="2"></line></svg>`,
+  warn: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+  critical: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
+};
+
+function updateTimerUrgencyUI(level) {
+  if (level === lastUrgencyLevel) return;
+  lastUrgencyLevel = level;
+  if (hudTimerCluster) {
+    hudTimerCluster.setAttribute('data-urgency', level);
+  }
+  if (timerUrgencyIcon && URGENCY_ICONS[level]) {
+    timerUrgencyIcon.innerHTML = URGENCY_ICONS[level];
+  }
+}
+
 setInterval(() => {
   if (!currentGameState) return;
 
   const remaining = getCurrentRemainingSeconds();
-  timerDisplay.textContent = formatTime(remaining);
+  if (timerDisplay) {
+    timerDisplay.textContent = formatTime(remaining);
+  }
 
   if (currentGameState.status === 'running') {
-    if (remaining <= 60) {
-      timerDisplay.classList.add('urgent');
+    if (remaining <= 20) {
+      timerDisplay?.classList.add('urgent');
+      updateTimerUrgencyUI('critical');
+    } else if (remaining <= 60) {
+      timerDisplay?.classList.remove('urgent');
+      updateTimerUrgencyUI('warn');
     } else {
-      timerDisplay.classList.remove('urgent');
+      timerDisplay?.classList.remove('urgent');
+      updateTimerUrgencyUI('normal');
     }
 
     // Audio ticking played on Operator's device
@@ -1128,7 +1539,8 @@ setInterval(() => {
       }
     }
   } else {
-    timerDisplay.classList.remove('urgent');
+    timerDisplay?.classList.remove('urgent');
+    updateTimerUrgencyUI('normal');
   }
 }, 100);
 
@@ -1141,14 +1553,13 @@ function triggerHaptic(pattern) {
   }
 }
 
-// Helper: Visual screen flash on strike
+// Helper: Visual HUD alert on strike
 function flashRedAlert() {
-  const panel = document.querySelector('.timer-panel');
-  if (panel) {
-    panel.style.boxShadow = '0 0 30px rgba(239, 68, 68, 0.9)';
+  if (activeRoundHud) {
+    activeRoundHud.classList.add('strike-alert-flash');
     setTimeout(() => {
-      panel.style.boxShadow = 'inset 0 2px 10px rgba(0, 0, 0, 0.9)';
-    }, 400);
+      activeRoundHud.classList.remove('strike-alert-flash');
+    }, 420);
   }
 }
 
@@ -1189,16 +1600,26 @@ function cancelKeyboardSpaceHold(reasonText = 'نگه‌داشتن کلید Spac
 }
 
 window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-
   if (e.key === 'Escape') {
+    if (isReferenceSheetOpen()) {
+      e.preventDefault();
+      closeReferenceSheet();
+      return;
+    }
+    if (operatorTuningPopover && operatorTuningPopover.style.display !== 'none') {
+      e.preventDefault();
+      setTuningPopoverOpen(false);
+      return;
+    }
     cancelKeyboardSpaceHold('لغو دستی با کلید Escape — هیچ خطایی ثبت نشد.');
     bombScene?.cancelActiveInteraction('escape_key');
     return;
   }
 
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (isReferenceSheetOpen()) return;
+
   if (currentGameState?.status === 'running') {
-    // Arrow keys: Rotate 3D bomb
     if (bombScene) {
       if (e.key === 'ArrowLeft') {
         bombScene.targetRotY += 0.25;
@@ -1213,13 +1634,15 @@ window.addEventListener('keydown', (e) => {
         bombScene.targetRotX = Math.max(-1.4, bombScene.targetRotX - 0.18);
         e.preventDefault();
       } else if (e.key === 'r' || e.key === 'R') {
+        setActiveBombViewButton(btnViewFront);
         bombScene.viewFront();
       } else if (e.key === 'b' || e.key === 'B') {
+        setActiveBombViewButton(btnViewBack);
         bombScene.viewBack();
       }
     }
 
-    // Operator physical interactions via keyboard (ignore key auto-repeat!)
+    // Operator physical interactions via keyboard (ignore key auto-repeat)
     if (isOperator(myRole)) {
       if (e.key === 'w' || e.key === 'W') {
         isWKeyActive = true;
@@ -1234,7 +1657,11 @@ window.addEventListener('keydown', (e) => {
         keyboardSlotLockMap.set(lockKey, now + INTERACTION_DEFAULTS.keypadDedupeLockMs);
 
         if (isWKeyActive) {
-          if (currentGameState?.modules?.wires && !currentGameState.modules.wires.solved && !currentGameState.modules.wires.cutWires?.includes(index)) {
+          if (
+            currentGameState?.modules?.wires &&
+            !currentGameState.modules.wires.solved &&
+            !currentGameState.modules.wires.cutWires?.includes(index)
+          ) {
             triggerHaptic([35, 25]);
             sound.playWireCut();
             sendOperatorBombAction({
@@ -1245,13 +1672,17 @@ window.addEventListener('keydown', (e) => {
             renderOperatorHudStatus({
               active: false,
               mode: 'committed',
-              label: `✓ سیم ${index + 1} قطع شد (کیبورد)`,
+              label: `سیم ${index + 1} قطع شد (کیبورد)`,
               detail: 'فرمان قطع سیم به سرور ارسال شد.',
               progress: 1,
               variant: 'success'
             });
           }
-        } else if (currentGameState?.modules?.keypad && !currentGameState.modules.keypad.solved && !currentGameState.modules.keypad.enteredSlots?.includes(index)) {
+        } else if (
+          currentGameState?.modules?.keypad &&
+          !currentGameState.modules.keypad.solved &&
+          !currentGameState.modules.keypad.enteredSlots?.includes(index)
+        ) {
           triggerHaptic(25);
           sound.playClick();
           sendOperatorBombAction({
@@ -1262,7 +1693,7 @@ window.addEventListener('keydown', (e) => {
           renderOperatorHudStatus({
             active: false,
             mode: 'committed',
-            label: `✓ کلید کیپد ${index + 1} ثبت شد`,
+            label: `کلید کیپد ${index + 1} ثبت شد`,
             detail: `فشردن کلید شماره ${index + 1} ارسال شد.`,
             progress: 1,
             variant: 'success'
@@ -1285,7 +1716,7 @@ window.addEventListener('keydown', (e) => {
           renderOperatorHudStatus({
             active: false,
             mode: 'committed',
-            label: `✓ فانوس روی کانال ${nextChannel} تنظیم شد`,
+            label: `فانوس روی کانال ${nextChannel} تنظیم شد`,
             detail: 'تغییر کانال سلکتور ثبت گردید.',
             progress: 1,
             variant: 'success'
@@ -1305,7 +1736,7 @@ window.addEventListener('keydown', (e) => {
           renderOperatorHudStatus({
             active: false,
             mode: 'committed',
-            label: '✓ ارسال فرکانس (TX) ثبت شد',
+            label: 'ارسال فرکانس (TX) ثبت شد',
             detail: 'پالس فرکانسی به سرور ارسال شد.',
             progress: 1,
             variant: 'success'
@@ -1346,7 +1777,7 @@ window.addEventListener('keydown', (e) => {
             renderOperatorHudStatus({
               active: true,
               mode: 'hold',
-              label: `نگه‌داشتن فعال شد (HOLD) • رقم فعلی تایمر: ${digit}`,
+              label: `نگه‌داشتن فعال شد (HOLD) · رقم فعلی ثانیه: ${digit}`,
               detail: 'روی رقم ثانیه اعلامی ناظر کلید Space را رها کنید (Esc = لغو ایمن).',
               progress: 1,
               variant: 'hold'
@@ -1362,7 +1793,7 @@ window.addEventListener('keydown', (e) => {
             renderOperatorHudStatus({
               active: true,
               mode: 'tap',
-              label: `حالت فعلی: ضربه کوتاه (TAP) — ${Math.round(progress * 100)}% تا HOLD`,
+              label: `حالت ضربه کوتاه (TAP) — ${Math.round(progress * 100)}% تا HOLD`,
               detail: `رهاسازی الان = ضربه کوتاه | ادامه نگه‌داشتن (${operatorHoldThresholdMs}ms) = حالت HOLD`,
               progress,
               variant: 'info'
@@ -1414,7 +1845,7 @@ window.addEventListener('keyup', (e) => {
       renderOperatorHudStatus({
         active: false,
         mode: 'committed',
-        label: '✓ ضربه کوتاه (TAP) روی دکمه ثبت شد',
+        label: 'ضربه کوتاه (TAP) روی دکمه ثبت شد',
         detail: `مدت فشردن: ${duration}ms (کمتر از آستانه ${operatorHoldThresholdMs}ms)`,
         progress: 1,
         variant: 'success'
@@ -1430,8 +1861,8 @@ window.addEventListener('keyup', (e) => {
       renderOperatorHudStatus({
         active: false,
         mode: 'committed',
-        label: `✓ رهاسازی دکمه (HOLD) روی رقم ${lastDigit} پذیرفته شد`,
-        detail: `مدت نگه‌داشتن: ${duration}ms • رقم ثانیه ارسالی: ${lastDigit}`,
+        label: `رهاسازی دکمه (HOLD) روی رقم ${lastDigit} ثبت شد`,
+        detail: `مدت نگه‌داشتن: ${duration}ms · رقم ثانیه ارسالی: ${lastDigit}`,
         progress: 1,
         variant: 'success'
       });
@@ -1451,16 +1882,16 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// --- Dynamic Round Manual & Status Matrix Renderer for Manual-holder Role ---
+// --- Dynamic Tactical Field Manual Renderer for Manual-holder Role ---
 let currentManualFilter = 'all';
-let currentBeaconParity = 'even';
+let currentBeaconParity = 'all';
 
 function renderDynamicManual(manual, state) {
   if (!muteManualContainer) return;
   if (!manual) {
     muteManualContainer.innerHTML = `
       <div class="manual-section manual-loading-placeholder">
-        ⏳ در انتظار دریافت قوانین عملیات از مرکز فرماندهی...
+        در انتظار دریافت پروتکل‌های اختصاصی این راند...
       </div>
     `;
     return;
@@ -1468,88 +1899,118 @@ function renderDynamicManual(manual, state) {
 
   const { seed, button, wires, keypad, beacon } = manual;
 
-  // 1. Live Threat Level & Dynamic Status Matrix
-  const modulesDefused = state?.modulesDefusedCount ?? Object.values(state?.modules || {}).filter(m => m?.solved).length;
+  // 1. Live Operational Threat Matrix (Unboxed Metadata — Zero Pills)
+  const modulesDefused =
+    state?.modulesDefusedCount ??
+    Object.values(state?.modules || {}).filter((m) => m?.solved).length;
   const totalModules = state?.totalModulesCount || 4;
   const remainingModules = Math.max(0, totalModules - modulesDefused);
 
-  let threatPhaseText = `⚠️ فاز عملیاتی: ${remainingModules} از ${totalModules} ماژول مسلح است`;
+  let threatPhaseText = `وضعیت عملیات: ${remainingModules} از ${totalModules} ماژول مسلح است`;
   if (remainingModules === 0) {
-    threatPhaseText = '🏆 خنثی‌سازی کامل: تمام سامانه‌ها ایمن شدند!';
+    threatPhaseText = 'تمام ماژول‌های این راند خنثی شدند';
   } else if (remainingModules === 1) {
-    threatPhaseText = '🎯 مرحله آخر: تنها ۱ ماژول مسلح باقی مانده است!';
+    threatPhaseText = 'مرحله پایانی: تنها ۱ ماژول مسلح باقی مانده است';
   }
 
   const activeModuleIds = state?.moduleIds || ['wires', 'button', 'keypad', 'beacon'];
   const moduleMetaList = [
-    { id: 'button', label: '🔘 کاتالیزور', solved: Boolean(state?.modules?.button?.solved) },
-    { id: 'wires', label: '✂️ فیوزها', solved: Boolean(state?.modules?.wires?.solved) },
-    { id: 'keypad', label: '🔣 کیپد', solved: Boolean(state?.modules?.keypad?.solved) },
-    { id: 'beacon', label: '📡 فانوس صوتی', solved: Boolean(state?.modules?.beacon?.solved) }
+    { id: 'button', label: 'دکمه کاتالیزور', solved: Boolean(state?.modules?.button?.solved) },
+    { id: 'wires', label: 'فیوزهای سیم‌کشی', solved: Boolean(state?.modules?.wires?.solved) },
+    { id: 'keypad', label: 'صفحه‌کلید رمزی', solved: Boolean(state?.modules?.keypad?.solved) },
+    { id: 'beacon', label: 'فانوس صوتی', solved: Boolean(state?.modules?.beacon?.solved) }
   ].filter((m) => activeModuleIds.includes(m.id));
 
-  const stepsHtml = Array.from({ length: totalModules }, (_, i) => `
-    <div class="threat-step ${i < modulesDefused ? 'defused' : ''}"></div>
-  `).join('');
+  const stepsHtml = Array.from(
+    { length: totalModules },
+    (_, i) => `<div class="threat-step ${i < modulesDefused ? 'defused' : ''}"></div>`
+  ).join('');
 
-  const pillsHtml = moduleMetaList.map((m) => `
-    <div class="module-status-pill ${m.solved ? 'secured' : 'armed'}">
-      <span>${m.label}</span>
-      <span>${m.solved ? '🟢 خنثی' : '🔴 مسلح'}</span>
-    </div>
-  `).join('');
+  const statusLineHtml = moduleMetaList
+    .map(
+      (m) => `
+      <span class="manual-mod-stat ${m.solved ? 'is-solved' : 'is-armed'}">
+        ${m.solved ? '✓' : '●'} ${m.label}: <strong>${m.solved ? 'خنثی' : 'مسلح'}</strong>
+      </span>
+    `
+    )
+    .join('<span class="meta-sep" aria-hidden="true">·</span>');
 
   const matrixHtml = `
     <div class="threat-matrix-card" id="manual-matrix">
       <div class="threat-matrix-header">
-        <span class="threat-phase-title">📊 ماتریس پویای وضعیت بمب (ارتباط شما فقط با ناظر است)</span>
-        <span style="font-size: 0.75rem; color: #f59e0b; font-family: monospace;">SEED: ${seed || ''}</span>
-      </div>
-      <div style="font-size: 0.8rem; color: #e2e8f0; margin-bottom: 8px; font-weight: 500;">
-        ${threatPhaseText}
+        <span class="threat-phase-title">${threatPhaseText}</span>
+        <span class="manual-seed-tag" dir="ltr">CODE: ${seed || '------'}</span>
       </div>
       <div class="threat-progress-bar">
         ${stepsHtml}
       </div>
-      <div class="manual-modules-grid">
-        ${pillsHtml}
+      <div class="manual-modules-strip">
+        ${statusLineHtml}
       </div>
     </div>
   `;
 
-  // 2. Navigation Tabs
+  // 2. Segmented Module Filter Bar
+  const tabDefs = [
+    { id: 'all', label: 'همه پروتکل‌ها', show: true },
+    { id: 'button', label: 'دکمه', show: activeModuleIds.includes('button'), solved: Boolean(state?.modules?.button?.solved) },
+    { id: 'wires', label: 'سیم‌ها', show: activeModuleIds.includes('wires'), solved: Boolean(state?.modules?.wires?.solved) },
+    { id: 'keypad', label: 'کیپد', show: activeModuleIds.includes('keypad'), solved: Boolean(state?.modules?.keypad?.solved) },
+    { id: 'beacon', label: 'فانوس صوتی', show: activeModuleIds.includes('beacon'), solved: Boolean(state?.modules?.beacon?.solved) }
+  ].filter((t) => t.show);
+
+  if (!tabDefs.some((t) => t.id === currentManualFilter)) {
+    currentManualFilter = 'all';
+  }
+
   const navTabsHtml = `
-    <div class="manual-nav-tabs">
-      <button type="button" class="manual-tab-btn ${currentManualFilter === 'all' ? 'active' : ''}" data-filter="all">همه پروتکل‌ها</button>
-      <button type="button" class="manual-tab-btn ${currentManualFilter === 'button' ? 'active' : ''}" data-filter="button">🔘 دکمه</button>
-      <button type="button" class="manual-tab-btn ${currentManualFilter === 'wires' ? 'active' : ''}" data-filter="wires">✂️ سیم‌ها</button>
-      <button type="button" class="manual-tab-btn ${currentManualFilter === 'keypad' ? 'active' : ''}" data-filter="keypad">🔣 کیپد</button>
-      <button type="button" class="manual-tab-btn ${currentManualFilter === 'beacon' ? 'active' : ''}" data-filter="beacon">📡 فانوس صوتی</button>
+    <div class="manual-nav-tabs" role="tablist" aria-label="فیلتر بخش‌های دفترچه">
+      ${tabDefs
+        .map(
+          (t) => `
+        <button type="button" class="manual-tab-btn ${currentManualFilter === t.id ? 'active' : ''}" data-filter="${t.id}">
+          ${t.solved ? '✓ ' : ''}${t.label}
+        </button>
+      `
+        )
+        .join('')}
     </div>
   `;
 
   // 3. Button Module Section
   let buttonHtml = '';
-  if (button && (currentManualFilter === 'all' || currentManualFilter === 'button')) {
-    const tapRows = (button.tapRows || []).map(r => `
+  if (button && activeModuleIds.includes('button') && (currentManualFilter === 'all' || currentManualFilter === 'button')) {
+    const tapRows = (button.tapRows || [])
+      .map(
+        (r) => `
       <tr>
         <td>${r.condition}</td>
-        <td>${r.action}</td>
+        <td><strong>${r.action}</strong></td>
       </tr>
-    `).join('');
+    `
+      )
+      .join('');
 
-    const stripRows = (button.stripRows || []).map(r => `
-      <li>نوار <strong>${r.colorName}</strong>: وقتی رقم یکان ثانیه‌شمار <strong>${r.digit}</strong> شد رها شود (رقم را با اشاره به ناظر نشان دهید).</li>
-    `).join('');
+    const stripRows = (button.stripRows || [])
+      .map(
+        (r) => `
+      <li>نوار کناری <strong>${r.colorName}</strong>: رهاسازی وقتی رقم یکان ثانیه برابر <strong class="tabular-num" dir="ltr">${r.digit}</strong> است (با اشاره به ناظر اعلام کنید).</li>
+    `
+      )
+      .join('');
 
     buttonHtml = `
-      <div class="manual-section" id="manual-button" style="margin-bottom: 12px;">
-        <h4>🔘 ماژول دکمه کاتالیزور — <span style="font-size: 0.8rem; color: #38bdf8;">${button.protocolName || ''}</span></h4>
+      <div class="manual-section" id="manual-button">
+        <div class="manual-section-head">
+          <h4>۰۱. ماژول دکمه کاتالیزور</h4>
+          <span class="manual-protocol-code">${button.protocolName || ''}</span>
+        </div>
         <table class="rule-table">
           <thead>
             <tr>
-              <th>شرط رنگ دکمه و سریال (گزارش ناظر)</th>
-              <th>اقدام لازم (اعلام با اشاره به ناظر جهت فرمان کلامی به اپراتور)</th>
+              <th>شرط رنگ و شکل دکمه / سریال (گزارش ناظر)</th>
+              <th>اقدام لازم (اعلام با اشاره به ناظر)</th>
             </tr>
           </thead>
           <tbody>
@@ -1561,46 +2022,52 @@ function renderDynamicManual(manual, state) {
           </tbody>
         </table>
 
-        <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.6); padding: 8px 10px; border-radius: 8px; border: 1px solid #334155;">
-          <strong style="font-size: 0.8rem; color: #38bdf8;">رقم ثانیه رهاسازی در صورت نگه‌داشتن دکمه (بر اساس رنگ نوار کناری):</strong>
-          <ul style="font-size: 0.76rem; color: #cbd5e1; margin: 4px 0 0 16px; line-height: 1.6;">
+        <div class="manual-sub-box">
+          <strong>جدول رقم ثانیه رهاسازی در حالت نگه‌داشتن (HOLD):</strong>
+          <ul class="manual-checklist" style="margin-top: 6px;">
             ${stripRows}
           </ul>
         </div>
-        <p style="font-size: 0.74rem; color: #cbd5e1; margin-top: 8px;">
-          📌 <em>${button.note || ''}</em>
-        </p>
+        <p class="manual-note">${button.note || ''}</p>
       </div>
     `;
   }
 
   // 4. Wires Module Section
   let wiresHtml = '';
-  if (wires && (currentManualFilter === 'all' || currentManualFilter === 'wires')) {
-    const steps = (wires.checklist || []).map(item => `
-      <li>${item.condition} <strong>${item.action}</strong> بریده شود (با اشاره به ناظر اعلام کنید).</li>
-    `).join('');
+  if (wires && activeModuleIds.includes('wires') && (currentManualFilter === 'all' || currentManualFilter === 'wires')) {
+    const steps = (wires.checklist || [])
+      .map(
+        (item) => `
+      <li>${item.condition} <strong>${item.action}</strong> بریده شود (شماره سیم را با اشاره به ناظر نشان دهید).</li>
+    `
+      )
+      .join('');
 
     wiresHtml = `
-      <div class="manual-section" id="manual-wires" style="margin-bottom: 12px;">
-        <h4>✂️ ماژول فیوزهای سیم‌کشی — <span style="font-size: 0.8rem; color: #38bdf8;">${wires.protocolName || ''}</span></h4>
-        <ul class="manual-checklist">
+      <div class="manual-section" id="manual-wires">
+        <div class="manual-section-head">
+          <h4>۰۲. ماژول فیوزهای سیم‌کشی</h4>
+          <span class="manual-protocol-code">${wires.protocolName || ''}</span>
+        </div>
+        <ol class="manual-checklist">
           ${steps}
-        </ul>
-        <p style="font-size: 0.74rem; color: #cbd5e1; margin-top: 8px;">
-          📌 <em>${wires.note || ''}</em>
-        </p>
+        </ol>
+        <p class="manual-note">${wires.note || ''}</p>
       </div>
     `;
   }
 
   // 5. Keypad Module Section
   let keypadHtml = '';
-  if (keypad && (currentManualFilter === 'all' || currentManualFilter === 'keypad')) {
+  if (keypad && activeModuleIds.includes('keypad') && (currentManualFilter === 'all' || currentManualFilter === 'keypad')) {
     keypadHtml = `
-      <div class="manual-section" id="manual-keypad" style="margin-bottom: 12px;">
-        <h4>🔣 ماژول نمادهای رمزی صفحه‌کلید — <span style="font-size: 0.8rem; color: #38bdf8;">${keypad.protocolName || ''}</span></h4>
-        <p style="font-size: 0.78rem; color: #cbd5e1; margin-bottom: 8px;">
+      <div class="manual-section" id="manual-keypad">
+        <div class="manual-section-head">
+          <h4>۰۳. ماژول نمادهای صفحه‌کلید</h4>
+          <span class="manual-protocol-code">${keypad.protocolName || ''}</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">
           ${keypad.note || ''}
         </p>
         <div class="symbol-priority-ribbon">
@@ -1612,79 +2079,100 @@ function renderDynamicManual(manual, state) {
 
   // 6. Acoustic Beacon Module Section
   let beaconHtml = '';
-  if (beacon && (currentManualFilter === 'all' || currentManualFilter === 'beacon')) {
-    const isEven = currentBeaconParity === 'even';
-    const rows = isEven ? (beacon.evenRows || []) : (beacon.oddRows || []);
+  if (beacon && activeModuleIds.includes('beacon') && (currentManualFilter === 'all' || currentManualFilter === 'beacon')) {
+    const buildBeaconTable = (rows, headingLabel) => {
+      const trs = (rows || [])
+        .map(
+          (r) => `
+        <tr>
+          <td><strong>${r.name}</strong></td>
+          <td style="text-align: center;"><span class="rhythm-badge">${r.pattern}</span></td>
+          <td class="tabular-num" style="text-align: center; font-weight: 700; color: var(--accent-amber);">${r.channel}</td>
+        </tr>
+      `
+        )
+        .join('');
+      return `
+        <div style="margin-top: 8px;">
+          <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">${headingLabel}</div>
+          <table class="rule-table">
+            <thead>
+              <tr>
+                <th>کد پالس</th>
+                <th style="text-align: center;">الگوی ضربه میز</th>
+                <th style="text-align: center;">کانال هدف</th>
+              </tr>
+            </thead>
+            <tbody>${trs}</tbody>
+          </table>
+        </div>
+      `;
+    };
 
-    const tableRows = rows.map(r => `
-      <tr>
-        <td><strong>${r.name}</strong></td>
-        <td style="text-align: center;"><span class="rhythm-badge">${r.pattern}</span></td>
-        <td style="color: #38bdf8; font-weight: bold; text-align: center;">${r.channel}</td>
-      </tr>
-    `).join('');
+    let tablesMarkup = '';
+    if (currentBeaconParity === 'even') {
+      tablesMarkup = buildBeaconTable(beacon.evenRows, 'جدول رقم آخر سریال زوج (Even):');
+    } else if (currentBeaconParity === 'odd') {
+      tablesMarkup = buildBeaconTable(beacon.oddRows, 'جدول رقم آخر سریال فرد (Odd):');
+    } else {
+      tablesMarkup =
+        buildBeaconTable(beacon.evenRows, 'الف) رقم آخر پلاک سریال زوج (Even):') +
+        buildBeaconTable(beacon.oddRows, 'ب) رقم آخر پلاک سریال فرد (Odd):');
+    }
 
     beaconHtml = `
-      <div class="manual-section" id="manual-beacon" style="margin-bottom: 12px;">
-        <h4>📡 ماژول فانوس صوتی (Acoustic Beacon) — <span style="font-size: 0.8rem; color: #38bdf8;">${beacon.protocolName || ''}</span></h4>
-        
-        <div style="font-size: 0.76rem; color: #cbd5e1; margin-bottom: 8px; line-height: 1.6;">
-          صدای پالس از گوشی <strong>اپراتور</strong> پخش می‌شود (در فضای اتاق ممکن است به گوش شما هم برسد، اما حل شما متکی به شنیدن صدا نیست و <strong>ناظر</strong> نیز نباید از صدای بازی استفاده کند). اپراتور ریتم را با <strong>ضربه روی میز</strong> به ناظر منتقل می‌کند؛ ناظر زوج یا فرد بودن پلاک و ریتم را با اشاره به شما می‌گوید تا شماره کانال هدف (۱ تا ۳) را با اشاره به ناظر اعلام کنید:
+      <div class="manual-section" id="manual-beacon">
+        <div class="manual-section-head">
+          <h4>۰۴. ماژول فانوس صوتی (Acoustic Beacon)</h4>
+          <span class="manual-protocol-code">${beacon.protocolName || ''}</span>
         </div>
 
-        <div class="parity-toggle-group">
-          <button type="button" class="parity-toggle-btn ${isEven ? 'active' : ''}" data-parity="even">
-            🔢 پلاک سریال زوج (Even Serial)
+        <p style="font-size: 0.79rem; color: var(--text-secondary); line-height: 1.65;">
+          صدای پالس از گوشی <strong>اپراتور</strong> پخش می‌شود (در فضای اتاق ممکن است به گوش شما هم برسد، اما حل شما متکی به جدول دیداری و هماهنگی با ناظر است و <strong>ناظر</strong> نیز نباید از صدای بازی استفاده کند). اپراتور ریتم را با <strong>ضربه روی میز</strong> نشان می‌دهد و ناظر زوج/فرد بودن سریال و ریتم را با اشاره به شما منتقل می‌کند:
+        </p>
+
+        <div class="parity-toggle-group" role="group" aria-label="فیلتر زوج یا فرد بودن شماره سریال">
+          <button type="button" class="parity-toggle-btn ${currentBeaconParity === 'all' ? 'active' : ''}" data-parity="all">
+            نمایش هر دو حالت (زوج و فرد)
           </button>
-          <button type="button" class="parity-toggle-btn ${!isEven ? 'active' : ''}" data-parity="odd">
-            🔢 پلاک سریال فرد (Odd Serial)
+          <button type="button" class="parity-toggle-btn ${currentBeaconParity === 'even' ? 'active' : ''}" data-parity="even">
+            فقط سریال زوج (Even)
+          </button>
+          <button type="button" class="parity-toggle-btn ${currentBeaconParity === 'odd' ? 'active' : ''}" data-parity="odd">
+            فقط سریال فرد (Odd)
           </button>
         </div>
 
-        <table class="rule-table">
-          <thead>
-            <tr>
-              <th>نوع پالس</th>
-              <th style="text-align: center;">ریتم ضربه (جدول دیداری)</th>
-              <th style="text-align: center;">کانال هدف (اعلام با اشاره به ناظر)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
+        ${tablesMarkup}
 
-        <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.6); padding: 8px 10px; border-radius: 8px; border: 1px solid #334155; font-size: 0.74rem; color: #cbd5e1;">
-          <strong style="color: #f59e0b;">راهنمای تطبیق دیداری ریتم ضربات میز:</strong>
-          <ul style="margin: 4px 0 0 16px; line-height: 1.6;">
-            <li><strong>·· — · (وکتور):</strong> دو ضربه تند، مکث، یک ضربه بلند، یک ضربه کوتاه</li>
-            <li><strong>— · — · (سیگما):</strong> یک ضربه بلند، یک کوتاه، یک بلند، یک کوتاه</li>
-            <li><strong>· — — · (دلتا):</strong> یک ضربه کوتاه، دو ضربه بلند، یک ضربه کوتاه</li>
-            <li><strong>— — · · (امگا):</strong> دو ضربه بلند، دو ضربه تند و کوتاه</li>
+        <div class="manual-sub-box">
+          <strong>راهنمای تطبیق ریتم ضربات میز:</strong>
+          <ul class="manual-checklist" style="margin-top: 6px;">
+            <li><span class="tabular-num" dir="ltr">·· — ·</span> <strong>(وکتور):</strong> دو ضربه کوتاه، مکث، یک ضربه بلند، یک ضربه کوتاه</li>
+            <li><span class="tabular-num" dir="ltr">— · — ·</span> <strong>(سیگما):</strong> یک بلند، یک کوتاه، یک بلند، یک کوتاه</li>
+            <li><span class="tabular-num" dir="ltr">· — — ·</span> <strong>(دلتا):</strong> یک کوتاه، دو بلند، یک کوتاه</li>
+            <li><span class="tabular-num" dir="ltr">— — · ·</span> <strong>(امگا):</strong> دو ضربه بلند، دو ضربه کوتاه</li>
           </ul>
         </div>
 
-        <p style="font-size: 0.74rem; color: #cbd5e1; margin-top: 8px;">
-          📌 <em>${beacon.note || ''}</em>
-        </p>
+        <p class="manual-note">${beacon.note || ''}</p>
       </div>
     `;
   }
 
-  muteManualContainer.innerHTML = matrixHtml + navTabsHtml + buttonHtml + wiresHtml + keypadHtml + beaconHtml;
+  muteManualContainer.innerHTML =
+    matrixHtml + navTabsHtml + buttonHtml + wiresHtml + keypadHtml + beaconHtml;
 
-  // Attach event handlers for interactive tabs
-  muteManualContainer.querySelectorAll('.manual-tab-btn').forEach(btn => {
+  muteManualContainer.querySelectorAll('.manual-tab-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       currentManualFilter = e.currentTarget.getAttribute('data-filter') || 'all';
       renderDynamicManual(manual, state);
     });
   });
 
-  // Attach event handlers for parity toggles
-  muteManualContainer.querySelectorAll('.parity-toggle-btn').forEach(btn => {
+  muteManualContainer.querySelectorAll('.parity-toggle-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
-      currentBeaconParity = e.currentTarget.getAttribute('data-parity') || 'even';
+      currentBeaconParity = e.currentTarget.getAttribute('data-parity') || 'all';
       renderDynamicManual(manual, state);
     });
   });
@@ -1694,10 +2182,20 @@ function renderDynamicManual(manual, state) {
 [btnPresetEasy, btnPresetNormal, btnPresetHard].forEach((btn) => {
   if (!btn) return;
   btn.addEventListener('click', () => {
+    isCustomDifficultyOpen = false;
     const presetId = btn.getAttribute('data-preset');
     transport.send('set_difficulty', { presetId });
   });
 });
+
+if (btnPresetCustom) {
+  btnPresetCustom.addEventListener('click', () => {
+    isCustomDifficultyOpen = !isCustomDifficultyOpen;
+    if (currentGameState) {
+      renderState(currentGameState);
+    }
+  });
+}
 
 if (btnApplyCustomDifficulty) {
   btnApplyCustomDifficulty.addEventListener('click', () => {
@@ -1709,6 +2207,7 @@ if (btnApplyCustomDifficulty) {
     const commAidEnabled = overrideCommAidEnabled ? overrideCommAidEnabled.checked : false;
     const commAidBudget = overrideCommAidBudget ? parseInt(overrideCommAidBudget.value, 10) : 5;
 
+    isCustomDifficultyOpen = true;
     transport.send('set_difficulty', {
       presetId: currentGameState?.difficulty?.preset || 'normal',
       customOverrides: {
@@ -1723,5 +2222,6 @@ if (btnApplyCustomDifficulty) {
         }
       }
     });
+    showToast('تنظیمات سفارشی راند ثبت شد.', 'success', 2200);
   });
 }

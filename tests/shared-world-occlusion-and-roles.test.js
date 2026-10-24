@@ -1,12 +1,16 @@
 process.env.NODE_ENV = 'test';
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 
 import {
   BRIEFCASE_SPEC,
   buildSharedWorldGraph
 } from '../public/bomb3d.js';
+import { buildGlovedHandUnit } from '../public/world-avatars.js';
 import {
   WORLD_LAYERS,
   CAMERA_FOV_LIMITS,
@@ -618,6 +622,94 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       assert.equal(world.styleManager.disposables.size, 0);
       assert.equal(world.styleManager.moduleEdgeDisposables.size, 0);
       assert.equal(world.moduleViews.size, 0);
+    });
+  });
+
+  describe('6. Stylized Armless Monkey Torsos, Floating Wrist-Only Gloved Hands & Tactical UI Contracts', () => {
+    test('All 3 monkey torsos are armless and all 6 floating gloved hands have closed wrist caps, positive determinants, and mirrored chirality', () => {
+      const world = buildSharedWorldGraph({ role: 'observer', width: 844, height: 390 });
+      try {
+        world.scene.updateMatrixWorld(true);
+
+        // 1. Armless monkey upper bodies across all 3 seats
+        assert.equal(world.avatars.operatorBody.userData.isArmlessTorso, true);
+        assert.equal(world.avatars.observerBody.userData.isArmlessTorso, true);
+        assert.equal(world.avatars.manualBody.userData.isArmlessTorso, true);
+
+        // 2. Exactly 6 floating wrist-only gloved hands (3 left, 3 right), zero forearm sleeves
+        assert.equal(world.avatars.hands.length, 6);
+        const leftHands = world.avatars.hands.filter((h) => h.userData.handSide === 'left');
+        const rightHands = world.avatars.hands.filter((h) => h.userData.handSide === 'right');
+        assert.equal(leftHands.length, 3, 'Must have 3 true left-chirality hands');
+        assert.equal(rightHands.length, 3, 'Must have 3 true right-chirality hands');
+
+        for (const hand of world.avatars.hands) {
+          assert.equal(hand.userData.isFloatingGlovedHand, true);
+          assert.ok(hand.userData.gloveMesh?.isMesh, `${hand.name} must have merged glove body mesh`);
+          assert.ok(hand.userData.cuffCapMesh?.isMesh, `${hand.name} must have closed wrist seal cap mesh`);
+          assert.equal(hand.userData.cuffCapMesh.userData.isWristCap, true);
+          assert.equal(hand.userData.gloveMesh.userData.isAvatar, true);
+          assert.equal(hand.userData.cuffCapMesh.userData.isAvatar, true);
+          approxEqual(hand.scale.x, 1, 1e-6, `${hand.name} scale.x must be +1`);
+          approxEqual(hand.scale.y, 1, 1e-6, `${hand.name} scale.y must be +1`);
+          approxEqual(hand.scale.z, 1, 1e-6, `${hand.name} scale.z must be +1`);
+        }
+
+        // 3. Zero negative-scale inverted normals anywhere under WorldAvatarsRoot & zero sleeve meshes
+        world.avatars.root.traverse((obj) => {
+          assert.ok(!/sleeve/i.test(obj.name || ''), `No forearm sleeve geometry allowed (found ${obj.name})`);
+          if (obj.isMesh) {
+            const det = obj.matrixWorld.determinant();
+            assert.ok(det > 0, `Avatar mesh "${obj.name}" must have positive world matrix determinant (got ${det})`);
+          }
+        });
+
+        // 4. Explicit left vs right geometric chirality check (local X vertex mean has opposite sign)
+        const testGloveMat = new THREE.MeshBasicMaterial();
+        const testCapMat = new THREE.MeshBasicMaterial();
+        const unitLeft = buildGlovedHandUnit({ side: 'left', gloveMat: testGloveMat, cuffSealMat: testCapMat });
+        const unitRight = buildGlovedHandUnit({ side: 'right', gloveMat: testGloveMat, cuffSealMat: testCapMat });
+
+        const meanX = (mesh) => {
+          const pos = mesh.geometry.getAttribute('position');
+          let sum = 0;
+          for (let i = 0; i < pos.count; i++) sum += pos.getX(i);
+          return sum / pos.count;
+        };
+        const leftMeanX = meanX(unitLeft.userData.gloveMesh);
+        const rightMeanX = meanX(unitRight.userData.gloveMesh);
+        assert.ok(leftMeanX > 0.001, `Left hand thumb asymmetry must shift local X centroid positive (${leftMeanX})`);
+        assert.ok(rightMeanX < -0.001, `Right hand thumb asymmetry must shift local X centroid negative (${rightMeanX})`);
+        approxEqual(leftMeanX, -rightMeanX, 1e-5, 'Left and right hands are exact geometric mirrors without negative scale');
+
+        unitLeft.userData.gloveMesh.geometry.dispose();
+        unitLeft.userData.cuffCapMesh.geometry.dispose();
+        unitRight.userData.gloveMesh.geometry.dispose();
+        unitRight.userData.cuffCapMesh.geometry.dispose();
+        testGloveMat.dispose();
+        testCapMat.dispose();
+      } finally {
+        world.dispose();
+      }
+    });
+
+    test('Tactical Briefcase UI enforces zero backdrop-filter over WebGL, header-triggered 4-tab Reference Sheet, and pure 3D Observer clues', () => {
+      const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+      const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+      const styleCss = fs.readFileSync(path.join(rootDir, 'public/style.css'), 'utf8');
+
+      // Zero backdrop-filter anywhere in stylesheet (GPU performance & crisp WebGL composites)
+      assert.ok(!/backdrop-filter\s*:/i.test(styleCss), 'style.css must not use backdrop-filter over WebGL');
+
+      // Header-triggered 4-tab Reference & Checklist Sheet
+      assert.ok(indexHtml.includes('id="btnOpenReferenceSheet"'));
+      assert.ok(indexHtml.includes('id="lobbyReferenceSheet"'));
+      const refTabs = indexHtml.match(/data-ref-tab="/g) || [];
+      assert.equal(refTabs.length, 4, 'Reference sheet must expose 4 focused tabs');
+
+      // 4-option Difficulty Selector (Easy, Normal, Hard, Custom) + Ready Toggle
+      assert.ok(indexHtml.includes('id="btnPresetCustom"'));
+      assert.ok(indexHtml.includes('id="btnToggleReady"'));
     });
   });
 });
