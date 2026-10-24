@@ -41,37 +41,57 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
+// --- Terminal Sanitization & English-Only Logger (Termux / Linux Safe) ---
+const NON_ASCII_TERMINAL_RE = /[^\x20-\x7E\r\n\t]/g;
+
+function sanitizeTerminalText(value) {
+  return String(value ?? '').replace(NON_ASCII_TERMINAL_RE, '?');
+}
+
+function formatRoleForLog(rawRole) {
+  if (rawRole === 'blind' || rawRole === 'operator') return 'operator';
+  if (rawRole === 'deaf' || rawRole === 'observer') return 'observer';
+  if (rawRole === 'mute' || rawRole === 'manual') return 'manual';
+  return sanitizeTerminalText(rawRole || 'unassigned');
+}
+
+function shortPlayerId(playerId) {
+  const clean = sanitizeTerminalText(String(playerId || '').trim());
+  return clean.substring(0, 8) || 'unknown';
+}
+
 // --- Network Interface Logger with Termux Graceful Handling ---
 function printNetworkInterfaces(port) {
-  console.log('='.repeat(56));
-  console.log('💣  پروتکل ۳: بازی همکارانه خنثی‌سازی بمب (۳D سه‌بعدی لوکال)');
-  console.log('='.repeat(56));
-  console.log(`🌐 پورت سرور: ${port}`);
-  console.log(`💻 مرورگر همین دستگاه: http://localhost:${port}`);
-  console.log('\n📱 آدرس اتصال برای سایر گوشی‌ها در شبکه Wi-Fi یا هات‌اسپات:');
+  const safePort = sanitizeTerminalText(port);
+  console.log('='.repeat(60));
+  console.log('[SERVER] BananaBomb - 3D Local Co-op Bomb Defusal Server');
+  console.log('='.repeat(60));
+  console.log(`[SERVER] Listening on port: ${safePort}`);
+  console.log(`[LOCAL]  Browser on this device: http://localhost:${safePort}`);
+  console.log('\n[LAN]    Connect other phones over Wi-Fi or Mobile Hotspot:');
 
   try {
     const interfaces = os.networkInterfaces();
     let count = 0;
-    for (const name of Object.keys(interfaces)) {
+    for (const name of Object.keys(interfaces || {})) {
       const netList = interfaces[name];
       if (!netList) continue;
       for (const net of netList) {
         if (net.family === 'IPv4' && !net.internal) {
-          console.log(`   ➜ [${name}] http://${net.address}:${port}`);
+          console.log(`  -> [${sanitizeTerminalText(name)}] http://${sanitizeTerminalText(net.address)}:${safePort}`);
           count++;
         }
       }
     }
     if (count === 0) {
-      console.log('   ℹ️ هیچ کارت شبکه خارجی فعالی شناسایی نشد. به وای‌فای یا هات‌اسپات متصل شوید.');
+      console.log('  [INFO] No active external IPv4 interface detected. Connect to Wi-Fi or enable Hotspot.');
     }
   } catch (err) {
-    console.warn('\n⚠️ خطا در خواندن خودکار os.networkInterfaces() (این اتفاق در Termux اندروید رایج است).');
-    console.warn('📌 لطفا آدرس IP دستگاه را از تنظیمات Hotspot گوشی، یا با اجرای دستور "ifconfig" یا "ip addr" در Termux مشاهده کنید:');
-    console.warn(`   ➜ آدرس قابل استفاده: http://<IP_گوشی>:${port}\n`);
+    console.warn('\n[WARN] Unable to read os.networkInterfaces() automatically (common on Android Termux).');
+    console.warn('[INFO] Check Hotspot settings or run "ifconfig" or "ip addr" in Termux to find your device IP:');
+    console.warn(`  -> http://<DEVICE_IP>:${safePort}\n`);
   }
-  console.log('='.repeat(56));
+  console.log('='.repeat(60));
 }
 
 // --- Authoritative Game State Engine ---
@@ -141,7 +161,13 @@ let nextSocketId = 1;
 
 const log = (...args) => {
   if (process.env.NODE_ENV !== 'test') {
-    console.log(...args);
+    console.log(...args.map((arg) => sanitizeTerminalText(arg)));
+  }
+};
+
+const logError = (...args) => {
+  if (process.env.NODE_ENV !== 'test') {
+    console.error(...args.map((arg) => sanitizeTerminalText(arg)));
   }
 };
 
@@ -500,6 +526,9 @@ function startGame(customSeed = null) {
   gameState.startTime = Date.now();
   gameState.status = 'running';
 
+  const diffLabel = `${gameState.difficulty.preset || 'normal'}${gameState.difficulty.isCustom ? '-custom' : ''}`;
+  log(`[GAME] Round started (seed=${seed}, difficulty=${diffLabel}, duration=${totalDuration}s, modules=${gameState.activeModuleIds.join(',')}).`);
+
   broadcastEvent({
     type: 'game_started',
     startTime: gameState.startTime,
@@ -575,6 +604,7 @@ function resetGame(clearDisconnectedRoles = true) {
 
   updateHost();
   checkReadyStatus();
+  log(`[GAME] Round reset to waiting state (nextSeed=${gameState.roundSeed}).`);
   broadcastFullState();
 }
 
@@ -584,6 +614,7 @@ function triggerExplosion(reason) {
   stopGameTimer();
   gameState.status = 'exploded';
   gameState.endReason = reason; // 'time_out' | 'max_strikes'
+  log(`[GAME] Bomb exploded (reason=${reason}).`);
   broadcastFullState();
 }
 
@@ -593,6 +624,7 @@ function triggerDefusal() {
   stopGameTimer();
   gameState.status = 'defused';
   gameState.endReason = 'all_modules_defused';
+  log('[GAME] Bomb defused! All active modules solved.');
   broadcastFullState();
 }
 
@@ -607,6 +639,8 @@ function registerStrike(reason) {
     const elapsed = (Date.now() - gameState.startTime) / 1000;
     gameState.remainingSeconds = Math.max(0, Math.round(gameState.duration - elapsed));
   }
+
+  log(`[GAME] Strike ${gameState.strikes}/${gameState.maxStrikes} recorded (penalty=-${penalty}s, remaining=${gameState.remainingSeconds}s).`);
 
   broadcastEvent({
     type: 'strike',
@@ -701,7 +735,7 @@ wss.on('connection', (ws) => {
       const message = JSON.parse(raw.toString());
       handleClientEvent(ws, message);
     } catch (err) {
-      console.error('Error handling message:', err);
+      logError('[WS] Error handling client message:', err instanceof Error ? err.message : String(err));
     }
   });
 
@@ -720,14 +754,14 @@ wss.on('connection', (ws) => {
 
       if (session.role && roles[session.role] && roles[session.role].playerId === playerId) {
         roles[session.role].connected = false;
-        log(`🔌 بازیکن ${playerId.substring(0, 6)} نقش [${session.role}] قطع شد.`);
+        log(`[WS] Player ${shortPlayerId(playerId)} disconnected from role [${formatRoleForLog(session.role)}].`);
       }
 
       updateHost();
       checkReadyStatus();
       broadcastFullState();
     } else {
-      log(`Stale socket ${socketId} closed for player ${playerId}; active session unaffected.`);
+      log(`[WS] Stale socket #${socketId} closed for player ${shortPlayerId(playerId)}; active session unaffected.`);
     }
   });
 });
@@ -782,7 +816,7 @@ function handleClientEvent(ws, msg) {
       // Deterministic policy for duplicate sessions:
       // Newer connection replaces older connection; older socket is closed cleanly.
       if (session.socket && session.socket !== ws && session.connected) {
-        log(`Duplicate session detected for player ${cleanPlayerId}. Terminating older socket.`);
+        log(`[WS] Duplicate session detected for player ${shortPlayerId(cleanPlayerId)}; closing older socket.`);
         const oldSocket = session.socket;
         try {
           oldSocket.send(JSON.stringify({
@@ -827,7 +861,7 @@ function handleClientEvent(ws, msg) {
     // 1. Role replacement: When a player changes roles, safely release their previous role!
     if (previousRole && previousRole !== targetRole) {
       releaseRole(previousRole);
-      log(`Player ${cleanPlayerId.substring(0, 6)} safely released previous role [${previousRole}]`);
+      log(`[ROLE] Player ${shortPlayerId(cleanPlayerId)} released previous role [${formatRoleForLog(previousRole)}].`);
     }
 
     // If target role was previously assigned to a disconnected player, transfer it cleanly
@@ -859,7 +893,7 @@ function handleClientEvent(ws, msg) {
       })
     );
 
-    log(`✅ بازیکن ${cleanPlayerId.substring(0, 6)} نقش [${role}] را برگزید.`);
+    log(`[ROLE] Player ${shortPlayerId(cleanPlayerId)} assigned to role [${formatRoleForLog(targetRole)}].`);
     broadcastFullState();
     return;
   }
@@ -873,6 +907,7 @@ function handleClientEvent(ws, msg) {
       if (released) {
         updateHost();
         checkReadyStatus();
+        log(`[ROLE] Player ${shortPlayerId(playerId)} left role [${formatRoleForLog(released)}].`);
         ws.send(JSON.stringify({ type: 'role_released' }));
         broadcastFullState();
       }
@@ -891,6 +926,7 @@ function handleClientEvent(ws, msg) {
     if (roleKey && roles[roleKey] && roles[roleKey].playerId === session.playerId && roles[roleKey].connected) {
       const nextReady = payload?.ready !== undefined ? Boolean(payload.ready) : !roles[roleKey].ready;
       roles[roleKey].ready = nextReady;
+      log(`[LOBBY] Player ${shortPlayerId(session.playerId)} [${formatRoleForLog(roleKey)}] ready=${nextReady}.`);
       checkReadyStatus();
       broadcastFullState();
     }
@@ -988,6 +1024,9 @@ function handleClientEvent(ws, msg) {
     gameState.maxStrikes = sanitized.maxStrikes;
     gameState.activeModuleIds = activeModules.slice(0, sanitized.moduleCount).map((m) => m.id);
     gameState.commAid = createCommAidState(sanitized);
+
+    const presetLabel = `${sanitized.preset || 'normal'}${sanitized.isCustom ? '-custom' : ''}`;
+    log(`[LOBBY] Difficulty set to "${presetLabel}" (duration=${totalDuration}s, maxStrikes=${sanitized.maxStrikes}, modules=${sanitized.moduleCount}).`);
 
     broadcastEvent({
       type: 'difficulty_changed',
@@ -1236,6 +1275,9 @@ function handleClientEvent(ws, msg) {
     if (result.strike) {
       registerStrike(result.reason);
     } else if (result.solved) {
+      const solvedCount = (gameState.activeModuleIds || []).filter((id) => gameState.modules?.[id]?.solved).length;
+      const totalCount = (gameState.activeModuleIds || []).length;
+      log(`[GAME] Module "${moduleId}" solved (${solvedCount}/${totalCount}).`);
       broadcastEvent({
         type: 'module_solved',
         moduleId,
@@ -1405,5 +1447,7 @@ export {
   DIFFICULTY_PRESETS,
   DEFAULT_DIFFICULTY_ID,
   sanitizeDifficultyConfig,
-  validateBombActionPayload
+  validateBombActionPayload,
+  printNetworkInterfaces,
+  sanitizeTerminalText
 };
