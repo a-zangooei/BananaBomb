@@ -279,6 +279,53 @@ class SoundEngine {
     } catch (err) {}
   }
 
+  playCountdownBeep(step = 3) {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      // Slightly rising pitch as countdown approaches 1
+      const freq = step === 1 ? 880 : step === 2 ? 740 : 660;
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } catch (err) {}
+  }
+
+  playRoundStartTone() {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      [660, 990].forEach((freq, idx) => {
+        const startAt = now + idx * 0.08;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startAt);
+
+        gain.gain.setValueAtTime(0.32, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.22);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(startAt);
+        osc.stop(startAt + 0.24);
+      });
+    } catch (err) {}
+  }
+
   playTone(freq = 440, duration = 0.2) {
     if (!this.enabled || !this.ctx) return;
     try {

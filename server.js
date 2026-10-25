@@ -36,6 +36,56 @@ app.get('/vendor/three/three.module.min.js', (req, res) => {
 const publicDir = path.join(__dirname, 'public');
 app.use(express.static(publicDir));
 
+// Safe LAN IPv4 discovery helper (gracefully handles Android Termux /proc/net restrictions)
+function scoreLanAddress(ip) {
+  if (typeof ip !== 'string') return 99;
+  if (ip.startsWith('192.168.43.') || ip.startsWith('192.168.49.')) return 1; // Common Android Hotspot
+  if (ip.startsWith('192.168.')) return 2;
+  if (ip.startsWith('10.')) return 3;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)) return 4;
+  return 10;
+}
+
+function detectLanInterfaces(activePort) {
+  const safePort = Number(activePort) || Number(PORT) || 3000;
+  const detected = [];
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces || {})) {
+      const netList = interfaces[name];
+      if (!Array.isArray(netList)) continue;
+      for (const net of netList) {
+        const isIpv4 = net && (net.family === 'IPv4' || net.family === 4);
+        if (isIpv4 && !net.internal && net.address) {
+          const cleanName = sanitizeTerminalText(name);
+          const cleanAddr = sanitizeTerminalText(net.address);
+          detected.push({
+            name: cleanName,
+            address: cleanAddr,
+            url: `http://${cleanAddr}:${safePort}`,
+            priority: scoreLanAddress(cleanAddr)
+          });
+        }
+      }
+    }
+  } catch (err) {
+    // Expected on restricted Android Termux environments; client will fall back to browser origin or manual Hotspot IP
+  }
+
+  detected.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
+  return detected.map(({ name, address, url }) => ({ name, address, url }));
+}
+
+app.get('/api/lan-info', (req, res) => {
+  const boundAddr = server.address();
+  const activePort = (boundAddr && typeof boundAddr === 'object' && boundAddr.port) ? boundAddr.port : (Number(PORT) || 3000);
+  const interfaces = detectLanInterfaces(activePort);
+  res.json({
+    port: activePort,
+    interfaces
+  });
+});
+
 // Fallback route for index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
@@ -212,11 +262,13 @@ const defaultDifficulty = sanitizeDifficultyConfig(DEFAULT_DIFFICULTY_ID);
 const defaultDuration = defaultDifficulty.duration + (defaultDifficulty.features?.timerGraceSeconds || 0);
 
 let gameState = {
-  status: 'waiting', // 'waiting' | 'ready' | 'running' | 'exploded' | 'defused'
+  status: 'waiting', // 'waiting' | 'ready' | 'countdown' | 'running' | 'exploded' | 'defused'
   seed: null,        // Server internal seed (never sent to client)
   roundSeed: generateRandomSeed(), // Public room match seed
   roundRules: null,  // Authoritative selected schemas & rulebook
   startTime: null,   // Server timestamp in ms
+  countdownEndsAt: null, // Server timestamp in ms when 3s readiness curtain finishes
+  countdownDurationMs: 3000,
   duration: defaultDuration,     // Configured round duration
   remainingSeconds: defaultDuration,
   strikes: 0,
@@ -231,6 +283,8 @@ let gameState = {
 };
 
 let gameTimerInterval = null;
+let countdownTimer = null;
+let pendingCountdownSeed = null;
 
 function generateSerialNumber(rng) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -345,6 +399,8 @@ function getFilteredStateForRole(rawRole) {
     status: gameState.status,
     roundSeed: gameState.roundSeed,
     startTime: gameState.startTime,
+    countdownEndsAt: gameState.countdownEndsAt,
+    countdownDurationMs: gameState.countdownDurationMs,
     duration: gameState.duration,
     remainingSeconds: gameState.remainingSeconds,
     strikes: gameState.strikes,
@@ -372,7 +428,7 @@ function getFilteredStateForRole(rawRole) {
       ...common,
       serialNumber: null,
       modules: null,
-      roundManual: isManual && gameState.roundRules ? gameState.roundRules.rulebook : null,
+      roundManual: gameState.status === 'countdown' ? null : (isManual && gameState.roundRules ? gameState.roundRules.rulebook : null),
       canInteract: false
     };
   }
@@ -476,7 +532,87 @@ function stopGameTimer() {
   }
 }
 
+function stopCountdownTimer() {
+  if (countdownTimer) {
+    clearTimeout(countdownTimer);
+    countdownTimer = null;
+  }
+  pendingCountdownSeed = null;
+  gameState.countdownEndsAt = null;
+}
+
+function startPreRoundCountdown(customSeed = null, countdownMs = 3000) {
+  if (gameState.status !== 'ready') return false;
+  stopCountdownTimer();
+  stopGameTimer();
+
+  const clampedMs = Math.min(10000, Math.max(500, Number(countdownMs) || 3000));
+  pendingCountdownSeed = customSeed || null;
+  gameState.status = 'countdown';
+  gameState.countdownDurationMs = clampedMs;
+  gameState.countdownEndsAt = Date.now() + clampedMs;
+
+  log(`[GAME] Pre-round countdown started (${(clampedMs / 1000).toFixed(1)}s).`);
+
+  broadcastEvent({
+    type: 'countdown_started',
+    countdownEndsAt: gameState.countdownEndsAt,
+    countdownDurationMs: clampedMs,
+    serverTimestamp: Date.now()
+  });
+  broadcastFullState();
+
+  countdownTimer = setTimeout(() => {
+    const seedToUse = pendingCountdownSeed;
+    stopCountdownTimer();
+    if (gameState.status === 'countdown') {
+      const stillAllConnected = ROLES.every(
+        (r) => roles[r].playerId && roles[r].connected && roles[r].ready !== false
+      );
+      if (stillAllConnected) {
+        startGame(seedToUse);
+      } else {
+        gameState.status = 'waiting';
+        checkReadyStatus();
+        broadcastFullState();
+      }
+    }
+  }, clampedMs);
+
+  return true;
+}
+
+function cancelPreRoundCountdown(reasonCode = 'player_cancelled', actorRole = null) {
+  if (gameState.status !== 'countdown') return false;
+  stopCountdownTimer();
+  gameState.status = 'waiting';
+  updateHost();
+  checkReadyStatus();
+
+  const safeReason = sanitizeTerminalText(reasonCode || 'cancelled');
+  const safeActor = actorRole ? formatRoleForLog(actorRole) : 'system';
+  log(`[GAME] Pre-round countdown cancelled (reason=${safeReason}, by=${safeActor}).`);
+
+  let reasonMessage = 'شمارش معکوس شروع عملیات لغو شد.';
+  if (reasonCode === 'player_disconnected') {
+    reasonMessage = 'به دلیل قطع ارتباط یکی از بازیکنان، شروع عملیات متوقف شد.';
+  } else if (actorRole) {
+    const title = roleMeta[actorRole]?.title || 'یکی از بازیکنان';
+    reasonMessage = `شمارش معکوس شروع توسط «${title}» لغو شد.`;
+  }
+
+  broadcastEvent({
+    type: 'countdown_cancelled',
+    reason: reasonCode,
+    actorRole: safeActor,
+    message: reasonMessage
+  });
+  broadcastFullState();
+  return true;
+}
+
 function startGame(customSeed = null) {
+  stopCountdownTimer();
   stopGameTimer();
   const seed = (typeof customSeed === 'string' && customSeed.trim().length >= 3)
     ? customSeed.trim().replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 16).toUpperCase()
@@ -558,6 +694,7 @@ function startGame(customSeed = null) {
 }
 
 function resetGame(clearDisconnectedRoles = true) {
+  stopCountdownTimer();
   stopGameTimer();
   gameState.status = 'waiting';
   gameState.seed = null;
@@ -757,6 +894,11 @@ wss.on('connection', (ws) => {
         log(`[WS] Player ${shortPlayerId(playerId)} disconnected from role [${formatRoleForLog(session.role)}].`);
       }
 
+      if (gameState.status === 'countdown') {
+        cancelPreRoundCountdown('player_disconnected', session.role);
+        return;
+      }
+
       updateHost();
       checkReadyStatus();
       broadcastFullState();
@@ -836,8 +978,8 @@ function handleClientEvent(ws, msg) {
     const currentRole = roles[targetRole];
     const previousRole = getRoleByPlayerId(cleanPlayerId);
 
-    // If game is running, disallow switching roles mid-game
-    if (gameState.status === 'running' && previousRole && previousRole !== targetRole) {
+    // If game is running or in countdown, disallow switching roles to a different slot
+    if ((gameState.status === 'running' || gameState.status === 'countdown') && previousRole && previousRole !== targetRole) {
       ws.send(JSON.stringify({
         type: 'error',
         code: 'CANNOT_SWITCH_MIDGAME',
@@ -903,13 +1045,25 @@ function handleClientEvent(ws, msg) {
     const socketInfo = activeSockets.get(ws);
     if (socketInfo) {
       const { playerId } = socketInfo;
+      if (gameState.status === 'running') {
+        ws.send(JSON.stringify({
+          type: 'error',
+          code: 'CANNOT_LEAVE_MIDGAME',
+          message: 'ترک نقش در حین اجرای عملیات مجاز نیست.'
+        }));
+        return;
+      }
       const released = releasePlayerCurrentRole(playerId);
       if (released) {
-        updateHost();
-        checkReadyStatus();
         log(`[ROLE] Player ${shortPlayerId(playerId)} left role [${formatRoleForLog(released)}].`);
         ws.send(JSON.stringify({ type: 'role_released' }));
-        broadcastFullState();
+        if (gameState.status === 'countdown') {
+          cancelPreRoundCountdown('player_cancelled', released);
+        } else {
+          updateHost();
+          checkReadyStatus();
+          broadcastFullState();
+        }
       }
     }
     return;
@@ -933,8 +1087,65 @@ function handleClientEvent(ws, msg) {
     return;
   }
 
-  // 4. Start Game (Must be ready AND initiated by host)
-  if (type === 'start') {
+  // 3c. Host Release Disconnected Role Slot in Lobby
+  if (type === 'release_disconnected_role') {
+    if (gameState.status !== 'waiting' && gameState.status !== 'ready') {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'INVALID_STATE',
+        message: 'آزادسازی نقش فقط در لابی امکان‌پذیر است.'
+      }));
+      return;
+    }
+
+    const socketInfo = activeSockets.get(ws);
+    const playerId = socketInfo ? socketInfo.playerId : null;
+    if (!playerId || playerId !== hostPlayerId) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'UNAUTHORIZED',
+        message: 'تنها میزبان تیم مجاز به آزادسازی نقش بازیکن قطع‌شده است.'
+      }));
+      return;
+    }
+
+    const rawTarget = payload?.role || msg.role;
+    const targetRole = canonicalRole(rawTarget);
+    if (!ROLES.includes(targetRole)) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'INVALID_ROLE',
+        message: 'نقش مورد نظر نامعتبر است.'
+      }));
+      return;
+    }
+
+    const slot = roles[targetRole];
+    if (!slot.playerId || slot.connected) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'ROLE_NOT_DISCONNECTED',
+        message: 'فقط نقش‌هایی که ارتباط بازیکنشان قطع شده قابل آزادسازی هستند.'
+      }));
+      return;
+    }
+
+    releaseRole(targetRole);
+    updateHost();
+    checkReadyStatus();
+    log(`[LOBBY] Host ${shortPlayerId(playerId)} released disconnected role [${formatRoleForLog(targetRole)}].`);
+
+    broadcastEvent({
+      type: 'disconnected_role_released',
+      role: targetRole,
+      roleTitle: roleMeta[targetRole]?.title || targetRole
+    });
+    broadcastFullState();
+    return;
+  }
+
+  // 4. Start Game or Synchronized Pre-Start Countdown (Must be ready AND initiated by host)
+  if (type === 'start' || type === 'start_countdown') {
     const socketInfo = activeSockets.get(ws);
     const playerId = socketInfo ? socketInfo.playerId : null;
 
@@ -960,7 +1171,47 @@ function handleClientEvent(ws, msg) {
       return;
     }
 
-    startGame(payload?.seed || msg.seed);
+    const customSeed = payload?.seed || msg.seed;
+    const requestedCountdownMs =
+      type === 'start_countdown'
+        ? (Number(payload?.countdownMs) || (Number(payload?.countdownSeconds) ? Number(payload.countdownSeconds) * 1000 : 3000))
+        : (Number(payload?.countdownMs) || (Number(payload?.countdownSeconds) ? Number(payload.countdownSeconds) * 1000 : 0));
+
+    if (requestedCountdownMs > 0) {
+      startPreRoundCountdown(customSeed, requestedCountdownMs);
+    } else {
+      startGame(customSeed);
+    }
+    return;
+  }
+
+  // 4a. Cancel Pre-Start Countdown (Allowed by Host or any assigned connected role player)
+  if (type === 'cancel_countdown') {
+    if (gameState.status !== 'countdown') {
+      return;
+    }
+    const socketInfo = activeSockets.get(ws);
+    const session = socketInfo ? sessions.get(socketInfo.playerId) : null;
+    const senderRole = session?.role ? canonicalRole(session.role) : null;
+    const isAssignedConnectedPlayer = Boolean(
+      session &&
+      session.connected &&
+      senderRole &&
+      roles[senderRole]?.playerId === session.playerId &&
+      roles[senderRole]?.connected
+    );
+    const isHostSender = Boolean(session && session.connected && session.playerId === hostPlayerId);
+
+    if (!isAssignedConnectedPlayer && !isHostSender) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        code: 'UNAUTHORIZED',
+        message: 'تنها اعضای تیم مجاز به لغو شمارش معکوس هستند.'
+      }));
+      return;
+    }
+
+    cancelPreRoundCountdown('player_cancelled', senderRole);
     return;
   }
 
@@ -1438,6 +1689,8 @@ export {
   ROLES,
   COMM_AID_SYMBOLS,
   startGame,
+  startPreRoundCountdown,
+  cancelPreRoundCountdown,
   resetGame,
   getRoleByPlayerId,
   releaseRole,
@@ -1448,6 +1701,7 @@ export {
   DEFAULT_DIFFICULTY_ID,
   sanitizeDifficultyConfig,
   validateBombActionPayload,
+  detectLanInterfaces,
   printNetworkInterfaces,
   sanitizeTerminalText
 };

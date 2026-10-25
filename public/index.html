@@ -52,14 +52,44 @@
         </div>
       </div>
 
-      <button type="button" class="btn-tactical-header" id="btnOpenReferenceSheet" aria-haspopup="dialog" aria-controls="lobbyReferenceSheet">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M9 11l3 3L22 4"></path>
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-        </svg>
-        <span>راهنما و چک‌لیست</span>
-        <span class="header-check-count tabular-num" id="headerChecklistCount" dir="ltr">0/7</span>
-      </button>
+      <div class="header-actions-group">
+        <button type="button" class="btn-tactical-header btn-qr-trigger" id="btnOpenQrModal" aria-haspopup="dialog" aria-controls="qrInviteModal" title="نمایش کد QR اتصال هم‌تیمی‌ها در شبکه محلی">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <path d="M14 14h3v3h-3z"></path>
+            <path d="M20 14v3h-2"></path>
+            <path d="M14 20h3"></path>
+            <path d="M20 20h1"></path>
+          </svg>
+          <span>دعوت با QR</span>
+        </button>
+
+        <button type="button" class="btn-tactical-header" id="btnOpenReferenceSheet" aria-haspopup="dialog" aria-controls="lobbyReferenceSheet">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M9 11l3 3L22 4"></path>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+          <span>راهنما و چک‌لیست</span>
+          <span class="header-check-count tabular-num" id="headerChecklistCount" dir="ltr">0/7</span>
+        </button>
+
+        <button type="button" class="btn-tactical-header btn-icon-tactical" id="btnLobbyFullscreen" aria-label="ورود به حالت تمام‌صفحه" aria-pressed="false" title="حالت تمام‌صفحه">
+          <svg class="fs-icon-enter" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+          <svg class="fs-icon-exit" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: none;">
+            <polyline points="4 14 10 14 10 20"></polyline>
+            <polyline points="20 10 14 10 14 4"></polyline>
+            <line x1="14" y1="10" x2="21" y2="3"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- Active Round Compact Tactical HUD Strip (Hidden in Lobby; Opaque surface over WebGL) -->
@@ -102,14 +132,31 @@
         </div>
       </div>
 
-      <button type="button" class="btn-hud-help" id="btnInRoundHelp" aria-label="مشاهده راهنمای نقش و اشاره‌ها" title="راهنمای نقش و اشاره‌ها">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <circle cx="12" cy="12" r="10"></circle>
-          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-          <line x1="12" y1="17" x2="12.01" y2="17"></line>
-        </svg>
-        <span class="btn-hud-help-text">راهنما</span>
-      </button>
+      <div class="hud-actions-cluster">
+        <button type="button" class="btn-hud-help btn-hud-fullscreen" id="btnHudFullscreen" aria-label="ورود به حالت تمام‌صفحه" aria-pressed="false" title="حالت تمام‌صفحه">
+          <svg class="fs-icon-enter" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+          <svg class="fs-icon-exit" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: none;">
+            <polyline points="4 14 10 14 10 20"></polyline>
+            <polyline points="20 10 14 10 14 4"></polyline>
+            <line x1="14" y1="10" x2="21" y2="3"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        </button>
+
+        <button type="button" class="btn-hud-help" id="btnInRoundHelp" aria-label="مشاهده راهنمای نقش و اشاره‌ها" title="راهنمای نقش و اشاره‌ها">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span class="btn-hud-help-text">راهنما</span>
+        </button>
+      </div>
     </section>
 
     <!-- Non-blocking Toast Banner (replaces window.alert) -->
@@ -156,7 +203,10 @@
               </div>
               <div class="role-card-footer">
                 <span class="role-constraint-line">عینک آفتابی · فرامین شفاهی از ناظر</span>
-                <button type="button" class="role-info-link" data-open-perm="operator">جزئیات نقش</button>
+                <div class="role-card-footer-actions">
+                  <button type="button" class="btn-release-offline" id="btnReleaseBlind" data-release-role="blind" style="display: none;">آزادسازی نقش</button>
+                  <button type="button" class="role-info-link" data-open-perm="operator">جزئیات نقش</button>
+                </div>
               </div>
             </div>
 
@@ -183,7 +233,10 @@
               </div>
               <div class="role-card-footer">
                 <span class="role-constraint-line">هدفون ایمن · بدون لمس بمب</span>
-                <button type="button" class="role-info-link" data-open-perm="observer">جزئیات نقش</button>
+                <div class="role-card-footer-actions">
+                  <button type="button" class="btn-release-offline" id="btnReleaseDeaf" data-release-role="deaf" style="display: none;">آزادسازی نقش</button>
+                  <button type="button" class="role-info-link" data-open-perm="observer">جزئیات نقش</button>
+                </div>
               </div>
             </div>
 
@@ -210,7 +263,10 @@
               </div>
               <div class="role-card-footer">
                 <span class="role-constraint-line">نشسته پشت درب کیف · زبان اشاره</span>
-                <button type="button" class="role-info-link" data-open-perm="manual">جزئیات نقش</button>
+                <div class="role-card-footer-actions">
+                  <button type="button" class="btn-release-offline" id="btnReleaseMute" data-release-role="mute" style="display: none;">آزادسازی نقش</button>
+                  <button type="button" class="role-info-link" data-open-perm="manual">جزئیات نقش</button>
+                </div>
               </div>
             </div>
           </div>
@@ -807,6 +863,76 @@
         </div>
         <button type="button" class="btn-primary" id="btnRestartDefused">
           بازگشت به لابی · دور جدید
+        </button>
+      </div>
+    </div>
+
+    <!-- Modal: Offline LAN QR Code Invite Sheet -->
+    <div class="reference-sheet-backdrop qr-modal-backdrop" id="qrInviteModal" role="dialog" aria-modal="true" aria-labelledby="qrModalTitle" style="display: none;">
+      <div class="reference-sheet-dialog qr-modal-dialog">
+        <div class="reference-sheet-header">
+          <div>
+            <h2 id="qrModalTitle">دعوت هم‌تیمی‌ها در شبکه محلی</h2>
+            <p class="reference-sheet-sub">اسکن آفلاین با دوربین گوشی در وای‌فای یا هات‌اسپات مشترک</p>
+          </div>
+          <button type="button" class="btn-sheet-close" id="btnCloseQrModal" aria-label="بستن پنجره کد QR">
+            <span>بستن</span>
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
+
+        <div class="qr-modal-body">
+          <div class="qr-display-stage">
+            <div class="qr-svg-frame" id="qrSvgContainer" aria-live="polite"></div>
+          </div>
+
+          <div class="qr-url-bar">
+            <strong class="tabular-num qr-url-text" id="qrActiveUrlText" dir="ltr">http://localhost:3000</strong>
+            <button type="button" class="btn-secondary btn-compact-touch" id="btnCopyLanUrl">کپی آدرس</button>
+          </div>
+
+          <div class="qr-localhost-notice" id="qrLocalhostNotice" style="display: none;">
+            این مرورگر روی آدرس محلی دستگاه (<span class="tabular-num" dir="ltr">localhost</span>) باز شده است. برای اسکن توسط گوشی‌های دیگر (مثلاً در Termux یا هات‌اسپات)، آدرس IP هات‌اسپات خود را در کادر زیر وارد کنید.
+          </div>
+
+          <div class="qr-interfaces-section" id="qrInterfaceSelectorWrap" style="display: none;">
+            <span class="qr-field-label">کارت‌های شبکه شناسایی‌شده:</span>
+            <div class="qr-interface-buttons" id="qrInterfaceButtons" role="group" aria-label="انتخاب آدرس شبکه"></div>
+          </div>
+
+          <div class="qr-manual-host-row">
+            <label for="inputManualLanHost" class="qr-field-label">تنظیم دستی IP هات‌اسپات یا شبکه:</label>
+            <div class="qr-manual-controls">
+              <input type="text" id="inputManualLanHost" class="tabular-num" dir="ltr" placeholder="192.168.43.1:3000" maxlength="64" aria-label="آدرس دستی شبکه یا هات‌اسپات" />
+              <button type="button" class="btn-secondary btn-compact-touch" id="btnApplyManualLanHost">ثبت آدرس</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay 3: Synchronized 3-Second Pre-Start Readiness Curtain -->
+    <div class="overlay-screen countdown-curtain" id="overlayCountdown" role="dialog" aria-modal="true" aria-labelledby="countdownHeading">
+      <div class="debrief-card countdown-card">
+        <span class="debrief-kicker">آماده‌باش عملیات · پرده محرمانگی فعال</span>
+        <h2 class="countdown-heading" id="countdownHeading">استقرار نهایی پیش از باز شدن کیف بمب</h2>
+
+        <div class="countdown-digit-stage" aria-live="assertive">
+          <div class="countdown-digit tabular-num" id="countdownDigitDisplay" dir="ltr">3</div>
+          <div class="countdown-progress-track" aria-hidden="true">
+            <div class="countdown-progress-fill" id="countdownProgressFill" style="width: 100%;"></div>
+          </div>
+        </div>
+
+        <div class="countdown-role-box" id="countdownRoleBox">
+          <strong class="countdown-role-title" id="countdownRoleTitle">آمادگی نقش شما</strong>
+          <ul class="countdown-role-list" id="countdownRoleInstructions">
+            <li>گوشی را در زاویه محرمانه خود قرار دهید.</li>
+          </ul>
+        </div>
+
+        <button type="button" class="btn-secondary btn-cancel-countdown" id="btnCancelCountdown">
+          لغو شروع عملیات
         </button>
       </div>
     </div>
