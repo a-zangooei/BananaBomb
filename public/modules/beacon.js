@@ -1,14 +1,39 @@
 /**
- * Client 3D Acoustic Beacon Module
- * Enlarged dial knob, channel 1-3 touch targets, intentional hold-to-transmit (TX)
- * confirmation ring, curved tactile knob outlines, and strict Operator monochrome rendering.
+ * Client 3D Optical Morse & Tactile Braille Module (Silent Replacement for Acoustic Beacon)
+ *
+ * Role-Split Clues & Controls:
+ * - Operator (monochrome): Reads randomized 6-dot tactile Braille numerals (1='⠁', 2='⠃', 3='⠉')
+ *   around the 3-slot frequency dial, watches the silent West-side Optical Morse Lamp on the
+ *   briefcase exterior, and physically operates the dial + HOLD TX switch.
+ * - Observer (full color): Sees the colored Spectrum Indicator window (Red / Blue / Yellow)
+ *   and physical dial slot orientation, without Braille digits or Optical Morse lamp sightlines.
+ * - Zero audio puzzle clues are emitted anywhere in the room.
  */
 import { createCanvas2D } from './canvas-utils.js';
 import { createCircleOutlineGeometry, TACTILE_PALETTE } from '../tactile-styler.js';
 
 const NOOP_RAYCAST = () => {};
 
-function drawDialCanvas(canvas, label, isMonochrome, isHighlighted = false) {
+const SPECTRUM_COLOR_HEX = Object.freeze({
+  red: 0xef4444,
+  blue: 0x3b82f6,
+  yellow: 0xfacc15
+});
+
+// Standard 6-dot Braille active dot indices (1-based: 1=top-left, 2=mid-left, 3=bot-left, 4=top-right, 5=mid-right, 6=bot-right)
+const BRAILLE_DOT_MAP = Object.freeze({
+  1: [1],
+  2: [1, 2],
+  3: [1, 4]
+});
+
+const SLOT_POSITION_NAMES = Object.freeze({
+  1: 'چپ',
+  2: 'وسط',
+  3: 'راست'
+});
+
+function drawDialCanvas(canvas, { channelNumber = null, isMonochrome = true, isHighlighted = false } = {}) {
   const ctx = canvas.getContext('2d');
   if (canvas._texts) canvas._texts.length = 0;
 
@@ -17,21 +42,46 @@ function drawDialCanvas(canvas, label, isMonochrome, isHighlighted = false) {
     ctx.fillStyle = isHighlighted ? '#27272a' : '#09090b';
     ctx.fillRect(0, 0, 128, 128);
     ctx.strokeStyle = isHighlighted ? '#f8fafc' : '#71717a';
-    ctx.lineWidth = isHighlighted ? 8 : 6;
+    ctx.lineWidth = isHighlighted ? 8 : 5;
     ctx.strokeRect(4, 4, 120, 120);
+
+    // Render crisp 2×3 6-dot tactile Braille numeral cell for Operator
+    const raisedDots = BRAILLE_DOT_MAP[channelNumber] || [1];
+    const colX = [44, 84];
+    const rowY = [34, 64, 94];
+
+    for (let c = 0; c < 2; c++) {
+      for (let r = 0; r < 3; r++) {
+        const dotIdx = c * 3 + r + 1;
+        const x = colX[c];
+        const y = rowY[r];
+        const isRaised = raisedDots.includes(dotIdx);
+
+        ctx.beginPath();
+        ctx.arc(x, y, isRaised ? 11 : 5, 0, Math.PI * 2);
+        if (isRaised) {
+          ctx.fillStyle = '#f8fafc';
+          ctx.fill();
+        } else {
+          ctx.strokeStyle = '#52525b';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        }
+      }
+    }
   } else {
+    // Observer sees unnumbered calibration notch plate (no channel number / no Braille leak)
     ctx.fillStyle = isHighlighted ? '#1e3a8a' : '#0f172a';
     ctx.fillRect(0, 0, 128, 128);
     ctx.strokeStyle = isHighlighted ? '#fbbf24' : '#38bdf8';
     ctx.lineWidth = isHighlighted ? 8 : 6;
     ctx.strokeRect(4, 4, 120, 120);
-  }
 
-  ctx.font = 'bold 38px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#f8fafc';
-  ctx.fillText(label, 64, 64);
+    ctx.fillStyle = isHighlighted ? '#fbbf24' : '#94a3b8';
+    ctx.beginPath();
+    ctx.arc(64, 64, isHighlighted ? 16 : 11, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawTxCanvas(canvas, text, progress, isMonochrome, isSolved = false) {
@@ -75,7 +125,7 @@ function drawTxCanvas(canvas, text, progress, isMonochrome, isSolved = false) {
 
 export const beaconClientModule = {
   id: 'beacon',
-  title: 'فانوس صوتی (Acoustic Beacon)',
+  title: 'فانوس مورس نوری (Optical Morse)',
 
   build(THREE, slot, role) {
     const group = new THREE.Group();
@@ -103,23 +153,34 @@ export const beaconClientModule = {
     ledMesh.position.set(slot.width * 0.35, slot.height * 0.35, 0.035);
     group.add(ledMesh);
 
-    // 3. Speaker / Beacon Perforated Grill (Top-Left)
-    const speakerGroup = new THREE.Group();
-    speakerGroup.position.set(-slot.width * 0.25, slot.height * 0.28, 0.031);
-    for (let r = 0.035; r <= 0.12; r += 0.042) {
-      const ringGeo = new THREE.RingGeometry(r, r + 0.014, 20);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: isMonochrome ? 0xa1a1aa : 0x38bdf8,
-        depthWrite: false,
-        toneMapped: false,
-        side: THREE.DoubleSide
-      });
-      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-      ringMesh.renderOrder = 2;
-      ringMesh.userData = { isOverlayPlane: true, skipTactile: true };
-      speakerGroup.add(ringMesh);
-    }
-    group.add(speakerGroup);
+    // 3. Spectrum Color Indicator Window (Top-Left — Colored for Observer, Monochrome for Operator)
+    const spectrumGroup = new THREE.Group();
+    spectrumGroup.position.set(-0.3, 0.33, 0.025);
+
+    const spectrumBezelGeo = new THREE.BoxGeometry(0.24, 0.15, 0.044);
+    const spectrumBezelMat = new THREE.MeshLambertMaterial({
+      color: isMonochrome ? 0x09090b : 0x334155
+    });
+    const spectrumBezelMesh = new THREE.Mesh(spectrumBezelGeo, spectrumBezelMat);
+    spectrumBezelMesh.position.z = 0.002;
+    spectrumGroup.add(spectrumBezelMesh);
+
+    const spectrumGeo = new THREE.PlaneGeometry(0.19, 0.105);
+    const spectrumMat = new THREE.MeshBasicMaterial({
+      color: isMonochrome ? 0x18181b : SPECTRUM_COLOR_HEX.red,
+      toneMapped: false
+    });
+    const spectrumMesh = new THREE.Mesh(spectrumGeo, spectrumMat);
+    spectrumMesh.name = 'BeaconSpectrumLens';
+    spectrumMesh.position.z = 0.026;
+    spectrumMesh.renderOrder = 2;
+    spectrumMesh.userData = {
+      clueId: 'beacon_spectrum',
+      surfaceRole: 'beacon_spectrum',
+      skipTactile: true
+    };
+    spectrumGroup.add(spectrumMesh);
+    group.add(spectrumGroup);
 
     // 4. Frequency Dial Base Ring
     const dialRingGeo = new THREE.RingGeometry(0.24, 0.28, 24);
@@ -206,18 +267,22 @@ export const beaconClientModule = {
 
     group.add(knobGroup);
 
-    // 6. Enlarged Channel Notch Labels (1, 2, 3) around Dial with Dedicated Hitboxes
+    // 6. Enlarged Tactile Braille Slot Plates (Slots 1, 2, 3) around Dial with Dedicated Hitboxes
     const channelItems = [];
-    const channelAngles = [-0.78, 0, 0.78];
-    const channelLabels = ['1', '2', '3'];
+    const slotAngles = [0.78, 0, -0.78]; // Slot 1 = Left (+0.78 rad), Slot 2 = Center (0), Slot 3 = Right (-0.78 rad)
 
-    channelAngles.forEach((ang, idx) => {
+    slotAngles.forEach((ang, idx) => {
+      const slotNum = idx + 1;
       const radius = 0.37;
       const lx = -Math.sin(ang) * radius;
       const ly = Math.cos(ang) * radius - 0.01;
 
       const canvas = createCanvas2D(128, 128);
-      drawDialCanvas(canvas, channelLabels[idx], isMonochrome, idx === 0);
+      drawDialCanvas(canvas, {
+        channelNumber: slotNum,
+        isMonochrome,
+        isHighlighted: idx === 0
+      });
       const tex = new THREE.CanvasTexture(canvas);
       const notchGeo = new THREE.PlaneGeometry(0.16, 0.16);
       const notchMat = new THREE.MeshBasicMaterial({
@@ -230,10 +295,11 @@ export const beaconClientModule = {
       notchMesh.position.set(lx, ly, 0.035);
       notchMesh.renderOrder = 2;
       notchMesh.userData = {
-        channelIndex: idx + 1,
+        channelIndex: slotNum,
+        slotIndex: slotNum,
         isOverlayPlane: true,
-        controlId: `channel-${idx + 1}`,
-        clueId: `beacon_channel_${idx + 1}`
+        controlId: `channel-${slotNum}`,
+        clueId: `beacon_channel_${slotNum}`
       };
       group.add(notchMesh);
 
@@ -242,14 +308,15 @@ export const beaconClientModule = {
       const notchHitMesh = new THREE.Mesh(notchHitGeo, notchHitMat);
       notchHitMesh.position.set(lx, ly, 0.045);
       notchHitMesh.userData = {
-        channelIndex: idx + 1,
+        channelIndex: slotNum,
+        slotIndex: slotNum,
         isTouchHitbox: true,
         skipTactile: true,
-        controlId: `channel-${idx + 1}`
+        controlId: `channel-${slotNum}`
       };
       group.add(notchHitMesh);
 
-      channelItems.push({ channel: idx + 1, notchMesh, notchHitMesh, canvas, tex });
+      channelItems.push({ channel: slotNum, slot: slotNum, notchMesh, notchHitMesh, canvas, tex });
     });
 
     // 7. Enlarged Transmit Switch Button (TX) at Bottom (Requires Intentional Hold)
@@ -318,6 +385,9 @@ export const beaconClientModule = {
     group.userData = {
       baseMesh,
       ledMesh,
+      spectrumGroup,
+      spectrumBezelMesh,
+      spectrumMesh,
       knobGroup,
       knobMesh,
       knobHitMesh,
@@ -330,8 +400,8 @@ export const beaconClientModule = {
       txTex,
       txGlowMesh,
       channelItems,
-      currentChannel: 1,
-      soundLoopInterval: null
+      currentSlot: 1,
+      currentChannel: 1
     };
 
     return group;
@@ -357,50 +427,58 @@ export const beaconClientModule = {
   resolveControl(hit, state, role, config = {}) {
     if ((role !== 'blind' && role !== 'operator') || state?.solved) return null;
     const { isKnob, isTx, hitChannel } = this.inspectBeaconTarget(hit);
-    const currChannel = state?.tunedChannel || 1;
+    const currSlot = state?.tunedSlot || state?.tunedChannel || 1;
+    const slotChannels = Array.isArray(state?.slotChannels) ? state.slotChannels : [1, 2, 3];
 
     if (hitChannel !== undefined) {
+      const slotPosName = SLOT_POSITION_NAMES[hitChannel] || String(hitChannel);
+      const mappedCh = slotChannels[hitChannel - 1] || hitChannel;
       return {
         moduleId: 'beacon',
         controlId: `channel-${hitChannel}`,
         targetType: 'channel',
         channel: hitChannel,
+        slot: hitChannel,
         interactionMode: 'tap',
-        label: `کانال ${hitChannel} فانوس`,
-        commitLabel: `فانوس روی کانال ${hitChannel} تنظیم شد`,
-        commitDetail: `سلکتور فرکانس روی کانال ${hitChannel} قرار گرفت.`,
+        label: `خانه ${slotPosName} سلکتور (بریل کانال ${mappedCh})`,
+        commitLabel: `سلکتور مورس روی خانه ${slotPosName} (کانال ${mappedCh}) قرار گرفت`,
+        commitDetail: 'تنظیم خانه سلکتور بریل ثبت شد.',
         buildAction() {
           return {
             moduleId: 'beacon',
             action: 'tune',
-            data: { channel: hitChannel }
+            data: { slot: hitChannel }
           };
         }
       };
     }
 
     if (isKnob) {
-      const nextChannel = (currChannel % 3) + 1;
+      const nextSlot = (currSlot % 3) + 1;
+      const slotPosName = SLOT_POSITION_NAMES[nextSlot] || String(nextSlot);
+      const mappedCh = slotChannels[nextSlot - 1] || nextSlot;
       return {
         moduleId: 'beacon',
         controlId: 'knob',
         targetType: 'knob',
-        channel: nextChannel,
+        channel: nextSlot,
+        slot: nextSlot,
         interactionMode: 'tap',
-        label: 'سلکتور کانال فانوس',
-        commitLabel: `فانوس به کانال ${nextChannel} چرخید`,
-        commitDetail: `سلکتور به کانال بعدی (${nextChannel}) تغییر یافت.`,
+        label: 'سلکتور بریل فانوس مورس',
+        commitLabel: `سلکتور به خانه ${slotPosName} (کانال ${mappedCh}) چرخید`,
+        commitDetail: 'سلکتور به خانه بعدی تغییر یافت.',
         buildAction() {
           return {
             moduleId: 'beacon',
             action: 'tune',
-            data: { channel: nextChannel }
+            data: { slot: nextSlot }
           };
         }
       };
     }
 
     if (isTx) {
+      const activeCh = slotChannels[currSlot - 1] || state?.tunedChannel || currSlot;
       return {
         moduleId: 'beacon',
         controlId: 'tx',
@@ -408,8 +486,8 @@ export const beaconClientModule = {
         interactionMode: 'hold_commit',
         holdDurationMs: config.beaconTxHoldMs || 340,
         dedupeLockMs: 400,
-        label: 'کلید ارسال فرکانس (TX)',
-        commitLabel: `ارسال فرکانس (TX) روی کانال ${currChannel}`,
+        label: 'کلید ارسال فرکانس نوری (TX)',
+        commitLabel: `ارسال فرکانس (TX) روی کانال ${activeCh}`,
         commitDetail: 'پالس فرکانسی برای بررسی به سرور ارسال شد.',
         buildAction() {
           return {
@@ -458,21 +536,42 @@ export const beaconClientModule = {
 
   update(moduleGroup, role, state) {
     if (!state || !moduleGroup) return;
-    const { ledMesh, knobGroup, txBaseMesh, txCanvas, txTex, channelItems } = moduleGroup.userData;
+    const { ledMesh, spectrumMesh, knobGroup, txBaseMesh, txCanvas, txTex, channelItems } =
+      moduleGroup.userData;
     const isMonochrome = role === 'blind' || role === 'operator';
 
-    const channel = state.tunedChannel || 1;
-    moduleGroup.userData.currentChannel = channel;
+    const tunedSlot = state.tunedSlot || state.tunedChannel || 1;
+    const slotChannels = Array.isArray(state.slotChannels) ? state.slotChannels : [1, 2, 3];
+    moduleGroup.userData.currentSlot = tunedSlot;
+    moduleGroup.userData.currentChannel = state.tunedChannel || slotChannels[tunedSlot - 1] || tunedSlot;
+
     const angles = { 1: 0.78, 2: 0, 3: -0.78 };
     if (knobGroup) {
-      knobGroup.rotation.z = angles[channel] ?? 0;
+      knobGroup.rotation.z = angles[tunedSlot] ?? 0;
     }
 
     if (channelItems) {
-      channelItems.forEach((item) => {
-        drawDialCanvas(item.canvas, String(item.channel), isMonochrome, item.channel === channel);
+      channelItems.forEach((item, idx) => {
+        const slotNum = idx + 1;
+        const assignedCh = slotChannels[idx] || slotNum;
+        drawDialCanvas(item.canvas, {
+          channelNumber: assignedCh,
+          isMonochrome,
+          isHighlighted: slotNum === tunedSlot
+        });
         item.tex.needsUpdate = true;
       });
+    }
+
+    if (spectrumMesh) {
+      if (isMonochrome) {
+        spectrumMesh.material.color.setHex(state.solved ? 0xe4e4e7 : 0x18181b);
+      } else if (state.solved) {
+        spectrumMesh.material.color.setHex(0x10b981);
+      } else {
+        const specHex = SPECTRUM_COLOR_HEX[state.spectrumColor] || SPECTRUM_COLOR_HEX.red;
+        spectrumMesh.material.color.setHex(specHex);
+      }
     }
 
     if (state.solved) {
@@ -481,10 +580,6 @@ export const beaconClientModule = {
       if (txCanvas && txTex) {
         drawTxCanvas(txCanvas, '✓ TX', 1, isMonochrome, true);
         txTex.needsUpdate = true;
-      }
-      if (moduleGroup.userData.soundLoopInterval) {
-        clearInterval(moduleGroup.userData.soundLoopInterval);
-        moduleGroup.userData.soundLoopInterval = null;
       }
       return;
     }
@@ -498,18 +593,6 @@ export const beaconClientModule = {
     if (txCanvas && txTex) {
       drawTxCanvas(txCanvas, 'HOLD TX', 0, isMonochrome, false);
       txTex.needsUpdate = true;
-    }
-
-    if ((role === 'blind' || role === 'operator') && state.beats && !state.solved) {
-      if (!moduleGroup.userData.soundLoopInterval) {
-        const playLoop = () => {
-          if (typeof window !== 'undefined' && window.soundEngine?.playBeaconPattern) {
-            window.soundEngine.playBeaconPattern(state.beats);
-          }
-        };
-        playLoop();
-        moduleGroup.userData.soundLoopInterval = setInterval(playLoop, 4200);
-      }
     }
   },
 

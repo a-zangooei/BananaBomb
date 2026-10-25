@@ -55,6 +55,7 @@ export const SEATED_CAMERA_CONFIGS = Object.freeze({
     ]),
     defaultPreset: 'modules',
     secondaryPreset: 'overview',
+    tertiaryPreset: 'lamp',
     presets: Object.freeze({
       modules: Object.freeze({
         id: 'modules',
@@ -67,6 +68,12 @@ export const SEATED_CAMERA_CONFIGS = Object.freeze({
         lookAt: Object.freeze({ x: 0.06, y: 0.99, z: -0.14 }),
         baseFov: 52,
         minTanHalfHFov: 0.318
+      }),
+      lamp: Object.freeze({
+        id: 'lamp',
+        lookAt: Object.freeze({ x: -0.308, y: 0.832, z: 0.176 }),
+        baseFov: 32,
+        minTanHalfHFov: 0.2
       })
     })
   },

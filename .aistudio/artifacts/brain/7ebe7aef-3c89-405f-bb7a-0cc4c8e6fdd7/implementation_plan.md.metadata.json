@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for BananaBomb mobile LAN quality-of-life & tactical readiness upgrade: offline SVG QR invite modal, Screen Wake Lock & Fullscreen controls, synchronized 3-second pre-start readiness curtain with cancel support, and hybrid mobile session persistence with host disconnected-slot release.",
-  "updatedAt":  "2026-10-25T07:43:11.856082975Z",
+  "summary":  "طرح معماری و تجربه کاربری حذف ماژول فانوس صوتی و جایگزینی آن با ماژول «فانوس مورس نوری» شامل لامپ چشمک‌زن روی دیواره چپ بیرونی کیف (مخصوص اپراتور)، پیچ فرکانس با اعداد بریل لمسی، چراغ طیف رنگی ناظر و جدول رمزگشایی دفترچه راهنما.",
+  "updatedAt":  "2026-10-25T14:52:14.919176693Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

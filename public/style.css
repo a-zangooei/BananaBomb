@@ -1952,6 +1952,27 @@ body {
   direction: ltr;
 }
 
+.braille-legend-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background-color: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+.braille-glyph {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent-amber);
+  padding: 0 2px;
+}
+
 .manual-loading-placeholder {
   text-align: center;
   color: var(--text-muted);

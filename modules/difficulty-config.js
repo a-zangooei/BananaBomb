@@ -68,6 +68,7 @@ export function sanitizeDifficultyConfig(presetId, customOverrides = null) {
   if (!customOverrides || typeof customOverrides !== 'object') {
     return {
       preset: basePreset.id,
+      isCustom: false,
       name: basePreset.name,
       duration: basePreset.duration,
       maxStrikes: basePreset.maxStrikes,

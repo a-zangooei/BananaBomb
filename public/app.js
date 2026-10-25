@@ -178,10 +178,10 @@ const ROLE_PERMISSIONS_SPEC = {
   operator: {
     title: 'اپراتور (Operator)',
     can: [
-      'مشاهده نمای سه‌بعدی مونوکروم بمب روی گوشی خود و شنیدن صدای بازی که از گوشی شما پخش می‌شود.',
-      'لمس و تعامل مستقیم با بمب (بریدن سیم‌ها، فشردن/نگه‌داشتن دکمه، زدن کلیدهای ۱ تا ۴، چرخاندن سلکتور و ارسال TX).',
+      'مشاهده نمای سه‌بعدی مونوکروم بمب و لامپ مورس نوری بی‌صدا در دیواره چپ بیرونی کیف (با دکمه «لامپ مورس» یا چرخش نگاه).',
+      'لمس مستقیم بمب و خواندن اعداد بریل دور سلکتور فانوس مورس نوری (⠁ = ۱ · ⠃ = ۲ · ⠉ = ۳) برای تنظیم کانال و نگه‌داشتن HOLD TX.',
       'استفاده از عینک آفتابی یا محدودیت دید راحت، ایمن و توافقی پیش از شروع راند.',
-      'دریافت دستورات کلامی از ناظر و انتقال بی‌کلام ریتم بوق فانوس (با ضربه روی میز) به ناظر.'
+      'دریافت دستورات کلامی از ناظر و انتقال بی‌کلام الگوی چشمک‌زن لامپ مورس (با ضربه فیزیکی روی میز یا اشاره دست) به ناظر.'
     ],
     cannot: [
       'صحبت کردن یا تولید هرگونه کلام در طول راند.',
@@ -193,14 +193,14 @@ const ROLE_PERMISSIONS_SPEC = {
   observer: {
     title: 'ناظر (Observer) — پل ارتباطی تیم',
     can: [
-      'مشاهده رنگ و شکل اجزای داخل کیف، نمادهای کیپد، نوار کناری دکمه و پلاک شماره سریال از زاویه جانبی ۳D.',
+      'مشاهده رنگ و شکل اجزای داخل کیف (از جمله چراغ طیف رنگی قرمز/آبی/زرد فانوس مورس)، نمادهای کیپد، نوار دکمه و پلاک سریال.',
       'صحبت کردن شفاهی با اپراتور (شما تنها بازیکنی هستید که اجازه صحبت کردن دارد).',
       'برقراری ارتباط دوطرفه با دارنده دفترچه راهنما از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
       'نگاه به اطراف و زوم اپتیکال از صندلی کناری میز بدون لمس عملیاتی ماژول‌های بمب.'
     ],
     cannot: [
       'لمس، بریدن سیم یا تعامل عملیاتی با هیچ‌یک از ماژول‌های بمب.',
-      'تکیه بر شنیدن صدای بازی در اتاق یا کسب اطلاعات از صدای گوشی اپراتور (هدفون ایمن یا جایگزین توافقی الزامی است).',
+      'تکیه بر شنیدن صدای عمومی تایمر/خطا در اتاق (هدفون ایمن یا جایگزین توافقی الزامی است).',
       'نشان دادن صفحه رنگی گوشی خود به اپراتور یا دارنده دفترچه راهنما، یا نگاه کردن به صفحه گوشی آن‌ها.',
       'استفاده از موسیقی یا صدای بلند و آسیب‌زا در هدفون.'
     ]
@@ -210,13 +210,13 @@ const ROLE_PERMISSIONS_SPEC = {
     can: [
       'مطالعه دفترچه قوانین ۲D راند جاری در کنار نمای سه‌بعدی نشسته پشت میز ون (که درب باز کیف دید داخل بمب را پوشانده است).',
       'برقراری ارتباط دوطرفه فقط با ناظر از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
-      'تحلیل سرنخ‌های اعلامی ناظر و انتقال شماره سیم، ضربه/نگه‌داشتن، رقم ثانیه یا شماره کانال با اشاره به ناظر.'
+      'تحلیل سرنخ‌های اعلامی ناظر (از جمله الگوی مورس نوری و رنگ چراغ طیف) و انتقال شماره کانال هدف با اشاره به ناظر.'
     ],
     cannot: [
       'صحبت کردن یا زمزمه کردن با هیچ‌یک از بازیکنان.',
       'دیدن صفحه گوشی اپراتور یا برقراری هرگونه ارتباط مستقیم با اپراتور.',
       'لمس یا تعامل با بمب، یا نشان دادن صفحه دفترچه راهنما به ناظر یا اپراتور.',
-      'وابسته کردن حل ماژول به شنیدن مستقیم صدای گوشی اپراتور در اتاق به جای جدول دیداری و هماهنگی با ناظر.'
+      'تلاش برای دیدن مستقیم لامپ مورس کناری یا داخل کیف بمب از پشت درب بازشده کیف.'
     ]
   }
 };
@@ -672,8 +672,8 @@ const COUNTDOWN_ROLE_PREP = {
     title: 'آماده‌باش نقش شما: اپراتور (Operator)',
     items: [
       'عینک آفتابی یا محدودیت دید توافقی خود را همین الان بزنید.',
-      'در طول راند مطلقاً صحبت نکنید؛ صدای بازی از گوشی شما پخش می‌شود.',
-      'گوشی را طوری بگیرید که هم‌تیمی‌ها صفحه شما را نبینند.'
+      'در طول راند مطلقاً صحبت نکنید؛ کد مورس نوری دیواره چپ کیف را با ضربه میز یا اشاره به ناظر برسانید.',
+      'اعداد بریل دور سلکتور: ⠁ = ۱ · ⠃ = ۲ · ⠉ = ۳ (گوشی را محرمانه نگه دارید).'
     ]
   },
   observer: {
@@ -838,13 +838,16 @@ const overrideCommAidBudget = document.getElementById('overrideCommAidBudget');
 const btnApplyCustomDifficulty = document.getElementById('btnApplyCustomDifficulty');
 
 const CANONICAL_PRESET_BASELINES = {
-  easy: { duration: 330, maxStrikes: 4, moduleCount: 2, timePenaltySeconds: 15, wireIndexLabels: true, commAidEnabled: true, commAidBudget: 5 },
-  normal: { duration: 300, maxStrikes: 3, moduleCount: 3, timePenaltySeconds: 30, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 },
-  hard: { duration: 240, maxStrikes: 2, moduleCount: 4, timePenaltySeconds: 45, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 }
+  easy: { duration: 300, maxStrikes: 3, moduleCount: 2, timePenaltySeconds: 15, timerGraceSeconds: 30, wireIndexLabels: true, commAidEnabled: true, commAidBudget: 5 },
+  normal: { duration: 300, maxStrikes: 3, moduleCount: 3, timePenaltySeconds: 30, timerGraceSeconds: 0, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 },
+  hard: { duration: 210, maxStrikes: 2, moduleCount: 4, timePenaltySeconds: 45, timerGraceSeconds: 0, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 }
 };
 
 function hasCustomDifficultyOverrides(diff) {
   if (!diff || !diff.preset) return false;
+  if (typeof diff.isCustom === 'boolean') {
+    return diff.isCustom;
+  }
   const base = CANONICAL_PRESET_BASELINES[diff.preset];
   if (!base) return true;
   return (
@@ -852,6 +855,7 @@ function hasCustomDifficultyOverrides(diff) {
     diff.maxStrikes !== base.maxStrikes ||
     diff.moduleCount !== base.moduleCount ||
     diff.timePenaltySeconds !== base.timePenaltySeconds ||
+    Number(diff.features?.timerGraceSeconds || 0) !== base.timerGraceSeconds ||
     Boolean(diff.features?.wireIndexLabels) !== base.wireIndexLabels ||
     Boolean(diff.features?.commAidEnabled) !== base.commAidEnabled ||
     (diff.features?.commAidEnabled && Number(diff.features?.commAidBudget || 0) !== base.commAidBudget)
@@ -1302,6 +1306,13 @@ transport.onEvent((eventType, data) => {
     return;
   }
 
+  if (eventType === 'difficulty_changed') {
+    if (data?.difficulty && !hasCustomDifficultyOverrides(data.difficulty)) {
+      isCustomDifficultyOpen = false;
+    }
+    return;
+  }
+
   if (eventType === 'state_update') {
     const prevState = currentGameState;
     currentGameState = data.state;
@@ -1570,9 +1581,11 @@ function renderState(state) {
     }
 
     if (diffChipName) {
-      diffChipName.textContent = hasCustomDifficultyOverrides(state.difficulty)
-        ? `${state.difficulty.name || 'متوسط'} (سفارشی)`
-        : state.difficulty.name || 'متوسط';
+      const rawName = state.difficulty.name || 'متوسط';
+      diffChipName.textContent =
+        hasCustomDifficultyOverrides(state.difficulty) && !rawName.includes('سفارشی')
+          ? `${rawName} (سفارشی)`
+          : rawName;
     }
     if (diffChipTime) {
       const totalSecs = (state.difficulty.duration || 300) + (state.difficulty.features?.timerGraceSeconds || 0);
@@ -1868,21 +1881,27 @@ function renderState(state) {
 
       if (isOperator(myRole)) {
         if (bomb3dRoleBanner) {
-          bomb3dRoleBanner.textContent = 'اپراتور: تنها لمس‌کننده بمب سه‌بعدی مونوکروم · بدون کلام · فرامین را شفاهاً از ناظر دریافت کنید.';
+          bomb3dRoleBanner.textContent = 'اپراتور: تنها لمس‌کننده بمب سه‌بعدی مونوکروم · مشاهده بی‌صدای لامپ مورس دیواره چپ و خواندن اعداد بریل (⠁=۱ · ⠃=۲ · ⠉=۳).';
         }
         if (btnViewFront) btnViewFront.textContent = 'پنل ماژول‌ها';
         if (btnViewBack) btnViewBack.textContent = 'نمای کلی میز';
-        if (btnViewBridge) btnViewBridge.style.display = 'none';
+        if (btnViewBridge) {
+          btnViewBridge.textContent = 'لامپ مورس';
+          btnViewBridge.style.display = 'inline-flex';
+        }
         if (holdThresholdControl) holdThresholdControl.style.display = 'flex';
         if (operatorInteractionHud) operatorInteractionHud.style.display = 'flex';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('operator');
       } else {
         if (bomb3dRoleBanner) {
-          bomb3dRoleBanner.textContent = 'ناظر: مشاهده رنگ و شکل داخل کیف و پلاک سریال · بدون لمس بمب · تنها گوینده تیم و پل اشاره با راهنما.';
+          bomb3dRoleBanner.textContent = 'ناظر: مشاهده رنگ و شکل داخل کیف (از جمله چراغ رنگی فانوس مورس) و پلاک سریال · تنها گوینده تیم و پل اشاره با راهنما.';
         }
         if (btnViewFront) btnViewFront.textContent = 'سرنخ‌های کیف';
         if (btnViewBack) btnViewBack.textContent = 'پلاک سریال';
-        if (btnViewBridge) btnViewBridge.style.display = 'inline-flex';
+        if (btnViewBridge) {
+          btnViewBridge.textContent = 'دید هم‌تیمی‌ها';
+          btnViewBridge.style.display = 'inline-flex';
+        }
         if (holdThresholdControl) holdThresholdControl.style.display = 'none';
         if (operatorInteractionHud) operatorInteractionHud.style.display = 'none';
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('observer');
@@ -2114,6 +2133,9 @@ window.addEventListener('keydown', (e) => {
       } else if (e.key === 'b' || e.key === 'B') {
         setActiveBombViewButton(btnViewBack);
         bombScene.viewBack();
+      } else if (e.key === 'l' || e.key === 'L') {
+        setActiveBombViewButton(btnViewBridge);
+        bombScene.viewTertiary();
       }
     }
 
@@ -2179,20 +2201,22 @@ window.addEventListener('keydown', (e) => {
       if ((e.key === 'c' || e.key === 'C') && !e.repeat) {
         const beaconState = currentGameState?.modules?.beacon;
         if (beaconState && !beaconState.solved) {
-          const curr = beaconState.tunedChannel || 1;
-          const nextChannel = (curr % 3) + 1;
+          const currSlot = beaconState.tunedSlot || beaconState.tunedChannel || 1;
+          const nextSlot = (currSlot % 3) + 1;
+          const slotChannels = Array.isArray(beaconState.slotChannels) ? beaconState.slotChannels : [1, 2, 3];
+          const mappedCh = slotChannels[nextSlot - 1] || nextSlot;
           triggerHaptic(25);
           sound.playClick();
           sendOperatorBombAction({
             moduleId: 'beacon',
             action: 'tune',
-            data: { channel: nextChannel }
+            data: { slot: nextSlot }
           });
           renderOperatorHudStatus({
             active: false,
             mode: 'committed',
-            label: `فانوس روی کانال ${nextChannel} تنظیم شد`,
-            detail: 'تغییر کانال سلکتور ثبت گردید.',
+            label: `سلکتور مورس روی خانه ${nextSlot} (بریل کانال ${mappedCh}) تنظیم شد`,
+            detail: 'تغییر خانه سلکتور بریل ثبت گردید.',
             progress: 1,
             variant: 'success'
           });
@@ -2359,7 +2383,7 @@ document.addEventListener('visibilitychange', () => {
 
 // --- Dynamic Tactical Field Manual Renderer for Manual-holder Role ---
 let currentManualFilter = 'all';
-let currentBeaconParity = 'all';
+let currentBeaconSpectrumFilter = 'all';
 
 function renderDynamicManual(manual, state) {
   if (!muteManualContainer) return;
@@ -2393,7 +2417,7 @@ function renderDynamicManual(manual, state) {
     { id: 'button', label: 'دکمه کاتالیزور', solved: Boolean(state?.modules?.button?.solved) },
     { id: 'wires', label: 'فیوزهای سیم‌کشی', solved: Boolean(state?.modules?.wires?.solved) },
     { id: 'keypad', label: 'صفحه‌کلید رمزی', solved: Boolean(state?.modules?.keypad?.solved) },
-    { id: 'beacon', label: 'فانوس صوتی', solved: Boolean(state?.modules?.beacon?.solved) }
+    { id: 'beacon', label: 'فانوس مورس نوری', solved: Boolean(state?.modules?.beacon?.solved) }
   ].filter((m) => activeModuleIds.includes(m.id));
 
   const stepsHtml = Array.from(
@@ -2432,7 +2456,7 @@ function renderDynamicManual(manual, state) {
     { id: 'button', label: 'دکمه', show: activeModuleIds.includes('button'), solved: Boolean(state?.modules?.button?.solved) },
     { id: 'wires', label: 'سیم‌ها', show: activeModuleIds.includes('wires'), solved: Boolean(state?.modules?.wires?.solved) },
     { id: 'keypad', label: 'کیپد', show: activeModuleIds.includes('keypad'), solved: Boolean(state?.modules?.keypad?.solved) },
-    { id: 'beacon', label: 'فانوس صوتی', show: activeModuleIds.includes('beacon'), solved: Boolean(state?.modules?.beacon?.solved) }
+    { id: 'beacon', label: 'فانوس مورس نوری', show: activeModuleIds.includes('beacon'), solved: Boolean(state?.modules?.beacon?.solved) }
   ].filter((t) => t.show);
 
   if (!tabDefs.some((t) => t.id === currentManualFilter)) {
@@ -2552,7 +2576,7 @@ function renderDynamicManual(manual, state) {
     `;
   }
 
-  // 6. Acoustic Beacon Module Section
+  // 6. Optical Morse & Tactile Braille Module Section
   let beaconHtml = '';
   if (beacon && activeModuleIds.includes('beacon') && (currentManualFilter === 'all' || currentManualFilter === 'beacon')) {
     const buildBeaconTable = (rows, headingLabel) => {
@@ -2562,7 +2586,7 @@ function renderDynamicManual(manual, state) {
         <tr>
           <td><strong>${r.name}</strong></td>
           <td style="text-align: center;"><span class="rhythm-badge">${r.pattern}</span></td>
-          <td class="tabular-num" style="text-align: center; font-weight: 700; color: var(--accent-amber);">${r.channel}</td>
+          <td class="tabular-num" style="text-align: center; font-weight: 700; color: var(--accent-amber);">${r.channel} (${r.braille || ''})</td>
         </tr>
       `
         )
@@ -2573,9 +2597,9 @@ function renderDynamicManual(manual, state) {
           <table class="rule-table">
             <thead>
               <tr>
-                <th>کد پالس</th>
-                <th style="text-align: center;">الگوی ضربه میز</th>
-                <th style="text-align: center;">کانال هدف</th>
+                <th>کد پالس نوری</th>
+                <th style="text-align: center;">الگوی چشمک / ضربه میز</th>
+                <th style="text-align: center;">کانال هدف (بریل)</th>
               </tr>
             </thead>
             <tbody>${trs}</tbody>
@@ -2584,49 +2608,68 @@ function renderDynamicManual(manual, state) {
       `;
     };
 
+    const colorTables = beacon.colorTables || {};
     let tablesMarkup = '';
-    if (currentBeaconParity === 'even') {
-      tablesMarkup = buildBeaconTable(beacon.evenRows, 'جدول رقم آخر سریال زوج (Even):');
-    } else if (currentBeaconParity === 'odd') {
-      tablesMarkup = buildBeaconTable(beacon.oddRows, 'جدول رقم آخر سریال فرد (Odd):');
+    if (currentBeaconSpectrumFilter === 'red') {
+      tablesMarkup = buildBeaconTable(colorTables.red, 'جدول چراغ طیف قرمز (Red):');
+    } else if (currentBeaconSpectrumFilter === 'blue') {
+      tablesMarkup = buildBeaconTable(colorTables.blue, 'جدول چراغ طیف آبی (Blue):');
+    } else if (currentBeaconSpectrumFilter === 'yellow') {
+      tablesMarkup = buildBeaconTable(colorTables.yellow, 'جدول چراغ طیف زرد (Yellow):');
     } else {
       tablesMarkup =
-        buildBeaconTable(beacon.evenRows, 'الف) رقم آخر پلاک سریال زوج (Even):') +
-        buildBeaconTable(beacon.oddRows, 'ب) رقم آخر پلاک سریال فرد (Odd):');
+        buildBeaconTable(colorTables.red, 'الف) چراغ طیف قرمز (Red):') +
+        buildBeaconTable(colorTables.blue, 'ب) چراغ طیف آبی (Blue):') +
+        buildBeaconTable(colorTables.yellow, 'ج) چراغ طیف زرد (Yellow):');
     }
+
+    const brailleLegendHtml = (beacon.brailleLegend || [
+      { channel: 1, braille: '⠁', desc: 'نقطه بالا-چپ' },
+      { channel: 2, braille: '⠃', desc: 'دو نقطه عمودی چپ' },
+      { channel: 3, braille: '⠉', desc: 'دو نقطه افقی بالا' }
+    ])
+      .map(
+        (b) =>
+          `<span>کانال <strong class="tabular-num" dir="ltr">${b.channel}</strong>: <span class="braille-glyph" dir="ltr">${b.braille}</span> (${b.desc})</span>`
+      )
+      .join('<span class="meta-sep" aria-hidden="true">·</span>');
 
     beaconHtml = `
       <div class="manual-section" id="manual-beacon">
         <div class="manual-section-head">
-          <h4>۰۴. ماژول فانوس صوتی (Acoustic Beacon)</h4>
+          <h4>۰۴. ماژول فانوس مورس نوری (Optical Morse)</h4>
           <span class="manual-protocol-code">${beacon.protocolName || ''}</span>
         </div>
 
         <p style="font-size: 0.79rem; color: var(--text-secondary); line-height: 1.65;">
-          صدای پالس از گوشی <strong>اپراتور</strong> پخش می‌شود (در فضای اتاق ممکن است به گوش شما هم برسد، اما حل شما متکی به جدول دیداری و هماهنگی با ناظر است و <strong>ناظر</strong> نیز نباید از صدای بازی استفاده کند). اپراتور ریتم را با <strong>ضربه روی میز</strong> نشان می‌دهد و ناظر زوج/فرد بودن سریال و ریتم را با اشاره به شما منتقل می‌کند:
+          لامپ مورس نوری در دیواره چپ بیرونی کیف <strong>کاملاً بی‌صداست</strong> و تنها در زاویه دید <strong>اپراتور</strong> قرار دارد. اپراتور ریتم نور (کوتاه و بلند) را با <strong>ضربه روی میز یا اشاره دست</strong> به <strong>ناظر</strong> نشان می‌دهد و ناظر رنگ چراغ طیف داخل ماژول (قرمز / آبی / زرد) و الگو را با اشاره به شما منتقل می‌کند:
         </p>
 
-        <div class="parity-toggle-group" role="group" aria-label="فیلتر زوج یا فرد بودن شماره سریال">
-          <button type="button" class="parity-toggle-btn ${currentBeaconParity === 'all' ? 'active' : ''}" data-parity="all">
-            نمایش هر دو حالت (زوج و فرد)
+        <div class="parity-toggle-group" role="group" aria-label="فیلتر رنگ چراغ طیف فانوس مورس">
+          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'all' ? 'active' : ''}" data-spectrum="all">
+            همه رنگ‌ها
           </button>
-          <button type="button" class="parity-toggle-btn ${currentBeaconParity === 'even' ? 'active' : ''}" data-parity="even">
-            فقط سریال زوج (Even)
+          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'red' ? 'active' : ''}" data-spectrum="red">
+            چراغ قرمز
           </button>
-          <button type="button" class="parity-toggle-btn ${currentBeaconParity === 'odd' ? 'active' : ''}" data-parity="odd">
-            فقط سریال فرد (Odd)
+          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'blue' ? 'active' : ''}" data-spectrum="blue">
+            چراغ آبی
+          </button>
+          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'yellow' ? 'active' : ''}" data-spectrum="yellow">
+            چراغ زرد
           </button>
         </div>
 
         ${tablesMarkup}
 
         <div class="manual-sub-box">
-          <strong>راهنمای تطبیق ریتم ضربات میز:</strong>
+          <strong>راهنمای تطبیق ریتم مورس نوری و اعداد بریل سلکتور اپراتور:</strong>
+          <div class="braille-legend-strip">${brailleLegendHtml}</div>
           <ul class="manual-checklist" style="margin-top: 6px;">
-            <li><span class="tabular-num" dir="ltr">·· — ·</span> <strong>(وکتور):</strong> دو ضربه کوتاه، مکث، یک ضربه بلند، یک ضربه کوتاه</li>
+            <li><span class="tabular-num" dir="ltr">·· — ·</span> <strong>(وکتور):</strong> دو چشمک کوتاه، یک بلند، یک کوتاه</li>
             <li><span class="tabular-num" dir="ltr">— · — ·</span> <strong>(سیگما):</strong> یک بلند، یک کوتاه، یک بلند، یک کوتاه</li>
             <li><span class="tabular-num" dir="ltr">· — — ·</span> <strong>(دلتا):</strong> یک کوتاه، دو بلند، یک کوتاه</li>
-            <li><span class="tabular-num" dir="ltr">— — · ·</span> <strong>(امگا):</strong> دو ضربه بلند، دو ضربه کوتاه</li>
+            <li><span class="tabular-num" dir="ltr">— — · ·</span> <strong>(امگا):</strong> دو چشمک بلند، دو چشمک کوتاه</li>
           </ul>
         </div>
 
@@ -2645,9 +2688,9 @@ function renderDynamicManual(manual, state) {
     });
   });
 
-  muteManualContainer.querySelectorAll('.parity-toggle-btn').forEach((btn) => {
+  muteManualContainer.querySelectorAll('[data-spectrum]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
-      currentBeaconParity = e.currentTarget.getAttribute('data-parity') || 'all';
+      currentBeaconSpectrumFilter = e.currentTarget.getAttribute('data-spectrum') || 'all';
       renderDynamicManual(manual, state);
     });
   });

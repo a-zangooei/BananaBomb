@@ -136,9 +136,10 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
   describe('1. Codebase & Rulebook Contradiction Audit', () => {
     const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
     const appJs = fs.readFileSync(path.join(rootDir, 'public/app.js'), 'utf8');
+    const audioJs = fs.readFileSync(path.join(rootDir, 'public/audio.js'), 'utf8');
     const rulesConfigJs = fs.readFileSync(path.join(rootDir, 'modules/rules-config.js'), 'utf8');
 
-    test('Player-facing HTML and JS eliminate misleading role labels, window.alert, and false exclusive-audio claims', () => {
+    test('Player-facing HTML and JS eliminate misleading role labels, window.alert, and puzzle-clue audio functions', () => {
       assert.ok(!indexHtml.includes('نقش نابینا'), 'index.html must not label Operator as Blind role');
       assert.ok(!indexHtml.includes('نقش ناشنوا'), 'index.html must not label Observer as Deaf role');
       assert.ok(!indexHtml.includes('نقش لال'), 'index.html must not label Manual-holder as Mute role');
@@ -146,13 +147,18 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
       assert.ok(!appJs.includes('alert('), 'app.js must not use blocking window.alert');
       assert.ok(!appJs.includes('window.open('), 'app.js must not use window.open');
 
+      // Verify puzzle-clue Morse audio is completely removed while general SFX remain
+      assert.ok(!audioJs.includes('playBeaconBeep'), 'audio.js must not define playBeaconBeep');
+      assert.ok(!audioJs.includes('playBeaconPattern'), 'audio.js must not define playBeaconPattern');
+      assert.ok(audioJs.includes('playTick') && audioJs.includes('playStrike'), 'audio.js must retain general non-secret SFX');
+
       // Verify zero inaccurate claims that only the Operator can hear audio in the shared room
       assert.ok(!indexHtml.includes('تنها اپراتور ریتم'), 'index.html must not claim exclusive Operator audio');
       assert.ok(!appJs.includes('تنها <strong>اپراتور</strong> ریتم صوتی بوق‌ها را می‌شنود'), 'app.js must not claim exclusive Operator audio');
       assert.ok(!rulesConfigJs.includes('تنها اپراتور الگوی ریتمیک بیپ را می‌شنود'), 'rules-config.js must not claim exclusive Operator audio');
     });
 
-    test('Dynamic rulebook notes enforce Manual-holder <-> Observer gesture bridge and never instruct speaking to Operator', () => {
+    test('Dynamic rulebook notes enforce Manual-holder <-> Observer gesture bridge and silent Optical Morse relay', () => {
       const rng = createRng('AUDIT_SEED_1');
       const { rulebook } = selectRoundRules(rng, 'AUDIT_SEED_1');
 
@@ -162,8 +168,9 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
 
       assert.ok(rulebook.wires.note.includes('ناظر') && rulebook.wires.note.includes('اشاره'), 'Wires note must route via gestures to Observer');
       assert.ok(rulebook.keypad.note.includes('ناظر') && rulebook.keypad.note.includes('اشاره'), 'Keypad note must route via gestures to Observer');
-      assert.ok(rulebook.beacon.note.includes('در فضای اتاق ممکن است'), 'Beacon note must accurately explain physical room audio');
-      assert.ok(rulebook.beacon.note.includes('ناظر نیز نباید از صدای بازی استفاده کند'), 'Beacon note must state Observer cannot rely on game audio');
+      assert.ok(rulebook.beacon.note.includes('کاملاً بی‌صدا'), 'Beacon note must state Optical Morse module is completely silent');
+      assert.ok(rulebook.beacon.note.includes('لامپ مورس') && rulebook.beacon.note.includes('ضربه روی میز یا اشاره دست'), 'Beacon note must explain West-side lamp and physical table-tap/gesture relay');
+      assert.ok(rulebook.beacon.note.includes('ناظر نیز نباید از صدای عمومی بازی استفاده کند'), 'Beacon note must state Observer cannot rely on general game audio');
     });
 
     test('Onboarding UI contains Tutorial, You-can/You-cannot panel, 9-item Gesture Vocabulary, and 7-item Pre-Round Checklist', () => {

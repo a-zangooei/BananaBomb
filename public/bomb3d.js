@@ -15,11 +15,15 @@ import { prefersReducedMotion } from './modules/canvas-utils.js';
 import { BombInteractionController, INTERACTION_DEFAULTS } from './interaction-controller.js';
 import { SeatedCameraRig, normalizeWorldRole } from './camera-rig.js';
 import { WorldVisualStyleManager } from './tactile-styler.js';
-import { BRIEFCASE_SPEC, buildBriefcaseBombRig } from './briefcase-rig.js';
+import {
+  BRIEFCASE_SPEC,
+  buildBriefcaseBombRig,
+  computeOpticalMorseLampState
+} from './briefcase-rig.js';
 import { buildVanEnvironment } from './van-environment.js';
 import { buildWorldAvatars } from './world-avatars.js';
 
-export { BRIEFCASE_SPEC };
+export { BRIEFCASE_SPEC, computeOpticalMorseLampState };
 
 /**
  * Checks if WebGL is available in the current browser environment.
@@ -242,17 +246,32 @@ export function buildSharedWorldGraph({
   let currentLowSpec = Boolean(lowSpecMode);
   let latestState = null;
 
-  function clearBeaconIntervals() {
-    for (const modInfo of moduleViews.values()) {
-      if (modInfo.group?.userData?.soundLoopInterval) {
-        clearInterval(modInfo.group.userData.soundLoopInterval);
-        modInfo.group.userData.soundLoopInterval = null;
-      }
+  function syncMorseLamp(elapsedMs = 0) {
+    const beaconState = latestState?.modules?.beacon;
+    if (isOperatorRole(currentRole) && beaconState) {
+      const lampState = computeOpticalMorseLampState(beaconState.beats, elapsedMs, {
+        reducedMotion: prefersReducedMotion(),
+        solved: Boolean(beaconState.solved)
+      });
+      briefcaseRig.updateMorseLamp({
+        isOperatorView: true,
+        lit: lampState.lit,
+        intensity: lampState.intensity,
+        beatType: lampState.beatType,
+        isSolved: Boolean(beaconState.solved)
+      });
+    } else {
+      briefcaseRig.updateMorseLamp({
+        isOperatorView: false,
+        lit: false,
+        intensity: 0,
+        beatType: 'idle',
+        isSolved: false
+      });
     }
   }
 
   function clearModules() {
-    clearBeaconIntervals();
     styleManager.clearModuleEdgeDisposables();
     for (const modInfo of moduleViews.values()) {
       if (modInfo.group) {
@@ -332,6 +351,9 @@ export function buildSharedWorldGraph({
         }
       }
     }
+
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : 0;
+    syncMorseLamp(nowMs);
   }
 
   function setRole(nextRole, { immediate = true } = {}) {
@@ -563,6 +585,7 @@ export function buildSharedWorldGraph({
     moduleViews,
     rebuildModules,
     updateState,
+    syncMorseLamp,
     setRole,
     setLowSpecMode,
     showReticleForDescriptor,
@@ -1122,9 +1145,12 @@ export class Bomb3DScene {
       }
     }
 
-    // Advance active touch/hold progress indicators
+    // Advance active touch/hold progress indicators & silent Optical Morse side-lamp
     this.interaction.tick();
     this.syncReticleWithInteraction();
+    if (this.world) {
+      this.world.syncMorseLamp(now);
+    }
 
     const damping = prefersReducedMotion() ? 1.0 : 0.18;
     if (this.cameraRig) {

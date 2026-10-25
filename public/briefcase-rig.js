@@ -37,8 +37,181 @@ export const BRIEFCASE_SPEC = Object.freeze({
   moduleBayLocalPos: Object.freeze({ x: 0.0, y: 0.058, z: 0.005 }),
   moduleBayTiltDeg: -82,
   moduleBayScale: 0.144,
-  serialPlateLocalPos: Object.freeze({ x: 0.2815, y: 0.042, z: 0.0 })
+  serialPlateLocalPos: Object.freeze({ x: 0.2815, y: 0.042, z: 0.0 }),
+  morseLampLocalPos: Object.freeze({ x: -0.308, y: 0.092, z: 0.136 })
 });
+
+const MORSE_DOT_MS = 240;
+const MORSE_DASH_MS = 720;
+const MORSE_INTRA_GAP_MS = 240;
+const MORSE_WORD_PAUSE_MS = 1200;
+const MORSE_RAMP_MS = 36;
+
+/**
+ * Pure, silent time-based Optical Morse pulse evaluator.
+ * Maps an ITU Morse beat array (`1` = dot ·, `3` = dash —) and `elapsedMs` into deterministic
+ * lamp state without timers or audio side effects.
+ */
+export function computeOpticalMorseLampState(
+  beats,
+  elapsedMs = 0,
+  { reducedMotion = false, solved = false } = {}
+) {
+  if (solved) {
+    return {
+      active: true,
+      lit: true,
+      beatIndex: -1,
+      beatType: 'solved',
+      intensity: 1
+    };
+  }
+
+  if (!Array.isArray(beats) || beats.length === 0) {
+    return {
+      active: false,
+      lit: false,
+      beatIndex: -1,
+      beatType: 'idle',
+      intensity: 0
+    };
+  }
+
+  let cycleDurationMs = MORSE_WORD_PAUSE_MS;
+  for (let i = 0; i < beats.length; i++) {
+    const isDash = Number(beats[i]) >= 2;
+    cycleDurationMs += (isDash ? MORSE_DASH_MS : MORSE_DOT_MS) + MORSE_INTRA_GAP_MS;
+  }
+
+  const safeElapsed = Math.max(0, Number(elapsedMs) || 0);
+  const t = safeElapsed % cycleDurationMs;
+
+  let cursor = 0;
+  for (let i = 0; i < beats.length; i++) {
+    const isDash = Number(beats[i]) >= 2;
+    const onDuration = isDash ? MORSE_DASH_MS : MORSE_DOT_MS;
+
+    if (t >= cursor && t < cursor + onDuration) {
+      const localT = t - cursor;
+      let intensity = 1;
+      if (!reducedMotion) {
+        if (localT < MORSE_RAMP_MS) {
+          intensity = Math.max(0.25, localT / MORSE_RAMP_MS);
+        } else if (localT > onDuration - MORSE_RAMP_MS) {
+          intensity = Math.max(0.25, (onDuration - localT) / MORSE_RAMP_MS);
+        }
+      }
+      return {
+        active: true,
+        lit: true,
+        beatIndex: i,
+        beatType: isDash ? 'dash' : 'dot',
+        intensity
+      };
+    }
+
+    cursor += onDuration;
+    if (t >= cursor && t < cursor + MORSE_INTRA_GAP_MS) {
+      return {
+        active: true,
+        lit: false,
+        beatIndex: i,
+        beatType: 'gap',
+        intensity: 0
+      };
+    }
+    cursor += MORSE_INTRA_GAP_MS;
+  }
+
+  return {
+    active: true,
+    lit: false,
+    beatIndex: -1,
+    beatType: 'pause',
+    intensity: 0
+  };
+}
+
+export function drawMorseLampCanvas(
+  canvas,
+  { isOperatorView = false, lit = false, intensity = 0, beatType = 'idle', isSolved = false } = {}
+) {
+  const ctx = canvas.getContext('2d');
+  if (canvas._texts) canvas._texts.length = 0;
+
+  ctx.clearRect(0, 0, 256, 192);
+  ctx.fillStyle = '#09090b';
+  ctx.fillRect(0, 0, 256, 192);
+
+  ctx.strokeStyle = isOperatorView ? '#d4d4d8' : '#52525b';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 244, 180);
+
+  if (!isOperatorView) {
+    ctx.fillStyle = '#71717a';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('[OPTICAL SHROUD]', 128, 96);
+    return;
+  }
+
+  if (isSolved) {
+    ctx.fillStyle = '#e4e4e7';
+    ctx.fillRect(22, 22, 212, 148);
+    ctx.fillStyle = '#09090b';
+    ctx.font = '900 32px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✓ MORSE', 128, 96);
+    return;
+  }
+
+  // Outer optical Fresnel ring (always visible so Operator keeps alignment during dark gaps)
+  ctx.strokeStyle = lit ? '#ffffff' : '#71717a';
+  ctx.lineWidth = lit ? 6 : 3;
+  ctx.beginPath();
+  ctx.arc(128, 96, 62, 0, Math.PI * 2);
+  ctx.stroke();
+
+  if (lit && intensity > 0.05) {
+    const shade = Math.round(180 + Math.min(1, intensity) * 75);
+    const hexByte = shade.toString(16).padStart(2, '0');
+    ctx.fillStyle = `#${hexByte}${hexByte}${hexByte}`;
+    ctx.fillRect(20, 20, 216, 152);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(128, 96, 48, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    if (beatType === 'dash') {
+      ctx.moveTo(86, 96);
+      ctx.lineTo(170, 96);
+    } else {
+      ctx.arc(128, 96, 12, 0, Math.PI * 2);
+    }
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = '#18181b';
+    ctx.beginPath();
+    ctx.arc(128, 96, 46, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Subtle dark-state alignment crosshair
+    ctx.strokeStyle = '#52525b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(106, 96);
+    ctx.lineTo(150, 96);
+    ctx.moveTo(128, 74);
+    ctx.lineTo(128, 118);
+    ctx.stroke();
+  }
+}
 
 export function drawSerialPlateCanvas(canvas, serialNumber, isObserverView) {
   const ctx = canvas.getContext('2d');
@@ -229,6 +402,107 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
     styleManager.trackTexture(serialTexture);
   }
 
+  // --- 3B. Exterior Optical Morse Lamp Pod on West (-X) Rim (Shrouded exclusively toward Operator) ---
+  const morseLampGroup = new THREE.Group();
+  morseLampGroup.name = 'ExteriorMorseLampGroup';
+
+  // Mounting bracket anchored to West (-X) outer wall (x ∈ [-0.306, -0.280])
+  const morseBracketParts = [
+    makeTranslatedBox(0.03, 0.022, 0.034, -halfW - 0.015, 0.052, 0.122),
+    makeTranslatedBox(0.016, 0.034, 0.018, -halfW - 0.026, 0.074, 0.116)
+  ];
+  const morseBracketGeo = mergeGeometries(morseBracketParts, false);
+  morseBracketParts.forEach((g) => g.dispose());
+
+  const morseShroudMat = new THREE.MeshStandardMaterial({
+    color: 0x334155,
+    roughness: 0.48,
+    metalness: 0.52
+  });
+
+  const morseLampBracketMesh = new THREE.Mesh(morseBracketGeo, morseShroudMat);
+  morseLampBracketMesh.name = 'MorseLampBracketMesh';
+  morseLampBracketMesh.userData.occluderId = 'morse_lamp_shroud';
+  morseLampBracketMesh.userData.surfaceRole = 'briefcase_hardware';
+  morseLampGroup.add(morseLampBracketMesh);
+
+  // Angled directional hood oriented so local +Z points strictly at Operator's seated eye (0, 1.18, +0.46)
+  const morseLampHoodGroup = new THREE.Group();
+  morseLampHoodGroup.name = 'MorseLampHoodGroup';
+  const hoodLocalPos = new THREE.Vector3(
+    BRIEFCASE_SPEC.morseLampLocalPos.x,
+    BRIEFCASE_SPEC.morseLampLocalPos.y,
+    BRIEFCASE_SPEC.morseLampLocalPos.z
+  );
+  const operatorEyeLocalPos = new THREE.Vector3(
+    0.0 - BRIEFCASE_SPEC.worldOrigin.x,
+    1.18 - BRIEFCASE_SPEC.worldOrigin.y,
+    0.46 - BRIEFCASE_SPEC.worldOrigin.z
+  );
+  const hoodBasisMat = new THREE.Matrix4().lookAt(
+    operatorEyeLocalPos,
+    hoodLocalPos,
+    new THREE.Vector3(0, 1, 0)
+  );
+  morseLampHoodGroup.position.copy(hoodLocalPos);
+  morseLampHoodGroup.quaternion.setFromRotationMatrix(hoodBasisMat);
+
+  // 5-sided deep optical blinder tunnel around the 0.044 × 0.032 lens plane:
+  // Blocks 100% of Observer (+X) and Manual-holder (-Z) rays while leaving Operator (+Z local) 5/5 clear.
+  const shroudParts = [
+    // Opaque rear housing plate (z ∈ [-0.015, -0.002])
+    makeTranslatedBox(0.06, 0.048, 0.013, 0, 0, -0.0085),
+    // Left (-X) & Right (+X) deep lateral blinder fins (z ∈ [-0.015, +0.052])
+    makeTranslatedBox(0.007, 0.048, 0.067, -0.0265, 0, 0.0185),
+    makeTranslatedBox(0.007, 0.048, 0.067, 0.0265, 0, 0.0185),
+    // Top (+Y) & Bottom (-Y) hood visors (z ∈ [-0.015, +0.052])
+    makeTranslatedBox(0.046, 0.007, 0.067, 0, 0.0205, 0.0185),
+    makeTranslatedBox(0.046, 0.007, 0.067, 0, -0.0205, 0.0185)
+  ];
+  const morseShroudGeo = mergeGeometries(shroudParts, false);
+  shroudParts.forEach((g) => g.dispose());
+
+  const morseLampShroudMesh = new THREE.Mesh(morseShroudGeo, morseShroudMat);
+  morseLampShroudMesh.name = 'MorseLampShroudMesh';
+  morseLampShroudMesh.userData.occluderId = 'morse_lamp_shroud';
+  morseLampShroudMesh.userData.surfaceRole = 'briefcase_hardware';
+  morseLampHoodGroup.add(morseLampShroudMesh);
+
+  const morseLampCanvas = createCanvas2D(256, 192);
+  drawMorseLampCanvas(morseLampCanvas, { isOperatorView: false, lit: false, intensity: 0 });
+  const morseLampTexture = new THREE.CanvasTexture(morseLampCanvas);
+  morseLampTexture.colorSpace = THREE.SRGBColorSpace;
+
+  const morseLensGeo = new THREE.PlaneGeometry(0.044, 0.032);
+  const morseLensMat = new THREE.MeshBasicMaterial({
+    map: morseLampTexture,
+    color: 0xffffff,
+    transparent: false,
+    toneMapped: false
+  });
+  const morseLampLensMesh = new THREE.Mesh(morseLensGeo, morseLensMat);
+  morseLampLensMesh.name = 'ExteriorMorseLampLens';
+  morseLampLensMesh.renderOrder = 2;
+  morseLampLensMesh.userData.skipTactile = true;
+  morseLampLensMesh.userData.clueId = 'morse_lamp';
+  morseLampLensMesh.userData.surfaceRole = 'morse_lamp';
+  morseLampHoodGroup.add(morseLampLensMesh);
+
+  morseLampGroup.add(morseLampHoodGroup);
+  rig.add(morseLampGroup);
+
+  if (styleManager) {
+    styleManager.trackGeometry(morseBracketGeo);
+    styleManager.trackGeometry(morseShroudGeo);
+    styleManager.trackMaterial(morseShroudMat);
+    styleManager.registerMesh(morseLampBracketMesh, { tier: 'primary', edgeAngle: 20 });
+    styleManager.registerMesh(morseLampShroudMesh, { tier: 'primary', edgeAngle: 20 });
+
+    styleManager.trackGeometry(morseLensGeo);
+    styleManager.trackMaterial(morseLensMat);
+    styleManager.trackTexture(morseLampTexture);
+  }
+
   // --- 4. HingePivotGroup & Flat-Constructed UpperCaseLidShell ---
   const hingePivotGroup = new THREE.Group();
   hingePivotGroup.name = 'HingePivotGroup';
@@ -305,6 +579,8 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
 
   rig.add(hingePivotGroup);
 
+  let lastLampSignature = '';
+
   function setLidAngle(angleRad) {
     hingePivotGroup.rotation.set(angleRad, 0, 0);
   }
@@ -312,6 +588,28 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
   function updateSerialPlate(serialNumber, isObserverView) {
     drawSerialPlateCanvas(serialCanvas, serialNumber, isObserverView);
     serialTexture.needsUpdate = true;
+  }
+
+  function updateMorseLamp({
+    isOperatorView = false,
+    lit = false,
+    intensity = 0,
+    beatType = 'idle',
+    isSolved = false
+  } = {}) {
+    const quantizedIntensity = lit ? Math.round(Math.min(1, Math.max(0, intensity)) * 12) : 0;
+    const sig = `${isOperatorView ? 1 : 0}:${isSolved ? 1 : 0}:${lit ? 1 : 0}:${beatType}:${quantizedIntensity}`;
+    if (sig === lastLampSignature) return;
+    lastLampSignature = sig;
+
+    drawMorseLampCanvas(morseLampCanvas, {
+      isOperatorView,
+      lit,
+      intensity: quantizedIntensity / 12,
+      beatType,
+      isSolved
+    });
+    morseLampTexture.needsUpdate = true;
   }
 
   setLidAngle(initialLidAngleRad);
@@ -327,7 +625,15 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
     serialPlateMesh,
     serialCanvas,
     serialTexture,
+    morseLampGroup,
+    morseLampHoodGroup,
+    morseLampBracketMesh,
+    morseLampShroudMesh,
+    morseLampLensMesh,
+    morseLampCanvas,
+    morseLampTexture,
     setLidAngle,
-    updateSerialPlate
+    updateSerialPlate,
+    updateMorseLamp
   };
 }

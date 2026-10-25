@@ -185,7 +185,21 @@ export const KEYPAD_RULES = {
   }
 };
 
-// --- Acoustic Beacon Module Rules Engine ---
+// --- Optical Morse Side-Lamp & Braille Dial Module Rules Engine ---
+export const BEACON_SPECTRUM_COLORS = ['red', 'blue', 'yellow'];
+
+export const BEACON_SPECTRUM_LABELS = {
+  red: 'قرمز (Red)',
+  blue: 'آبی (Blue)',
+  yellow: 'زرد (Yellow)'
+};
+
+export const BRAILLE_DIGITS = {
+  1: '⠁',
+  2: '⠃',
+  3: '⠉'
+};
+
 export const BEACON_PATTERNS = [
   { id: 'vector', name: 'پالس وکتور (Vector)', patternStr: '·· — ·', beats: [1, 1, 3, 1] },
   { id: 'sigma', name: 'پالس سیگما (Sigma)', patternStr: '— · — ·', beats: [3, 1, 3, 1] },
@@ -196,44 +210,69 @@ export const BEACON_PATTERNS = [
 export const BEACON_SCHEMAS = [
   {
     id: 'alpha',
-    protocolName: 'پروتکل آلفا (کالیبراسیون فرکانس پایه)',
-    evenMap: { vector: 2, sigma: 1, delta: 3, omega: 1 },
-    oddMap: { vector: 1, sigma: 3, delta: 2, omega: 3 },
-    evaluate(patternId, isSerialEven) {
-      const map = isSerialEven ? this.evenMap : this.oddMap;
+    protocolName: 'پروتکل آلفا (طیف نوری پایه)',
+    colorMaps: {
+      red: { vector: 2, sigma: 1, delta: 3, omega: 1 },
+      blue: { vector: 1, sigma: 3, delta: 2, omega: 3 },
+      yellow: { vector: 3, sigma: 2, delta: 1, omega: 2 }
+    },
+    evaluate(patternId, spectrumColor = 'red') {
+      const map = this.colorMaps[spectrumColor] || this.colorMaps.red;
       return map[patternId] ?? 1;
     }
   },
   {
     id: 'beta',
-    protocolName: 'پروتکل بتا (انعکاس فاز معکوس)',
-    evenMap: { vector: 3, sigma: 2, delta: 1, omega: 2 },
-    oddMap: { vector: 2, sigma: 1, delta: 3, omega: 1 },
-    evaluate(patternId, isSerialEven) {
-      const map = isSerialEven ? this.evenMap : this.oddMap;
+    protocolName: 'پروتکل بتا (شکست منشوری فاز)',
+    colorMaps: {
+      red: { vector: 3, sigma: 2, delta: 1, omega: 3 },
+      blue: { vector: 2, sigma: 1, delta: 3, omega: 2 },
+      yellow: { vector: 1, sigma: 3, delta: 2, omega: 1 }
+    },
+    evaluate(patternId, spectrumColor = 'red') {
+      const map = this.colorMaps[spectrumColor] || this.colorMaps.red;
       return map[patternId] ?? 2;
     }
   },
   {
     id: 'gamma',
-    protocolName: 'پروتکل گاما (مالتی‌پلاکس تشدید موج)',
-    evenMap: { vector: 1, sigma: 3, delta: 2, omega: 3 },
-    oddMap: { vector: 3, sigma: 2, delta: 1, omega: 2 },
-    evaluate(patternId, isSerialEven) {
-      const map = isSerialEven ? this.evenMap : this.oddMap;
+    protocolName: 'پروتکل گاما (همگام‌سازی پالس نوری)',
+    colorMaps: {
+      red: { vector: 1, sigma: 3, delta: 2, omega: 2 },
+      blue: { vector: 3, sigma: 2, delta: 1, omega: 1 },
+      yellow: { vector: 2, sigma: 1, delta: 3, omega: 3 }
+    },
+    evaluate(patternId, spectrumColor = 'red') {
+      const map = this.colorMaps[spectrumColor] || this.colorMaps.red;
       return map[patternId] ?? 3;
     }
   }
 ];
 
 export const BEACON_RULES = {
+  spectrumColors: BEACON_SPECTRUM_COLORS,
+  spectrumLabels: BEACON_SPECTRUM_LABELS,
+  brailleDigits: BRAILLE_DIGITS,
   patterns: BEACON_PATTERNS,
   schemas: BEACON_SCHEMAS,
   defaultSchema: BEACON_SCHEMAS[0],
-  evaluate(patternId, isSerialEven, schema = BEACON_SCHEMAS[0]) {
-    return schema.evaluate(patternId, isSerialEven);
+  evaluate(patternId, spectrumColor = 'red', schema = BEACON_SCHEMAS[0]) {
+    return schema.evaluate(patternId, spectrumColor);
   }
 };
+
+function buildBeaconColorRows(mapObj) {
+  return Object.entries(mapObj).map(([patId, ch]) => {
+    const pat = BEACON_PATTERNS.find((p) => p.id === patId);
+    return {
+      id: patId,
+      name: pat.name,
+      pattern: pat.patternStr,
+      channelNum: ch,
+      channel: `کانال ${ch}`
+    };
+  });
+}
 
 /**
  * Selects round rules deterministically based on the round PRNG and seed,
@@ -285,20 +324,17 @@ export function selectRoundRules(rng, seed = 'DEFAULT') {
     },
     beacon: {
       protocolName: beaconSchema.protocolName,
-      frequencies: [
-        { channel: 1, label: 'کانال ۱ (100 MHz)' },
-        { channel: 2, label: 'کانال ۲ (250 MHz)' },
-        { channel: 3, label: 'کانال ۳ (400 MHz)' }
+      brailleLegend: [
+        { channel: 1, braille: '⠁', label: 'کانال ۱ (⠁)' },
+        { channel: 2, braille: '⠃', label: 'کانال ۲ (⠃)' },
+        { channel: 3, braille: '⠉', label: 'کانال ۳ (⠉)' }
       ],
-      evenRows: Object.entries(beaconSchema.evenMap).map(([patId, ch]) => {
-        const pat = BEACON_PATTERNS.find((p) => p.id === patId);
-        return { name: pat.name, pattern: pat.patternStr, channel: `کانال ${ch}` };
-      }),
-      oddRows: Object.entries(beaconSchema.oddMap).map(([patId, ch]) => {
-        const pat = BEACON_PATTERNS.find((p) => p.id === patId);
-        return { name: pat.name, pattern: pat.patternStr, channel: `کانال ${ch}` };
-      }),
-      note: 'صدای بوق فانوس از گوشی اپراتور پخش می‌شود (در فضای اتاق ممکن است توسط شما هم شنیده شود، اما وظیفه شما متکی به شنیدن صدا نیست و ناظر نیز نباید از صدای بازی استفاده کند). اپراتور ریتم پالس را با ضربه روی میز به ناظر منتقل می‌کند؛ ناظر زوج/فرد بودن پلاک و ریتم را با اشاره با شما هماهنگ کرده و شما شماره کانال هدف (۱ تا ۳) را با اشاره به ناظر نشان می‌دهید تا شفاهاً به اپراتور فرمان دهد.'
+      colorTables: {
+        red: buildBeaconColorRows(beaconSchema.colorMaps.red),
+        blue: buildBeaconColorRows(beaconSchema.colorMaps.blue),
+        yellow: buildBeaconColorRows(beaconSchema.colorMaps.yellow)
+      },
+      note: 'این ماژول کاملاً بی‌صدا است و هیچ سرنخ صوتی در اتاق پخش نمی‌کند (ناظر نیز نباید از صدای عمومی بازی استفاده کند). اپراتور چشمک‌های لامپ مورس روی دیواره چپ کیف را دیده و ریتم آن را با ضربه روی میز یا اشاره دست به ناظر نشان می‌دهد؛ ناظر رنگ چراغ طیف داخل کیف (قرمز، آبی یا زرد) و ریتم مورس را با اشاره با شما هماهنگ می‌کند و شما شماره کانال هدف (۱ تا ۳) را با اشاره به ناظر اعلام می‌کنید تا اپراتور از روی اعداد بریل پیچ، فرکانس را ارسال نماید.'
     }
   };
 

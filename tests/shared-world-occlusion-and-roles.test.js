@@ -8,7 +8,8 @@ import * as THREE from 'three';
 
 import {
   BRIEFCASE_SPEC,
-  buildSharedWorldGraph
+  buildSharedWorldGraph,
+  computeOpticalMorseLampState
 } from '../public/bomb3d.js';
 import { buildGlovedHandUnit } from '../public/world-avatars.js';
 import {
@@ -73,10 +74,11 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
         approxEqual(lowerBox.min.z, -0.17, 0.002, 'LowerCase min.z');
         approxEqual(lowerBox.max.z, 0.25, 0.002, 'LowerCase max.z');
 
-        // Snapshot module & serial plate world matrices BEFORE lid rotation
+        // Snapshot module, serial plate & West-side Optical Morse lamp world matrices BEFORE lid rotation
         const snapshotMatrices = new Map();
         snapshotMatrices.set('moduleBayRoot', world.briefcaseRig.moduleBayRoot.matrixWorld.clone());
         snapshotMatrices.set('serialPlate', world.briefcaseRig.serialPlateMesh.matrixWorld.clone());
+        snapshotMatrices.set('morseLamp', world.briefcaseRig.morseLampLensMesh.matrixWorld.clone());
         for (const [modId, modInfo] of world.moduleViews.entries()) {
           snapshotMatrices.set(`mod_${modId}`, modInfo.group.matrixWorld.clone());
         }
@@ -119,9 +121,21 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
         };
         checkUnchanged('moduleBayRoot', world.briefcaseRig.moduleBayRoot.matrixWorld);
         checkUnchanged('serialPlate', world.briefcaseRig.serialPlateMesh.matrixWorld);
+        checkUnchanged('morseLamp', world.briefcaseRig.morseLampLensMesh.matrixWorld);
         for (const [modId, modInfo] of world.moduleViews.entries()) {
           checkUnchanged(`mod_${modId}`, modInfo.group.matrixWorld);
         }
+
+        // 7. Deterministic silent Optical Morse pulse evaluator (1 = 240ms dot, 3 = 720ms dash, 240ms gap, 1200ms word pause)
+        assert.equal(computeOpticalMorseLampState([1, 3], 120).beatType, 'dot');
+        assert.equal(computeOpticalMorseLampState([1, 3], 120).lit, true);
+        assert.equal(computeOpticalMorseLampState([1, 3], 300).beatType, 'gap');
+        assert.equal(computeOpticalMorseLampState([1, 3], 300).lit, false);
+        assert.equal(computeOpticalMorseLampState([1, 3], 600).beatType, 'dash');
+        assert.equal(computeOpticalMorseLampState([1, 3], 600).lit, true);
+        assert.equal(computeOpticalMorseLampState([1, 3], 1300).beatType, 'gap');
+        assert.equal(computeOpticalMorseLampState([1, 3], 1700).beatType, 'pause');
+        assert.equal(computeOpticalMorseLampState([1, 3], 1700).lit, false);
       } finally {
         world.dispose();
       }
@@ -222,11 +236,18 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
         button: { solved: false, color: 'blue', label: 'نگه‌دار', holdStripColor: 'yellow' },
         wires: { solved: false, wires: ['red', 'blue', 'yellow', 'green'], cutWires: [] },
         keypad: { solved: false, symbols: ['Ω', '★', 'Ψ', 'Δ'], enteredSlots: [] },
-        beacon: { solved: false, tunedChannel: 2 }
+        beacon: {
+          solved: false,
+          tunedSlot: 2,
+          tunedChannel: 1,
+          slotChannels: [3, 1, 2],
+          spectrumColor: 'blue',
+          beats: [1, 1, 3, 1]
+        }
       }
     };
 
-    test('Operator reaches and sees all 4 modules unclipped in 360x640 portrait and 844x390 landscape, and cannot see East serial plate', () => {
+    test('Operator reaches and sees all 4 modules + West-side Optical Morse lamp unclipped in 360x640 portrait and 844x390 landscape, and cannot see East serial plate', () => {
       for (const vp of [
         { w: 360, h: 640, label: '360x640 Portrait' },
         { w: 844, h: 390, label: '844x390 Landscape' }
@@ -241,6 +262,14 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
             requireInFrustum: true
           });
           assert.equal(serialSight.visibleCount, 0, `Operator must not see East serial plate in ${vp.label}`);
+
+          // 1b. Switch to 'lamp' preset -> West-side ExteriorMorseLampLens is 5/5 visible in frustum, then restore 'modules'
+          world.cameraRig.setPreset('lamp', { immediate: true });
+          const lampSight = world.evaluateSurfaceSightline(world.briefcaseRig.morseLampLensMesh, {
+            requireInFrustum: true
+          });
+          assert.equal(lampSight.visibleCount, 5, `Operator sees 5/5 West-side Morse lamp points in ${vp.label}`);
+          world.cameraRig.setPreset('modules', { immediate: true });
 
           // 2. All 4 modules have clear 5-point sightlines inside camera frustum
           const btnUD = world.moduleViews.get('button').group.userData;
@@ -353,6 +382,10 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
           assert.equal(kSight.visibleCount, 5, `Observer sees 5/5 points on keypad symbol ${idx + 1}`);
         });
 
+        const beaconUD = world.moduleViews.get('beacon').group.userData;
+        const spectrumSight = world.evaluateSurfaceSightline(beaconUD.spectrumMesh, { requireInFrustum: true });
+        assert.equal(spectrumSight.visibleCount, 5, 'Observer sees 5/5 points on Beacon Spectrum Indicator window');
+
         // 2. Switch to 'serial' preset -> ExteriorSerialPlate is 5/5 visible and centered in frustum
         world.cameraRig.setPreset('serial', { immediate: true });
         const serialSight = world.evaluateSurfaceSightline(world.briefcaseRig.serialPlateMesh, {
@@ -360,7 +393,7 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
         });
         assert.equal(serialSight.visibleCount, 5, 'Observer sees 5/5 points on East-rim ExteriorSerialPlate');
 
-        // 3. Manual-holder's 3D rulebook inner page is 0% visible to Observer across presets & head-look extremes
+        // 3. Manual-holder's 3D rulebook inner page AND Operator's West-side Morse Lamp are 0% visible to Observer across presets & head-look extremes
         for (const preset of ['clues', 'serial', 'bridge']) {
           world.cameraRig.setPreset(preset, { immediate: true });
           for (const yawDeg of [-34, 0, 34]) {
@@ -375,6 +408,17 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
             assert.ok(
               manualPageSight.blockers.includes('manual_cover'),
               `ManualPropBackCover ('manual_cover') must physically block Observer's ray (got ${manualPageSight.blockers})`
+            );
+
+            const morseLampSight = world.evaluateSurfaceSightline(world.briefcaseRig.morseLampLensMesh);
+            assert.equal(
+              morseLampSight.visibleCount,
+              0,
+              `Observer must see 0/5 points of West-side MorseLampLens in ${preset} yaw=${yawDeg}`
+            );
+            assert.ok(
+              morseLampSight.blockers.includes('morse_lamp_shroud'),
+              `MorseLampShroudMesh ('morse_lamp_shroud') must physically block Observer's ray (got ${morseLampSight.blockers})`
             );
           }
         }
@@ -405,6 +449,7 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
           { name: 'button_strip', mesh: btnUD.stripMesh },
           ...wiresUD.wireMeshes.map((w, i) => ({ name: `wire_${i}`, mesh: w.intactMesh })),
           ...keypadUD.keyData.map((k, i) => ({ name: `keypad_${i}`, mesh: k.faceMesh })),
+          { name: 'beacon_spectrum', mesh: beaconUD.spectrumMesh },
           { name: 'beacon_knob', mesh: beaconUD.knobMesh },
           { name: 'beacon_tx', mesh: beaconUD.txFaceMesh },
           ...beaconUD.channelItems.map((c) => ({ name: `beacon_ch_${c.channel}`, mesh: c.notchMesh }))
@@ -435,6 +480,9 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
 
             const serialRes = world.evaluateSurfaceSightline(world.briefcaseRig.serialPlateMesh);
             assert.equal(serialRes.visibleCount, 0, 'Manual-holder must see 0 points on ExteriorSerialPlate');
+
+            const morseRes = world.evaluateSurfaceSightline(world.briefcaseRig.morseLampLensMesh);
+            assert.equal(morseRes.visibleCount, 0, 'Manual-holder must see 0 points on West-side MorseLampLens');
           }
         }
 
@@ -452,6 +500,10 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
               );
               assert.ok(res.blockers.includes('briefcase_lid'));
             }
+            const morsePerturbed = world.evaluateSurfaceSightline(world.briefcaseRig.morseLampLensMesh, {
+              eyeOverride: perturbedEye
+            });
+            assert.equal(morsePerturbed.visibleCount, 0, 'Perturbed Manual-holder eye must have 0 visibility on MorseLampLens');
           }
         }
       } finally {
@@ -474,13 +526,14 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       // Simulate non-secret physical progress mid-round
       gameState.modules.wires.cutWires = [1];
       gameState.modules.keypad.enteredSlots = [2];
-      gameState.modules.beacon.tunedChannel = 3;
+      gameState.modules.beacon.tunedSlot = 3;
+      gameState.modules.beacon.tunedChannel = gameState.modules.beacon.slotChannels[2];
 
       const opState = getFilteredStateForRole('blind');
       const obsState = getFilteredStateForRole('deaf');
       const manState = getFilteredStateForRole('mute');
 
-      // 1. Operator: zero visual clues, serialNumber, or manual, but full physical state + audio beats
+      // 1. Operator: zero visual color clues, serialNumber, or manual, but full physical state + Morse beats + Braille slotChannels
       assert.equal(opState.serialNumber, null);
       assert.equal(opState.roundManual ?? null, null);
       assert.equal(opState.modules.button.color, 'monochrome');
@@ -494,11 +547,14 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       assert.equal(opState.modules.keypad.symbols, undefined);
       assert.equal(opState.modules.keypad.correctOrder, undefined);
       assert.deepEqual(opState.modules.keypad.enteredSlots, [2]);
-      assert.equal(opState.modules.beacon.tunedChannel, 3);
+      assert.equal(opState.modules.beacon.tunedSlot, 3);
+      assert.equal(opState.modules.beacon.tunedChannel, gameState.modules.beacon.slotChannels[2]);
+      assert.deepEqual(opState.modules.beacon.slotChannels, gameState.modules.beacon.slotChannels);
       assert.ok(Array.isArray(opState.modules.beacon.beats));
+      assert.equal(opState.modules.beacon.spectrumColor, undefined);
       assert.equal(opState.modules.beacon.targetChannel, undefined);
 
-      // 2. Observer: visual clues + serialNumber + physical state, zero audio beats, zero manual, zero server answers
+      // 2. Observer: visual clues + serialNumber + physical needle slot, zero Morse beats, zero Braille slotChannels, zero manual
       assert.ok(typeof obsState.serialNumber === 'string' && obsState.serialNumber.length > 0);
       assert.equal(obsState.roundManual ?? null, null);
       assert.ok(obsState.modules.button.color);
@@ -508,7 +564,10 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       assert.ok(Array.isArray(obsState.modules.keypad.symbols));
       assert.equal(obsState.modules.keypad.correctOrder, undefined);
       assert.deepEqual(obsState.modules.keypad.enteredSlots, [2]);
-      assert.equal(obsState.modules.beacon.tunedChannel, 3);
+      assert.equal(obsState.modules.beacon.tunedSlot, 3);
+      assert.ok(['red', 'blue', 'yellow'].includes(obsState.modules.beacon.spectrumColor));
+      assert.equal(obsState.modules.beacon.slotChannels, undefined);
+      assert.equal(obsState.modules.beacon.tunedChannel, undefined);
       assert.equal(obsState.modules.beacon.beats, undefined);
       assert.equal(obsState.modules.beacon.targetChannel, undefined);
 
@@ -519,6 +578,8 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       assert.equal(manState.modules.wires.wires, undefined);
       assert.equal(manState.modules.keypad.symbols, undefined);
       assert.equal(manState.modules.beacon.beats, undefined);
+      assert.equal(manState.modules.beacon.spectrumColor, undefined);
+      assert.equal(manState.modules.beacon.slotChannels, undefined);
 
       for (const r of ROLES) {
         roles[r].playerId = null;

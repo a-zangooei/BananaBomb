@@ -1,25 +1,44 @@
 import { BEACON_RULES } from './rules-config.js';
 
 /**
- * Server-side Acoustic Beacon Module
- * Operator perceives acoustic rhythm and adjusts dial;
- * Observer observes physical dial state and relays serial number;
- * Manual-holder decrypts target channel from the rhythm matrix.
+ * Server-side Silent Optical Morse Side-Lamp & Tactile Braille Dial Module
+ * - Operator sees the West-side Optical Morse lamp flashes (`beats`) and tactile Braille
+ *   channel numbers (`slotChannels`: permutation of [1, 2, 3]) around the selector dial.
+ * - Observer sees the Spectrum Color Indicator lamp (`spectrumColor`: 'red' | 'blue' | 'yellow')
+ *   and physical dial slot position (`tunedSlot`), without Braille digits or Morse flashes.
+ * - Manual-holder decodes `(pattern × spectrumColor) -> targetChannel` from the round rulebook.
  */
 export const beaconModule = {
   id: 'beacon',
-  title: 'فانوس صوتی (Acoustic Beacon)',
+  title: 'فانوس مورس نوری (Optical Morse)',
 
   create(rng, ctx) {
     const schema = ctx?.roundRules?.beaconSchema || BEACON_RULES.defaultSchema;
     const pattern = BEACON_RULES.patterns[Math.floor(rng() * BEACON_RULES.patterns.length)];
-    const targetChannel = schema.evaluate(pattern.id, ctx?.isSerialEven);
+    const colors = BEACON_RULES.spectrumColors;
+    const spectrumColor = colors[Math.floor(rng() * colors.length)];
+
+    // Deterministic Fisher-Yates shuffle of [1, 2, 3] across the 3 physical dial slots (1..3)
+    const slotChannels = [1, 2, 3];
+    for (let i = slotChannels.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = slotChannels[i];
+      slotChannels[i] = slotChannels[j];
+      slotChannels[j] = tmp;
+    }
+
+    const tunedSlot = 1;
+    const tunedChannel = slotChannels[tunedSlot - 1];
+    const targetChannel = schema.evaluate(pattern.id, spectrumColor);
 
     return {
       id: 'beacon',
       pattern,
+      spectrumColor,
+      slotChannels,
+      tunedSlot,
+      tunedChannel,
       targetChannel,
-      tunedChannel: 1,
       solved: false
     };
   },
@@ -30,62 +49,91 @@ export const beaconModule = {
     const isOperator = role === 'operator' || role === 'blind';
     const isObserver = role === 'observer' || role === 'deaf';
 
-    // Operator hears acoustic telemetry and operates channel dial
+    // Operator sees West-side Optical Morse flashes + Braille channel labels on dial slots;
+    // spectrumColor and targetChannel are STRICTLY OMITTED.
     if (isOperator) {
       return {
         id: 'beacon',
         solved: state.solved,
+        tunedSlot: state.tunedSlot,
         tunedChannel: state.tunedChannel,
+        slotChannels: [...state.slotChannels],
         patternId: state.pattern.id,
         patternName: state.pattern.name,
         patternStr: state.pattern.patternStr,
-        beats: state.pattern.beats
-        // targetChannel is STRICTLY OMITTED
+        beats: [...state.pattern.beats]
       };
     }
 
-    // Observer sees physical dial and status light (Silent)
+    // Observer sees colored Spectrum Indicator lamp + physical needle slot (1..3);
+    // beats, pattern, Braille slotChannels, tunedChannel, and targetChannel are STRICTLY OMITTED.
     if (isObserver) {
       return {
         id: 'beacon',
         solved: state.solved,
-        tunedChannel: state.tunedChannel
-        // pattern, beats, targetChannel are STRICTLY OMITTED
+        tunedSlot: state.tunedSlot,
+        spectrumColor: state.spectrumColor
       };
     }
 
-    // Manual-holder (Mute)
+    // Manual-holder (Mute) receives solved flag only (rules live in roundManual.beacon)
     return {
       id: 'beacon',
       solved: state.solved
     };
   },
 
-  handleAction(state, action, data, ctx) {
+  handleAction(state, action, data) {
     if (state.solved) return { solved: true, strike: false };
 
     if (action === 'tune') {
-      const channel = parseInt(data?.channel, 10);
-      if (channel >= 1 && channel <= 3) {
-        state.tunedChannel = channel;
-        return { solved: false, strike: false, tunedChannel: channel };
+      const slot = Number.isInteger(data?.slot) ? data.slot : parseInt(data?.slot, 10);
+      if (slot >= 1 && slot <= 3) {
+        state.tunedSlot = slot;
+        state.tunedChannel = state.slotChannels[slot - 1];
+        return {
+          solved: false,
+          strike: false,
+          tunedSlot: state.tunedSlot,
+          tunedChannel: state.tunedChannel
+        };
       }
+
+      const channel = Number.isInteger(data?.channel) ? data.channel : parseInt(data?.channel, 10);
+      if (channel >= 1 && channel <= 3) {
+        const foundIdx = Array.isArray(state.slotChannels) ? state.slotChannels.indexOf(channel) : -1;
+        state.tunedSlot = foundIdx !== -1 ? foundIdx + 1 : channel;
+        state.tunedChannel = channel;
+        return {
+          solved: false,
+          strike: false,
+          tunedSlot: state.tunedSlot,
+          tunedChannel: state.tunedChannel
+        };
+      }
+
       return { solved: false, strike: false };
     }
 
     if (action === 'transmit') {
-      if (state.tunedChannel === state.targetChannel) {
+      const activeChannel =
+        Array.isArray(state.slotChannels) && state.tunedSlot >= 1 && state.tunedSlot <= 3
+          ? state.slotChannels[state.tunedSlot - 1]
+          : state.tunedChannel;
+      state.tunedChannel = activeChannel;
+
+      if (activeChannel === state.targetChannel) {
         state.solved = true;
         return {
           solved: true,
           strike: false,
-          reason: `سیگنال فرکانسی روی کانال ${state.targetChannel} قفل شد!`
+          reason: `سیگنال مورس نوری روی کانال ${state.targetChannel} قفل و خنثی شد!`
         };
       }
       return {
         solved: false,
         strike: true,
-        reason: `ارسال روی فرکانس نادرست (کانال ${state.tunedChannel}) منجر به خطا شد!`
+        reason: `ارسال روی فرکانس نادرست (کانال بریل ${activeChannel}) منجر به خطا شد!`
       };
     }
 

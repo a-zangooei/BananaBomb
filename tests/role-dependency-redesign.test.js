@@ -25,7 +25,7 @@ import {
   BEACON_RULES
 } from '../modules/rules-config.js';
 
-describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
+describe('Triadic Role Redesign & Silent Optical Morse + Tactile Braille Verification Suite', () => {
   let port;
   const openSockets = new Set();
 
@@ -201,16 +201,20 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
       const obs = observerState.data;
       const man = manualState.data;
 
-      // --- A. Operator Verification (The Hands & Ears) ---
+      // --- A. Operator Verification (The Hands & Silent West-Side Optical Morse + Tactile Braille) ---
       assert.equal(op.canInteract, true, 'Operator MUST be permitted to physically interact');
-      assert.equal(op.hasAudio, true, 'Operator MUST receive acoustic audio telemetry');
+      assert.equal(op.hasAudio, true, 'Operator MUST receive general non-secret SFX flag');
       assert.equal(op.isMonochrome, true, 'Operator view MUST be monochrome');
       assert.equal(op.serialNumber, null, 'Operator MUST NOT see serial number');
       assert.equal(op.roundManual, null, 'Operator MUST NOT receive rulebook manual');
       assert.ok(op.modules.button.color === undefined || op.modules.button.color === 'monochrome', 'Operator MUST NOT receive actual button housing color clue');
       assert.equal(op.modules.wires.colors, undefined, 'Operator MUST NOT receive wire colors');
       assert.equal(op.modules.keypad.symbols, undefined, 'Operator MUST NOT receive keypad symbols');
-      assert.ok(Array.isArray(op.modules.beacon.beats), 'Operator MUST receive acoustic beats rhythm');
+      assert.ok(Array.isArray(op.modules.beacon.beats), 'Operator MUST receive silent Optical Morse lamp beats');
+      assert.ok(Array.isArray(op.modules.beacon.slotChannels) && op.modules.beacon.slotChannels.length === 3, 'Operator MUST receive randomized tactile Braille slotChannels');
+      assert.deepEqual([...op.modules.beacon.slotChannels].sort(), [1, 2, 3], 'slotChannels MUST be a permutation of [1, 2, 3]');
+      assert.equal(op.modules.beacon.spectrumColor, undefined, 'Operator MUST NOT receive Spectrum Indicator color');
+      assert.equal(op.modules.beacon.targetChannel, undefined, 'Operator MUST NOT receive targetChannel');
 
       // --- B. Observer Verification (The Eyes & Voice) ---
       assert.equal(obs.canInteract, false, 'Observer MUST NOT be permitted to physically interact');
@@ -221,8 +225,11 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
       assert.ok(typeof obs.modules.button.color === 'string', 'Observer MUST receive button housing color');
       assert.ok(Array.isArray(obs.modules.wires.colors), 'Observer MUST receive wire color array');
       assert.ok(Array.isArray(obs.modules.keypad.symbols), 'Observer MUST receive keypad symbols');
-      assert.equal(obs.modules.beacon.beats, undefined, 'Observer MUST NOT receive acoustic beats rhythm');
-      assert.equal(obs.modules.beacon.patternStr, undefined, 'Observer MUST NOT receive rhythm pattern string');
+      assert.ok(['red', 'blue', 'yellow'].includes(obs.modules.beacon.spectrumColor), 'Observer MUST receive colored Spectrum Indicator clue');
+      assert.equal(obs.modules.beacon.beats, undefined, 'Observer MUST NOT receive Optical Morse beats');
+      assert.equal(obs.modules.beacon.patternStr, undefined, 'Observer MUST NOT receive Morse pattern string');
+      assert.equal(obs.modules.beacon.slotChannels, undefined, 'Observer MUST NOT receive tactile Braille slot mapping');
+      assert.equal(obs.modules.beacon.tunedChannel, undefined, 'Observer MUST NOT receive decoded Braille channel');
 
       // --- C. Manual-holder Verification (The Field Intel & Brain) ---
       assert.equal(man.canInteract, false, 'Manual-holder MUST NOT interact with bomb');
@@ -238,8 +245,8 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
     });
   });
 
-  describe('2. Acoustic Beacon Module Mechanics & Server Authority', () => {
-    test('Beacon dial tuning, strike on wrong frequency, and defusal on target channel', async () => {
+  describe('2. Optical Morse & Tactile Braille Dial Mechanics & Server Authority', () => {
+    test('Braille dial slot tuning, strike on wrong slot/frequency, and defusal on target channel', async () => {
       const operatorClient = await createClient();
       const observerClient = await createClient();
       const manualClient = await createClient();
@@ -255,23 +262,28 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
       const serverBeacon = gameState.modules.beacon;
       const targetChannel = serverBeacon.targetChannel;
       assert.ok([1, 2, 3].includes(targetChannel), `Target channel must be 1, 2, or 3 (got ${targetChannel})`);
+      assert.deepEqual([...serverBeacon.slotChannels].sort(), [1, 2, 3], 'slotChannels must be a permutation of [1, 2, 3]');
+      assert.ok(['red', 'blue', 'yellow'].includes(serverBeacon.spectrumColor), 'spectrumColor must be red, blue, or yellow');
 
-      // 1. Operator tunes channel dial to 2
+      const correctSlot = serverBeacon.slotChannels.indexOf(targetChannel) + 1;
+      const wrongSlot = correctSlot === 1 ? 2 : 1;
+
+      // 1. Operator tunes physical dial to slot 2
       operatorClient.send({
         type: 'action',
-        data: { moduleId: 'beacon', action: 'tune', data: { channel: 2 } }
+        data: { moduleId: 'beacon', action: 'tune', data: { slot: 2 } }
       });
-      await operatorClient.waitFor((m) => m.type === 'state' && m.data?.modules?.beacon?.tunedChannel === 2);
-      assert.equal(gameState.modules.beacon.tunedChannel, 2);
+      await operatorClient.waitFor((m) => m.type === 'state' && m.data?.modules?.beacon?.tunedSlot === 2);
+      assert.equal(gameState.modules.beacon.tunedSlot, 2);
+      assert.equal(gameState.modules.beacon.tunedChannel, serverBeacon.slotChannels[1]);
 
-      // 2. Transmit on wrong channel triggers strike
-      const wrongChannel = targetChannel === 1 ? 2 : 1;
+      // 2. Transmit on wrong Braille slot triggers strike
       await new Promise((r) => setTimeout(r, 80));
       operatorClient.send({
         type: 'action',
-        data: { moduleId: 'beacon', action: 'tune', data: { channel: wrongChannel } }
+        data: { moduleId: 'beacon', action: 'tune', data: { slot: wrongSlot } }
       });
-      await operatorClient.waitFor((m) => m.type === 'state' && m.data?.modules?.beacon?.tunedChannel === wrongChannel);
+      await operatorClient.waitFor((m) => m.type === 'state' && m.data?.modules?.beacon?.tunedSlot === wrongSlot);
 
       const strikePromise = operatorClient.waitFor((m) => m.type === 'strike');
       await new Promise((r) => setTimeout(r, 80));
@@ -280,17 +292,18 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
         data: { moduleId: 'beacon', action: 'transmit' }
       });
       const strikeMsg = await strikePromise;
-      assert.ok(strikeMsg, 'Transmitting wrong channel must generate strike');
+      assert.ok(strikeMsg, 'Transmitting wrong Braille slot must generate strike');
       assert.equal(gameState.strikes, 1);
       assert.equal(gameState.modules.beacon.solved, false);
 
-      // 3. Transmit on correct target channel solves the module
+      // 3. Transmit on correct Braille slot solves the module
       await new Promise((r) => setTimeout(r, 80));
       operatorClient.send({
         type: 'action',
-        data: { moduleId: 'beacon', action: 'tune', data: { channel: targetChannel } }
+        data: { moduleId: 'beacon', action: 'tune', data: { slot: correctSlot } }
       });
-      await operatorClient.waitFor((m) => m.type === 'state' && m.data?.modules?.beacon?.tunedChannel === targetChannel);
+      await operatorClient.waitFor((m) => m.type === 'state' && m.data?.modules?.beacon?.tunedSlot === correctSlot);
+      assert.equal(gameState.modules.beacon.tunedChannel, targetChannel);
 
       const solvedPromise = operatorClient.waitFor((m) => m.type === 'module_solved');
       await new Promise((r) => setTimeout(r, 80));
@@ -299,7 +312,7 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
         data: { moduleId: 'beacon', action: 'transmit' }
       });
       const solvedMsg = await solvedPromise;
-      assert.ok(solvedMsg, 'Transmitting correct target channel must solve beacon');
+      assert.ok(solvedMsg, 'Transmitting correct Braille slot must solve beacon');
       assert.equal(gameState.modules.beacon.solved, true);
 
       // 4. Live status count is reflected for Manual-holder
@@ -385,13 +398,16 @@ describe('Triadic Role Redesign & Acoustic Beacon Verification Suite', () => {
           }
         }
 
-        // Module 4: Acoustic Beacon
+        // Module 4: Silent Optical Morse & Tactile Braille Dial
         const beaconState = modulesById.get('beacon').create(rng, ctx);
-        const targetChannel = roundRules.beaconSchema.evaluate(beaconState.pattern.id, isSerialEven);
+        const targetChannel = roundRules.beaconSchema.evaluate(beaconState.pattern.id, beaconState.spectrumColor);
         assert.equal(beaconState.targetChannel, targetChannel, `Beacon target mismatch at round ${i} with seed ${seed}`);
 
-        // Simulate tuning and transmitting
-        modulesById.get('beacon').handleAction(beaconState, 'tune', { channel: targetChannel }, ctx);
+        const targetSlot = beaconState.slotChannels.indexOf(targetChannel) + 1;
+        assert.ok(targetSlot >= 1 && targetSlot <= 3, `Braille slot missing targetChannel ${targetChannel}`);
+
+        // Simulate Operator reading Braille slot and transmitting
+        modulesById.get('beacon').handleAction(beaconState, 'tune', { slot: targetSlot }, ctx);
         const beaconRes = modulesById.get('beacon').handleAction(beaconState, 'transmit', {}, ctx);
         assert.equal(beaconRes.solved, true, `Beacon transmit mismatch at round ${i} with seed ${seed}`);
       }

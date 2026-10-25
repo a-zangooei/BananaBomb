@@ -840,15 +840,18 @@ function validateBombActionPayload(moduleId, action, rawData) {
 
   if (moduleId === 'beacon') {
     if (action === 'tune') {
-      if (!isPlainObj(rawData) || !Number.isInteger(rawData.channel) || rawData.channel < 1 || rawData.channel > 3) {
-        return { ok: false, message: 'شماره کانال فانوس صوتی نامعتبر است (باید ۱، ۲ یا ۳ باشد).' };
+      if (isPlainObj(rawData) && Number.isInteger(rawData.slot) && rawData.slot >= 1 && rawData.slot <= 3) {
+        return { ok: true, sanitizedData: { slot: rawData.slot }, targetKey: `tune_slot_${rawData.slot}` };
       }
-      return { ok: true, sanitizedData: { channel: rawData.channel }, targetKey: `tune_${rawData.channel}` };
+      if (isPlainObj(rawData) && Number.isInteger(rawData.channel) && rawData.channel >= 1 && rawData.channel <= 3) {
+        return { ok: true, sanitizedData: { channel: rawData.channel }, targetKey: `tune_ch_${rawData.channel}` };
+      }
+      return { ok: false, message: 'جایگاه یا شماره کانال فانوس مورس نوری نامعتبر است (باید ۱، ۲ یا ۳ باشد).' };
     }
     if (action === 'transmit') {
       return { ok: true, sanitizedData: {}, targetKey: 'tx' };
     }
-    return { ok: false, message: 'نوع عملیات ماژول فانوس صوتی نامعتبر است.' };
+    return { ok: false, message: 'نوع عملیات ماژول فانوس مورس نوری نامعتبر است.' };
   }
 
   return { ok: false, message: 'ماژول یا عملیات پشتیبانی نمی‌شود.' };

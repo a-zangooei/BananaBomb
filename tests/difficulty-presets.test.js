@@ -597,5 +597,29 @@ describe('Authoritative Difficulty Presets & Fair Error Cost System Tests', () =
       const obsNormalState = getFilteredStateForRole('observer');
       assert.equal(obsNormalState.modules.wires.wireIndexLabels, false);
     });
+
+    test('Selecting Easy, Normal, or Hard marks isCustom=false and matches frontend CANONICAL_PRESET_BASELINES', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const { fileURLToPath } = await import('node:url');
+      const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+      const appJs = fs.readFileSync(path.join(rootDir, 'public', 'app.js'), 'utf8');
+
+      for (const presetId of ['easy', 'normal', 'hard']) {
+        const cfg = sanitizeDifficultyConfig(presetId);
+        assert.equal(cfg.preset, presetId);
+        assert.equal(cfg.isCustom, false, `${presetId} preset must explicitly set isCustom=false`);
+        const base = DIFFICULTY_PRESETS[presetId];
+        const expectedPattern = new RegExp(
+          `${presetId}:\\s*\\{\\s*duration:\\s*${base.duration},\\s*maxStrikes:\\s*${base.maxStrikes},\\s*moduleCount:\\s*${base.moduleCount},\\s*timePenaltySeconds:\\s*${base.timePenaltySeconds}`
+        );
+        assert.match(appJs, expectedPattern, `Frontend CANONICAL_PRESET_BASELINES.${presetId} must match server DIFFICULTY_PRESETS`);
+      }
+
+      const customCfg = sanitizeDifficultyConfig('easy', { duration: 420 });
+      assert.equal(customCfg.preset, 'easy');
+      assert.equal(customCfg.isCustom, true, 'Custom overrides must set isCustom=true');
+    });
   });
 });
+
