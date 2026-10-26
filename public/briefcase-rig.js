@@ -38,7 +38,8 @@ export const BRIEFCASE_SPEC = Object.freeze({
   moduleBayTiltDeg: -82,
   moduleBayScale: 0.144,
   serialPlateLocalPos: Object.freeze({ x: 0.2815, y: 0.042, z: 0.0 }),
-  morseLampLocalPos: Object.freeze({ x: -0.308, y: 0.092, z: 0.136 })
+  morseLampLocalPos: Object.freeze({ x: -0.308, y: 0.092, z: 0.136 }),
+  lidTimerLocalPos: Object.freeze({ x: 0.0, y: 0.0012, z: 0.095 })
 });
 
 const MORSE_DOT_MS = 240;
@@ -244,6 +245,217 @@ export function drawSerialPlateCanvas(canvas, serialNumber, isObserverView) {
     ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('[OBSERVER VISUAL ACCESS ONLY]', 256, 70);
+  }
+}
+
+/**
+ * Computes the physical strike indicator slot count `(maxStrikes - 1)`.
+ * Because the `maxStrikes`-th mistake triggers immediate detonation, only `(maxStrikes - 1)`
+ * strike `✕` slots are mounted on the inner lid (e.g., 2 slots when maxStrikes=3, 1 slot when maxStrikes=2).
+ */
+export function computeStrikeDisplayModel(strikes = 0, maxStrikes = 3) {
+  const safeMax = Math.max(1, Math.round(Number(maxStrikes) || 3));
+  const safeStrikes = Math.max(0, Math.round(Number(strikes) || 0));
+  const slotCount = Math.max(0, safeMax - 1);
+  const activeStrikes = Math.min(safeStrikes, slotCount);
+  return {
+    maxStrikes: safeMax,
+    strikes: safeStrikes,
+    slotCount,
+    activeStrikes,
+    filledSlots: activeStrikes,
+    suddenDeath: safeMax <= 1
+  };
+}
+
+function drawIsoluminantSevenSegPlaceholder(ctx, x, y, w, h) {
+  const t = Math.max(4, Math.round(w * 0.16));
+  // Uniform neutral zinc bars on matching zinc screen: zero luminance/color contrast -> unreadable to color-blind Operator
+  ctx.fillStyle = '#26262a';
+  ctx.fillRect(x + t, y, w - t * 2, t);
+  ctx.fillRect(x + t, y + Math.round((h - t) * 0.5), w - t * 2, t);
+  ctx.fillRect(x + t, y + h - t, w - t * 2, t);
+  ctx.fillRect(x, y + t, t, Math.round((h - t * 3) * 0.5));
+  ctx.fillRect(x + w - t, y + t, t, Math.round((h - t * 3) * 0.5));
+  ctx.fillRect(x, y + Math.round((h + t) * 0.5), t, Math.round((h - t * 3) * 0.5));
+  ctx.fillRect(x + w - t, y + Math.round((h + t) * 0.5), t, Math.round((h - t * 3) * 0.5));
+}
+
+/**
+ * Renders the 512x256 inner-lid digital timer & `(maxStrikes - 1)` strike display.
+ * - Observer (`isObserverView === true`): high-contrast colored LED countdown (`MM:SS`),
+ *   optional `-XXs` strike penalty badge, and `(maxStrikes - 1)` strike `✕` boxes.
+ * - Operator (`isObserverView === false`): flat unangled display rendered in isoluminant
+ *   monochrome grayscale (`#232327` / `#26262a`) with zero text digits or strike state contrast
+ *   so Operator cannot read it solely due to color-blindness (`کورتکی`), NOT display tilt.
+ */
+export function drawLidTimerCanvas(
+  canvas,
+  {
+    remainingSeconds = 300,
+    strikes = 0,
+    maxStrikes = 3,
+    penaltySeconds = 0,
+    isObserverView = false
+  } = {}
+) {
+  const ctx = canvas.getContext('2d');
+  if (canvas._texts) canvas._texts.length = 0;
+
+  ctx.clearRect(0, 0, 512, 256);
+
+  if (!isObserverView) {
+    // Strictly monochrome isoluminant panel for Operator (and Manual defense-in-depth):
+    // Zero fillText calls and zero dependence on remainingSeconds or strikes.
+    ctx.fillStyle = '#18181b';
+    ctx.fillRect(0, 0, 512, 256);
+
+    ctx.strokeStyle = '#d4d4d8';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(6, 6, 500, 244);
+
+    // Timer window housing
+    ctx.fillStyle = '#232327';
+    ctx.fillRect(20, 24, 296, 208);
+    ctx.strokeStyle = '#52525b';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(20, 24, 296, 208);
+
+    const segY = 74;
+    const segW = 46;
+    const segH = 108;
+    drawIsoluminantSevenSegPlaceholder(ctx, 40, segY, segW, segH);
+    drawIsoluminantSevenSegPlaceholder(ctx, 98, segY, segW, segH);
+    ctx.fillStyle = '#26262a';
+    ctx.fillRect(158, segY + 30, 12, 12);
+    ctx.fillRect(158, segY + 66, 12, 12);
+    drawIsoluminantSevenSegPlaceholder(ctx, 184, segY, segW, segH);
+    drawIsoluminantSevenSegPlaceholder(ctx, 242, segY, segW, segH);
+
+    // Strike window housing
+    ctx.fillStyle = '#232327';
+    ctx.fillRect(330, 24, 162, 208);
+    ctx.strokeStyle = '#52525b';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(330, 24, 162, 208);
+
+    ctx.fillStyle = '#26262a';
+    ctx.fillRect(348, 84, 56, 88);
+    ctx.fillRect(418, 84, 56, 88);
+    return;
+  }
+
+  // Observer Color View
+  const safeSecs = Math.max(0, Math.floor(Number(remainingSeconds) || 0));
+  const mins = Math.floor(safeSecs / 60);
+  const secs = safeSecs % 60;
+  const timeText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  const isCritical = safeSecs <= 20;
+  const isWarn = !isCritical && safeSecs <= 60;
+  const hasPenalty = Number(penaltySeconds) > 0;
+
+  ctx.fillStyle = '#09090b';
+  ctx.fillRect(0, 0, 512, 256);
+
+  ctx.strokeStyle = hasPenalty || isCritical ? '#ef4444' : isWarn ? '#f59e0b' : '#475569';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 500, 244);
+
+  // Left: Digital Countdown Window
+  ctx.fillStyle = '#050811';
+  ctx.fillRect(20, 22, 296, 212);
+  ctx.strokeStyle = hasPenalty || isCritical ? '#dc2626' : '#334155';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(20, 22, 296, 212);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('BOMB TIMER', 34, 52);
+
+  if (hasPenalty) {
+    ctx.fillStyle = '#7f1d1d';
+    ctx.fillRect(210, 30, 94, 30);
+    ctx.fillStyle = '#fecaca';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`-${Math.round(penaltySeconds)}s`, 257, 52);
+  }
+
+  ctx.fillStyle = isCritical ? '#ef4444' : isWarn ? '#fbbf24' : '#f87171';
+  ctx.font = '900 84px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(timeText, 168, 148);
+
+  // Right: Dynamic (maxStrikes - 1) Strike Slots Window
+  const strikeModel = computeStrikeDisplayModel(strikes, maxStrikes);
+  ctx.fillStyle = '#050811';
+  ctx.fillRect(330, 22, 162, 212);
+  ctx.strokeStyle = strikeModel.activeStrikes > 0 ? '#dc2626' : '#334155';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(330, 22, 162, 212);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'bold 19px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('STRIKES', 411, 52);
+
+  if (strikeModel.suddenDeath) {
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(344, 78, 134, 132);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(344, 78, 134, 132);
+    ctx.fillStyle = '#fde68a';
+    ctx.font = 'bold 22px monospace';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('0 SLOTS', 411, 126);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('1ST = BOOM', 411, 164);
+    return;
+  }
+
+  const count = strikeModel.slotCount;
+  const cols = count <= 2 ? count : 2;
+  const rows = Math.ceil(count / cols);
+  const padX = 12;
+  const padY = 12;
+  const areaX = 342;
+  const areaY = 72;
+  const areaW = 138;
+  const areaH = 144;
+  const cellW = Math.floor((areaW - (cols - 1) * padX) / cols);
+  const cellH = Math.floor((areaH - (rows - 1) * padY) / rows);
+
+  for (let i = 0; i < count; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cx = areaX + col * (cellW + padX);
+    const cy = areaY + row * (cellH + padY);
+    const isLit = i < strikeModel.activeStrikes;
+
+    ctx.fillStyle = isLit ? '#450a0a' : '#0f172a';
+    ctx.fillRect(cx, cy, cellW, cellH);
+
+    ctx.strokeStyle = isLit ? '#ef4444' : '#334155';
+    ctx.lineWidth = isLit ? 4 : 3;
+    ctx.strokeRect(cx, cy, cellW, cellH);
+
+    if (isLit) {
+      ctx.fillStyle = '#fecaca';
+      ctx.font = rows > 1 ? '900 40px sans-serif' : '900 54px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✕', cx + cellW * 0.5, cy + cellH * 0.52);
+    } else {
+      // Subtle empty slot corner brackets (no active X)
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cx + 10, cy + 10, cellW - 20, cellH - 20);
+    }
   }
 }
 
@@ -546,12 +758,11 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
   upperLidMesh.userData.surfaceRole = 'briefcase_lid';
   hingePivotGroup.add(upperLidMesh);
 
-  // Recessed acoustic foam baffle inside the lid (faces Operator when lid is open)
+  // Recessed acoustic foam baffle inside the lid (ribs framed cleanly above the flat inner-lid timer)
   const foamParts = [
     makeTranslatedBox(BRIEFCASE_SPEC.width - 0.056, 0.008, lidD - 0.056, 0, 0.012, lidD * 0.5),
-    makeTranslatedBox(BRIEFCASE_SPEC.width - 0.08, 0.006, 0.028, 0, 0.007, lidD * 0.26),
-    makeTranslatedBox(BRIEFCASE_SPEC.width - 0.08, 0.006, 0.028, 0, 0.007, lidD * 0.5),
-    makeTranslatedBox(BRIEFCASE_SPEC.width - 0.08, 0.006, 0.028, 0, 0.007, lidD * 0.74)
+    makeTranslatedBox(BRIEFCASE_SPEC.width - 0.08, 0.006, 0.028, 0, 0.007, 0.245),
+    makeTranslatedBox(BRIEFCASE_SPEC.width - 0.08, 0.006, 0.028, 0, 0.007, 0.33)
   ];
   const foamGeo = mergeGeometries(foamParts, false);
   foamParts.forEach((g) => g.dispose());
@@ -567,6 +778,61 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
   foamMesh.userData.surfaceRole = 'briefcase_lid';
   hingePivotGroup.add(foamMesh);
 
+  // --- 4B. Flat Unangled Inner-Lid Bomb Timer & Strike Display (Child of HingePivotGroup) ---
+  // Mounted completely flat against the inner surface of the lid (zero tilt/shroud):
+  // - Observer (+X lateral) reads colored LED MM:SS & (maxStrikes - 1) strike X slots.
+  // - Operator (+Z) sees the flat unit directly in front of them, unreadable due to monochrome color-blindness.
+  // - Manual-holder (-Z) sits behind the raised lid (`UpperCaseLidShell`) with 0/5 sightlines.
+  const lidTimerGroup = new THREE.Group();
+  lidTimerGroup.name = 'InnerLidTimerGroup';
+
+  const lidTimerBezelGeo = new THREE.BoxGeometry(0.236, 0.006, 0.096);
+  const lidTimerBezelMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.42,
+    metalness: 0.58
+  });
+  const lidTimerBezelMesh = new THREE.Mesh(lidTimerBezelGeo, lidTimerBezelMat);
+  lidTimerBezelMesh.name = 'InnerLidTimerBezel';
+  lidTimerBezelMesh.position.set(
+    BRIEFCASE_SPEC.lidTimerLocalPos.x,
+    0.005,
+    BRIEFCASE_SPEC.lidTimerLocalPos.z
+  );
+  lidTimerBezelMesh.userData.occluderId = 'briefcase_lid';
+  lidTimerBezelMesh.userData.surfaceRole = 'briefcase_hardware';
+  lidTimerGroup.add(lidTimerBezelMesh);
+
+  const lidTimerCanvas = createCanvas2D(512, 256);
+  drawLidTimerCanvas(lidTimerCanvas, { isObserverView: false });
+  const lidTimerTexture = new THREE.CanvasTexture(lidTimerCanvas);
+  lidTimerTexture.colorSpace = THREE.SRGBColorSpace;
+
+  // Keep PlaneGeometry unrotated in local XY so computeSurfaceSamplePointsWorld samples 5 XY points;
+  // rotate the mesh +90° around +X so local +Z points along -Y_h (+Z_world when lid opens -95°).
+  const lidTimerFaceGeo = new THREE.PlaneGeometry(0.22, 0.082);
+  const lidTimerFaceMat = new THREE.MeshBasicMaterial({
+    map: lidTimerTexture,
+    color: 0xffffff,
+    transparent: false,
+    toneMapped: false
+  });
+  const lidTimerFaceMesh = new THREE.Mesh(lidTimerFaceGeo, lidTimerFaceMat);
+  lidTimerFaceMesh.name = 'InnerLidTimerFace';
+  lidTimerFaceMesh.position.set(
+    BRIEFCASE_SPEC.lidTimerLocalPos.x,
+    BRIEFCASE_SPEC.lidTimerLocalPos.y,
+    BRIEFCASE_SPEC.lidTimerLocalPos.z
+  );
+  lidTimerFaceMesh.rotation.set(Math.PI * 0.5, 0, 0);
+  lidTimerFaceMesh.renderOrder = 2;
+  lidTimerFaceMesh.userData.skipTactile = true;
+  lidTimerFaceMesh.userData.clueId = 'lid_timer';
+  lidTimerFaceMesh.userData.surfaceRole = 'lid_timer';
+  lidTimerGroup.add(lidTimerFaceMesh);
+
+  hingePivotGroup.add(lidTimerGroup);
+
   if (styleManager) {
     styleManager.trackGeometry(lidShellGeo);
     styleManager.trackMaterial(lidShellMat);
@@ -575,11 +841,20 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
     styleManager.trackGeometry(foamGeo);
     styleManager.trackMaterial(foamMat);
     styleManager.registerMesh(foamMesh, { tier: 'secondary', edgeAngle: 25 });
+
+    styleManager.trackGeometry(lidTimerBezelGeo);
+    styleManager.trackMaterial(lidTimerBezelMat);
+    styleManager.registerMesh(lidTimerBezelMesh, { tier: 'primary', edgeAngle: 20 });
+
+    styleManager.trackGeometry(lidTimerFaceGeo);
+    styleManager.trackMaterial(lidTimerFaceMat);
+    styleManager.trackTexture(lidTimerTexture);
   }
 
   rig.add(hingePivotGroup);
 
   let lastLampSignature = '';
+  let lastLidTimerSignature = '';
 
   function setLidAngle(angleRad) {
     hingePivotGroup.rotation.set(angleRad, 0, 0);
@@ -588,6 +863,31 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
   function updateSerialPlate(serialNumber, isObserverView) {
     drawSerialPlateCanvas(serialCanvas, serialNumber, isObserverView);
     serialTexture.needsUpdate = true;
+  }
+
+  function updateLidTimer({
+    remainingSeconds = 300,
+    strikes = 0,
+    maxStrikes = 3,
+    penaltySeconds = 0,
+    isObserverView = false
+  } = {}) {
+    const quantizedSec = Math.max(0, Math.floor(Number(remainingSeconds) || 0));
+    const safePenalty = Math.max(0, Math.round(Number(penaltySeconds) || 0));
+    const sig = isObserverView
+      ? `1:${quantizedSec}:${strikes}:${maxStrikes}:${safePenalty}`
+      : '0:isoluminant';
+    if (sig === lastLidTimerSignature) return;
+    lastLidTimerSignature = sig;
+
+    drawLidTimerCanvas(lidTimerCanvas, {
+      remainingSeconds: quantizedSec,
+      strikes,
+      maxStrikes,
+      penaltySeconds: safePenalty,
+      isObserverView
+    });
+    lidTimerTexture.needsUpdate = true;
   }
 
   function updateMorseLamp({
@@ -622,6 +922,11 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
     hingePivotGroup,
     upperLidMesh,
     foamMesh,
+    lidTimerGroup,
+    lidTimerBezelMesh,
+    lidTimerFaceMesh,
+    lidTimerCanvas,
+    lidTimerTexture,
     serialPlateMesh,
     serialCanvas,
     serialTexture,
@@ -634,6 +939,7 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
     morseLampTexture,
     setLidAngle,
     updateSerialPlate,
+    updateLidTimer,
     updateMorseLamp
   };
 }

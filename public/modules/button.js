@@ -316,14 +316,13 @@ export const buttonClientModule = {
       moduleView.userData.isActivelyInteracting = true;
       btnMesh.position.z = defaultBtnZ - 0.045;
       capMesh.position.z = defaultBtnZ - 0.045 + 0.075;
-      const digitTxt = visualEvent.lastTimerDigit !== undefined ? `رقم: ${visualEvent.lastTimerDigit}` : 'HOLD';
 
       if (isOperator) {
         stripMesh.material.color.setHex(0x3f3f46);
-        drawButtonCapCanvas(labelCanvas, 'نگه‌دار (HOLD)', digitTxt, '#27272a', '#ffffff', '#ffffff');
+        drawButtonCapCanvas(labelCanvas, 'نگه‌دار (HOLD)', 'فرمان ناظر', '#27272a', '#ffffff', '#ffffff');
       } else {
         stripMesh.material.color.setHex(0xe4e4e7);
-        drawButtonCapCanvas(labelCanvas, 'نگه‌دار (HOLD)', digitTxt, '#451a03', '#f59e0b', '#fef3c7');
+        drawButtonCapCanvas(labelCanvas, 'نگه‌دار (HOLD)', 'HOLD', '#451a03', '#f59e0b', '#fef3c7');
       }
       labelTexture.needsUpdate = true;
 
@@ -343,11 +342,12 @@ export const buttonClientModule = {
     }
 
     if (st === 'committed') {
-      const doneSub = visualEvent.mode === 'hold_release' ? `✓ رقم ${visualEvent.lastTimerDigit}` : '✓ TAP';
       if (isOperator) {
-        drawButtonCapCanvas(labelCanvas, 'ارسال شد', doneSub, '#18181b', '#f8fafc', '#f8fafc');
+        const opSub = visualEvent.mode === 'hold_release' ? '✓ HOLD' : '✓ TAP';
+        drawButtonCapCanvas(labelCanvas, 'ارسال شد', opSub, '#18181b', '#f8fafc', '#f8fafc');
       } else {
-        drawButtonCapCanvas(labelCanvas, 'ارسال شد', doneSub, '#14532d', '#22c55e', '#dcfce7');
+        const obsSub = visualEvent.mode === 'hold_release' ? '✓ HOLD' : '✓ TAP';
+        drawButtonCapCanvas(labelCanvas, 'ارسال شد', obsSub, '#14532d', '#22c55e', '#dcfce7');
       }
       labelTexture.needsUpdate = true;
     } else {

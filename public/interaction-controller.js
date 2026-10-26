@@ -422,8 +422,8 @@ export class BombInteractionController {
           mode: 'hold',
           moduleId: descriptor.moduleId,
           controlId: descriptor.controlId,
-          label: `نگه‌داشتن فعال شد (HOLD) • رقم فعلی تایمر: ${digit}`,
-          detail: 'روی رقم ثانیه اعلامی ناظر رها کنید (کشیدن به بیرون دکمه = لغو ایمن).',
+          label: 'نگه‌داشتن فعال شد (HOLD) • منتظر فرمان رهاسازی ناظر',
+          detail: 'با اعلام شفاهی ناظر رها کنید (کشیدن به بیرون دکمه = لغو ایمن).',
           progress: 1,
           variant: 'hold'
         });
@@ -511,10 +511,10 @@ export class BombInteractionController {
         moduleId: descriptor.moduleId,
         controlId: descriptor.controlId,
         label: isHold
-          ? `✓ رهاسازی دکمه (HOLD) روی رقم ${lastTimerDigit} پذیرفته شد`
+          ? '✓ رهاسازی دکمه (HOLD) ثبت و به سرور ارسال شد'
           : '✓ ضربه کوتاه (TAP) روی دکمه ثبت شد',
         detail: isHold
-          ? `مدت نگه‌داشتن: ${Math.round(elapsed)}ms • رقم ثانیه ارسالی: ${lastTimerDigit}`
+          ? `مدت نگه‌داشتن: ${Math.round(elapsed)}ms • زمان رهاسازی ثبت گردید`
           : `مدت لمس: ${Math.round(elapsed)}ms (کمتر از آستانه ${this.holdThresholdMs}ms)`,
         progress: 1,
         variant: 'success'

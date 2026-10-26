@@ -9,8 +9,10 @@ import * as THREE from 'three';
 import {
   BRIEFCASE_SPEC,
   buildSharedWorldGraph,
-  computeOpticalMorseLampState
+  computeOpticalMorseLampState,
+  computeStrikeDisplayModel
 } from '../public/bomb3d.js';
+import { computeTimerTickSchedule } from '../public/audio.js';
 import { buildGlovedHandUnit } from '../public/world-avatars.js';
 import {
   WORLD_LAYERS,
@@ -271,6 +273,22 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
           assert.equal(lampSight.visibleCount, 5, `Operator sees 5/5 West-side Morse lamp points in ${vp.label}`);
           world.cameraRig.setPreset('modules', { immediate: true });
 
+          // 1c. Inner-lid bomb timer is flat & unangled, 5/5 physically visible to Operator, yet 100% unreadable due to monochrome color-blindness (zero digits/strikes drawn)
+          assert.equal(world.briefcaseRig.lidTimerGroup.parent, world.briefcaseRig.hingePivotGroup);
+          approxEqual(world.briefcaseRig.lidTimerFaceMesh.rotation.y, 0, 1e-6, 'Lid timer face has zero Y yaw tilt');
+          approxEqual(world.briefcaseRig.lidTimerFaceMesh.rotation.z, 0, 1e-6, 'Lid timer face has zero Z roll tilt');
+          const opTimerSight = world.evaluateSurfaceSightline(world.briefcaseRig.lidTimerFaceMesh, {
+            requireInFrustum: true
+          });
+          assert.equal(opTimerSight.visibleCount, 5, `Operator physically sees 5/5 flat lid timer points in ${vp.label}`);
+          if (Array.isArray(world.briefcaseRig.lidTimerCanvas._texts)) {
+            assert.equal(
+              world.briefcaseRig.lidTimerCanvas._texts.length,
+              0,
+              'Operator monochrome lid timer must render zero readable digit/strike strings'
+            );
+          }
+
           // 2. All 4 modules have clear 5-point sightlines inside camera frustum
           const btnUD = world.moduleViews.get('button').group.userData;
           assert.equal(
@@ -386,6 +404,24 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
         const spectrumSight = world.evaluateSurfaceSightline(beaconUD.spectrumMesh, { requireInFrustum: true });
         assert.equal(spectrumSight.visibleCount, 5, 'Observer sees 5/5 points on Beacon Spectrum Indicator window');
 
+        // 1b. Observer sees 5/5 points of the inner-lid 3D bomb timer & strike unit in both portrait and landscape
+        const obsTimerSight = world.evaluateSurfaceSightline(world.briefcaseRig.lidTimerFaceMesh, {
+          requireInFrustum: true
+        });
+        assert.equal(obsTimerSight.visibleCount, 5, 'Observer sees 5/5 points on inner-lid 3D timer in 390x680 portrait');
+        if (Array.isArray(world.briefcaseRig.lidTimerCanvas._texts)) {
+          assert.ok(
+            world.briefcaseRig.lidTimerCanvas._texts.some((t) => /^\d{2}:\d{2}$/.test(t.text)),
+            'Observer lid timer canvas must draw live MM:SS countdown'
+          );
+        }
+        world.cameraRig.handleViewportResize(844, 390, { immediate: true });
+        const obsTimerLandscape = world.evaluateSurfaceSightline(world.briefcaseRig.lidTimerFaceMesh, {
+          requireInFrustum: true
+        });
+        assert.equal(obsTimerLandscape.visibleCount, 5, 'Observer sees 5/5 points on inner-lid 3D timer in 844x390 landscape');
+        world.cameraRig.handleViewportResize(390, 680, { immediate: true });
+
         // 2. Switch to 'serial' preset -> ExteriorSerialPlate is 5/5 visible and centered in frustum
         world.cameraRig.setPreset('serial', { immediate: true });
         const serialSight = world.evaluateSurfaceSightline(world.briefcaseRig.serialPlateMesh, {
@@ -452,7 +488,8 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
           { name: 'beacon_spectrum', mesh: beaconUD.spectrumMesh },
           { name: 'beacon_knob', mesh: beaconUD.knobMesh },
           { name: 'beacon_tx', mesh: beaconUD.txFaceMesh },
-          ...beaconUD.channelItems.map((c) => ({ name: `beacon_ch_${c.channel}`, mesh: c.notchMesh }))
+          ...beaconUD.channelItems.map((c) => ({ name: `beacon_ch_${c.channel}`, mesh: c.notchMesh })),
+          { name: 'lid_timer_face', mesh: world.briefcaseRig.lidTimerFaceMesh }
         ];
 
         // A. 5x5 Head-Look Yaw/Pitch Sweep across full [-28°..+28°] × [-22°..+16°] bounds
@@ -771,6 +808,99 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       // 4-option Difficulty Selector (Easy, Normal, Hard, Custom) + Ready Toggle
       assert.ok(indexHtml.includes('id="btnPresetCustom"'));
       assert.ok(indexHtml.includes('id="btnToggleReady"'));
+    });
+  });
+
+  describe('7. Inner-Lid Flat Bomb Timer, Dynamic (maxStrikes - 1) Strike Slots & Accelerating Operator-Only Audio', () => {
+    test('computeStrikeDisplayModel renders (maxStrikes - 1) strike X slots across Easy/Normal (2 slots), Hard (1 slot), Sudden-Death (0 slots), and Custom', () => {
+      // Easy / Normal: maxStrikes = 3 -> 2 visible X slots (3rd strike explodes)
+      const normalZero = computeStrikeDisplayModel(0, 3);
+      assert.equal(normalZero.slotCount, 2);
+      assert.equal(normalZero.filledSlots, 0);
+      assert.equal(normalZero.suddenDeath, false);
+
+      const normalTwo = computeStrikeDisplayModel(2, 3);
+      assert.equal(normalTwo.slotCount, 2);
+      assert.equal(normalTwo.filledSlots, 2);
+
+      // Hard: maxStrikes = 2 -> 1 visible X slot (2nd strike explodes)
+      const hardOne = computeStrikeDisplayModel(1, 2);
+      assert.equal(hardOne.slotCount, 1);
+      assert.equal(hardOne.filledSlots, 1);
+      assert.equal(hardOne.suddenDeath, false);
+
+      // Custom Sudden-Death: maxStrikes = 1 -> 0 slots, suddenDeath badge active
+      const customSudden = computeStrikeDisplayModel(0, 1);
+      assert.equal(customSudden.slotCount, 0);
+      assert.equal(customSudden.filledSlots, 0);
+      assert.equal(customSudden.suddenDeath, true);
+
+      // Custom High: maxStrikes = 5 -> 4 visible X slots
+      const customFive = computeStrikeDisplayModel(3, 5);
+      assert.equal(customFive.slotCount, 4);
+      assert.equal(customFive.filledSlots, 3);
+      assert.equal(customFive.suddenDeath, false);
+    });
+
+    test('computeTimerTickSchedule strictly accelerates moment-by-moment across the entire round and jumps faster on strike penalty', () => {
+      const total = 300;
+      const checkpoints = [300, 299, 270, 240, 180, 150, 90, 60, 30, 15, 10, 5, 2, 1, 0];
+      let prev = null;
+
+      for (const rem of checkpoints) {
+        const sched = computeTimerTickSchedule(rem, total);
+        assert.ok(sched.intervalMs >= 120 && sched.intervalMs <= 1000, `intervalMs out of bounds at ${rem}s: ${sched.intervalMs}`);
+        if (prev) {
+          assert.ok(
+            sched.intervalMs < prev.intervalMs,
+            `Timer tick interval must strictly accelerate from ${prev.rem}s (${prev.intervalMs}ms) -> ${rem}s (${sched.intervalMs}ms)`
+          );
+          assert.ok(
+            sched.pitch > prev.pitch,
+            `Timer tick pitch must strictly rise from ${prev.rem}s (${prev.pitch}Hz) -> ${rem}s (${sched.pitch}Hz)`
+          );
+          assert.ok(sched.urgency >= prev.urgency, 'Urgency must monotonically increase as time drops');
+        }
+        prev = { rem, ...sched };
+      }
+
+      // Immediate acceleration when a strike deducts 15s penalty (e.g. 140s -> 125s)
+      const beforePenalty = computeTimerTickSchedule(140, total);
+      const afterPenalty = computeTimerTickSchedule(125, total);
+      assert.ok(afterPenalty.intervalMs < beforePenalty.intervalMs, 'Strike time penalty must immediately accelerate tick cadence');
+    });
+
+    test('2D HUD strips timer/strike/serial elements, prevents Operator digit leaks, and gates accelerating tick audio exclusively to Operator', () => {
+      const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+      const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+      const appJs = fs.readFileSync(path.join(rootDir, 'public/app.js'), 'utf8');
+      const buttonClientJs = fs.readFileSync(path.join(rootDir, 'public/modules/button.js'), 'utf8');
+      const interactionJs = fs.readFileSync(path.join(rootDir, 'public/interaction-controller.js'), 'utf8');
+
+      // 1. Removed 2D HUD timer, strike boxes & serial tag from index.html
+      for (const bannedId of [
+        'hudTimerCluster',
+        'timerDisplay',
+        'timerPenaltyBadge',
+        'hudStrikeRatio',
+        'strikeBoxes',
+        'serialTag'
+      ]) {
+        assert.ok(!indexHtml.includes(`id="${bannedId}"`), `index.html must not contain 2D #${bannedId}`);
+      }
+      assert.ok(indexHtml.includes('id="hudDefusedRatio"'), 'HUD retains module progress indicator');
+      assert.ok(indexHtml.includes('id="btnHudFullscreen"'), 'HUD retains fullscreen button');
+      assert.ok(indexHtml.includes('id="btnInRoundHelp"'), 'HUD retains help button');
+
+      // 2. Zero live timer-digit leaks in Operator 3D button cap, Space-hold HUD, or touch-hold HUD
+      assert.ok(!buttonClientJs.includes('رقم:'), 'button.js must not paint live timer digit on Operator button cap');
+      assert.ok(!interactionJs.includes('رقم فعلی تایمر'), 'interaction-controller.js must not leak live timer digit to Operator HUD');
+      assert.ok(!appJs.includes('رقم فعلی تایمر'), 'app.js must not leak live timer digit during Space-bar hold');
+
+      // 3. Accelerating timer audio is gated strictly to Operator role (audible in room to Operator + Manual-holder, silent on Observer device)
+      assert.ok(appJs.includes('computeTimerTickSchedule'), 'app.js must use continuous computeTimerTickSchedule');
+      assert.ok(appJs.includes('sound.playTimerPulse'), 'app.js must trigger sound.playTimerPulse');
+      assert.ok(appJs.includes('!isOperator(myRole)'), 'Timer audio scheduler must gate playback exclusively to Operator device');
     });
   });
 });

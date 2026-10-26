@@ -59,8 +59,8 @@ export const SEATED_CAMERA_CONFIGS = Object.freeze({
     presets: Object.freeze({
       modules: Object.freeze({
         id: 'modules',
-        lookAt: Object.freeze({ x: 0.0, y: 0.802, z: 0.042 }),
-        baseFov: 43,
+        lookAt: Object.freeze({ x: 0.0, y: 0.832, z: 0.02 }),
+        baseFov: 46,
         minTanHalfHFov: 0.318
       }),
       overview: Object.freeze({
@@ -93,9 +93,9 @@ export const SEATED_CAMERA_CONFIGS = Object.freeze({
     presets: Object.freeze({
       clues: Object.freeze({
         id: 'clues',
-        lookAt: Object.freeze({ x: -0.01, y: 0.805, z: 0.04 }),
-        baseFov: 42,
-        minTanHalfHFov: 0.295
+        lookAt: Object.freeze({ x: -0.01, y: 0.848, z: -0.015 }),
+        baseFov: 46,
+        minTanHalfHFov: 0.345
       }),
       serial: Object.freeze({
         id: 'serial',

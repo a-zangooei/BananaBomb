@@ -1,5 +1,5 @@
 import { GameTransport } from './transport.js';
-import { sound } from './audio.js';
+import { sound, computeTimerTickSchedule } from './audio.js';
 import { Bomb3DScene, isWebGLAvailable } from './bomb3d.js';
 import { INTERACTION_DEFAULTS } from './interaction-controller.js';
 import { renderQrSvg } from './qr-svg.js';
@@ -14,9 +14,8 @@ let playerId = sessionManager.playerId;
 let myRole = sessionManager.getRole();
 let currentGameState = null;
 let lastGameStatus = null;
-let lastTickSecond = null;
+let nextTimerAudioAtMs = 0;
 let lastCountdownBeepStep = null;
-let lastUrgencyLevel = 'normal';
 let bombScene = null;
 let manualWorldScene = null;
 let manualDockMode = 'split';
@@ -40,16 +39,9 @@ const connStatus = document.getElementById('connStatus');
 const appToastBanner = document.getElementById('appToastBanner');
 const webglErrorBanner = document.getElementById('webglErrorBanner');
 
-// Active Round HUD Elements
-const hudTimerCluster = document.getElementById('hudTimerCluster');
-const timerUrgencyIcon = document.getElementById('timerUrgencyIcon');
-const timerDisplay = document.getElementById('timerDisplay');
-const timerPenaltyBadge = document.getElementById('timerPenaltyBadge');
-const hudStrikeRatio = document.getElementById('hudStrikeRatio');
-const strikeBoxesContainer = document.getElementById('strikeBoxes');
+// Active Round HUD Elements (Zero 2D Timer / Strikes — Timer & Strikes live on 3D Briefcase Lid)
+const hudActiveRoleTitle = document.getElementById('hudActiveRoleTitle');
 const hudDefusedRatio = document.getElementById('hudDefusedRatio');
-const serialTag = document.getElementById('serialTag');
-const serialValue = document.getElementById('serialValue');
 const btnInRoundHelp = document.getElementById('btnInRoundHelp');
 
 // Views, Countdown Curtain & Debrief Overlays
@@ -180,27 +172,27 @@ const ROLE_PERMISSIONS_SPEC = {
     can: [
       'مشاهده نمای سه‌بعدی مونوکروم بمب و لامپ مورس نوری بی‌صدا در دیواره چپ بیرونی کیف (با دکمه «لامپ مورس» یا چرخش نگاه).',
       'لمس مستقیم بمب و خواندن اعداد بریل دور سلکتور فانوس مورس نوری (⠁ = ۱ · ⠃ = ۲ · ⠉ = ۳) برای تنظیم کانال و نگه‌داشتن HOLD TX.',
-      'استفاده از عینک آفتابی یا محدودیت دید راحت، ایمن و توافقی پیش از شروع راند.',
-      'دریافت دستورات کلامی از ناظر و انتقال بی‌کلام الگوی چشمک‌زن لامپ مورس (با ضربه فیزیکی روی میز یا اشاره دست) به ناظر.'
+      'پخش صدای تندشونده تایمر و هشدار خطا از بلندگوی این گوشی در اتاق (شنیده‌شده توسط اپراتور و دفترچه‌دار).',
+      'دریافت دستورات کلامی از ناظر (از جمله زمان رهاسازی دکمه HOLD) و انتقال بی‌کلام الگوی چشمک‌زن لامپ مورس به ناظر.'
     ],
     cannot: [
+      'خواندن ارقام تایمر یا خانه‌های ضربدر خطا روی درب باز کیف (به دلیل دید مونوکروم و کوررنگی اپراتور).',
       'صحبت کردن یا تولید هرگونه کلام در طول راند.',
-      'دیدن بازیکن دارنده دفترچه راهنما یا نگاه کردن به صفحه گوشی دفترچه راهنما یا ناظر.',
-      'ارتباط مستقیم (کلامی یا اشاره‌ای) با دارنده دفترچه راهنما.',
-      'نشان دادن صفحه گوشی خود به سایر بازیکنان یا درخواست دیدن مستقیم صفحات آن‌ها.'
+      'دیدن صفحه گوشی دفترچه راهنما یا ناظر، یا برقراری ارتباط مستقیم با دارنده دفترچه راهنما.',
+      'نشان دادن صفحه گوشی خود به سایر بازیکنان.'
     ]
   },
   observer: {
     title: 'ناظر (Observer) — پل ارتباطی تیم',
     can: [
-      'مشاهده رنگ و شکل اجزای داخل کیف (از جمله چراغ طیف رنگی قرمز/آبی/زرد فانوس مورس)، نمادهای کیپد، نوار دکمه و پلاک سریال.',
-      'صحبت کردن شفاهی با اپراتور (شما تنها بازیکنی هستید که اجازه صحبت کردن دارد).',
+      'مشاهده انحصاری تایمر دیجیتال و خانه‌های ضربدر خطا روی سطح داخلی درب باز کیف، به همراه رنگ ماژول‌ها، چراغ طیف مورس و پلاک سریال.',
+      'صحبت کردن شفاهی با اپراتور (شما تنها گوینده تیم هستید و لحظه دقیق رهاسازی دکمه HOLD را اعلام می‌کنید).',
       'برقراری ارتباط دوطرفه با دارنده دفترچه راهنما از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
       'نگاه به اطراف و زوم اپتیکال از صندلی کناری میز بدون لمس عملیاتی ماژول‌های بمب.'
     ],
     cannot: [
       'لمس، بریدن سیم یا تعامل عملیاتی با هیچ‌یک از ماژول‌های بمب.',
-      'تکیه بر شنیدن صدای عمومی تایمر/خطا در اتاق (هدفون ایمن یا جایگزین توافقی الزامی است).',
+      'شنیدن یا استفاده از صدای تندشونده تایمر در اتاق (هدفون ایمن یا جایگزین توافقی الزامی است).',
       'نشان دادن صفحه رنگی گوشی خود به اپراتور یا دارنده دفترچه راهنما، یا نگاه کردن به صفحه گوشی آن‌ها.',
       'استفاده از موسیقی یا صدای بلند و آسیب‌زا در هدفون.'
     ]
@@ -208,15 +200,15 @@ const ROLE_PERMISSIONS_SPEC = {
   manual: {
     title: 'دفترچه راهنما (Manual-holder)',
     can: [
-      'مطالعه دفترچه قوانین ۲D راند جاری در کنار نمای سه‌بعدی نشسته پشت میز ون (که درب باز کیف دید داخل بمب را پوشانده است).',
+      'مطالعه دفترچه قوانین ۲D راند جاری در کنار نمای سه‌بعدی نشسته پشت میز ون و شنیدن صدای تندشونده تایمر از گوشی اپراتور در اتاق.',
       'برقراری ارتباط دوطرفه فقط با ناظر از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
-      'تحلیل سرنخ‌های اعلامی ناظر (از جمله الگوی مورس نوری و رنگ چراغ طیف) و انتقال شماره کانال هدف با اشاره به ناظر.'
+      'تحلیل سرنخ‌های اعلامی ناظر (رنگ‌ها، سریال، زمان و الگوی مورس) و انتقال دستور عمل با اشاره به ناظر.'
     ],
     cannot: [
+      'دیدن تایمر روی درب باز کیف یا داخل بمب (درب بازشده کیف مانع دید مستقیم شماست).',
       'صحبت کردن یا زمزمه کردن با هیچ‌یک از بازیکنان.',
       'دیدن صفحه گوشی اپراتور یا برقراری هرگونه ارتباط مستقیم با اپراتور.',
-      'لمس یا تعامل با بمب، یا نشان دادن صفحه دفترچه راهنما به ناظر یا اپراتور.',
-      'تلاش برای دیدن مستقیم لامپ مورس کناری یا داخل کیف بمب از پشت درب بازشده کیف.'
+      'نشان دادن صفحه دفترچه راهنما به ناظر یا اپراتور.'
     ]
   }
 };
@@ -862,21 +854,6 @@ function hasCustomDifficultyOverrides(diff) {
   );
 }
 
-function renderStrikeBoxes(currentStrikes = 0, maxStrikes = 3) {
-  if (hudStrikeRatio) {
-    hudStrikeRatio.textContent = `${currentStrikes} / ${maxStrikes}`;
-  }
-  if (!strikeBoxesContainer) return;
-  strikeBoxesContainer.innerHTML = '';
-  for (let i = 0; i < maxStrikes; i++) {
-    const box = document.createElement('div');
-    box.className = 'strike-box' + (i < currentStrikes ? ' active' : '');
-    box.id = `strike${i + 1}`;
-    box.textContent = '✕';
-    strikeBoxesContainer.appendChild(box);
-  }
-}
-
 // --- Quick Camera Views, Tuning Popover & Operator HUD ---
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
@@ -1362,11 +1339,15 @@ transport.onEvent((eventType, data) => {
       setTuningPopoverOpen(false);
     }
 
-    // Automatically close overlays/sheets when transitioning into an active round
+    // Automatically close overlays/sheets and arm continuous timer audio when entering active round
     if (prevState?.status !== 'running' && currentGameState.status === 'running') {
       closeQrModal();
       closeReferenceSheet();
       setTuningPopoverOpen(false);
+      const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      nextTimerAudioAtMs = nowPerf + 260;
+    } else if (currentGameState.status !== 'running') {
+      nextTimerAudioAtMs = 0;
     }
 
     lastGameStatus = currentGameState.status;
@@ -1407,15 +1388,20 @@ transport.onEvent((eventType, data) => {
     flashRedAlert();
 
     const penaltySec = data?.penaltySeconds || 30;
-    if (timerPenaltyBadge && penaltySec > 0) {
-      timerPenaltyBadge.textContent = `-${penaltySec}s`;
-      timerPenaltyBadge.style.display = 'block';
-      timerPenaltyBadge.style.animation = 'none';
-      void timerPenaltyBadge.offsetHeight;
-      timerPenaltyBadge.style.animation = null;
-      setTimeout(() => {
-        if (timerPenaltyBadge) timerPenaltyBadge.style.display = 'none';
-      }, 1600);
+    if (bombScene && penaltySec > 0) {
+      bombScene.triggerStrikePenaltyFlash(penaltySec);
+    }
+
+    // Immediately pull forward the next accelerating audio tick after a time penalty drop
+    if (isOperator(myRole) && currentGameState?.status === 'running') {
+      const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const sched = computeTimerTickSchedule(
+        getCurrentRemainingSeconds(),
+        currentGameState.duration || 300
+      );
+      if (nextTimerAudioAtMs > nowPerf + sched.intervalMs) {
+        nextTimerAudioAtMs = nowPerf + sched.intervalMs;
+      }
     }
     return;
   }
@@ -1533,26 +1519,25 @@ function renderState(state) {
     activeRoundHud.style.display = isLobbyPhase || isCountdownPhase ? 'none' : 'flex';
   }
 
-  // 2. Active Round HUD Metrics & Strict Observer-Only Serial Visibility
+  // 2. Active Round HUD Metrics (Zero 2D Timer / Strikes / Serial — Mounted on 3D Briefcase)
   const maxStrikes = state.maxStrikes || 3;
   const defusedCount =
     state.modulesDefusedCount ??
     Object.values(state.modules || {}).filter((m) => m?.solved).length;
   const totalModules = state.totalModulesCount || state.difficulty?.moduleCount || 3;
 
-  renderStrikeBoxes(state.strikes || 0, maxStrikes);
   if (hudDefusedRatio) {
     hudDefusedRatio.textContent = `${defusedCount} / ${totalModules}`;
   }
-
-  if (serialTag && serialValue) {
-    if (isObserver(myRole) && state.serialNumber) {
-      serialTag.style.display = 'inline-flex';
-      serialValue.textContent = state.serialNumber;
-    } else {
-      serialTag.style.display = 'none';
-      serialValue.textContent = '------';
-    }
+  if (hudActiveRoleTitle) {
+    const roleLabel = isOperator(myRole)
+      ? 'اپراتور'
+      : isObserver(myRole)
+        ? 'ناظر'
+        : isManual(myRole)
+          ? 'دفترچه راهنما'
+          : 'تماشاگر';
+    hudActiveRoleTitle.textContent = `عملیات خنثی‌سازی · ${roleLabel}`;
   }
 
   // 3. Difficulty Preset & Host Controls
@@ -1881,7 +1866,7 @@ function renderState(state) {
 
       if (isOperator(myRole)) {
         if (bomb3dRoleBanner) {
-          bomb3dRoleBanner.textContent = 'اپراتور: تنها لمس‌کننده بمب سه‌بعدی مونوکروم · مشاهده بی‌صدای لامپ مورس دیواره چپ و خواندن اعداد بریل (⠁=۱ · ⠃=۲ · ⠉=۳).';
+          bomb3dRoleBanner.textContent = 'اپراتور: تنها لمس‌کننده بمب مونوکروم · پخش صدای تندشونده تایمر از این گوشی · مشاهده لامپ مورس دیواره چپ و اعداد بریل.';
         }
         if (btnViewFront) btnViewFront.textContent = 'پنل ماژول‌ها';
         if (btnViewBack) btnViewBack.textContent = 'نمای کلی میز';
@@ -1894,9 +1879,9 @@ function renderState(state) {
         if (bombInRoundPermissions) bombInRoundPermissions.innerHTML = buildPermissionsHtml('operator');
       } else {
         if (bomb3dRoleBanner) {
-          bomb3dRoleBanner.textContent = 'ناظر: مشاهده رنگ و شکل داخل کیف (از جمله چراغ رنگی فانوس مورس) و پلاک سریال · تنها گوینده تیم و پل اشاره با راهنما.';
+          bomb3dRoleBanner.textContent = 'ناظر: تنها بیننده تایمر و خانه‌های خطا روی درب باز کیف، رنگ ماژول‌ها و پلاک سریال · تنها گوینده تیم.';
         }
-        if (btnViewFront) btnViewFront.textContent = 'سرنخ‌های کیف';
+        if (btnViewFront) btnViewFront.textContent = 'سرنخ‌ها و تایمر';
         if (btnViewBack) btnViewBack.textContent = 'پلاک سریال';
         if (btnViewBridge) {
           btnViewBridge.textContent = 'دید هم‌تیمی‌ها';
@@ -1948,23 +1933,7 @@ function formatTime(totalSeconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-const URGENCY_ICONS = {
-  normal: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="13" r="8"></circle><polyline points="12 9 12 13 14.5 14.5"></polyline><line x1="9" y1="2" x2="15" y2="2"></line></svg>`,
-  warn: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
-  critical: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
-};
-
-function updateTimerUrgencyUI(level) {
-  if (level === lastUrgencyLevel) return;
-  lastUrgencyLevel = level;
-  if (hudTimerCluster) {
-    hudTimerCluster.setAttribute('data-urgency', level);
-  }
-  if (timerUrgencyIcon && URGENCY_ICONS[level]) {
-    timerUrgencyIcon.innerHTML = URGENCY_ICONS[level];
-  }
-}
-
+// Continuous Pre-Start Readiness & Accelerating Operator Bomb Timer Audio Loop
 setInterval(() => {
   if (!currentGameState) return;
 
@@ -1993,40 +1962,31 @@ setInterval(() => {
     return;
   }
 
-  const remaining = getCurrentRemainingSeconds();
-  if (timerDisplay) {
-    timerDisplay.textContent = formatTime(remaining);
-  }
-
+  // Moment-by-moment accelerating timer audio exclusively on Operator's phone speaker
   if (currentGameState.status === 'running') {
-    if (remaining <= 20) {
-      timerDisplay?.classList.add('urgent');
-      updateTimerUrgencyUI('critical');
-    } else if (remaining <= 60) {
-      timerDisplay?.classList.remove('urgent');
-      updateTimerUrgencyUI('warn');
-    } else {
-      timerDisplay?.classList.remove('urgent');
-      updateTimerUrgencyUI('normal');
+    if (!isOperator(myRole)) {
+      nextTimerAudioAtMs = 0;
+      return;
     }
 
-    // Audio ticking played on Operator's device
-    const currentSec = Math.floor(remaining);
-    if (currentSec !== lastTickSecond) {
-      lastTickSecond = currentSec;
-      if (isOperator(myRole)) {
-        if (remaining <= 30) {
-          sound.playUrgentBeep();
-        } else {
-          sound.playTick(remaining <= 60 ? 1200 : 900);
-        }
-      }
+    const remaining = getCurrentRemainingSeconds();
+    if (remaining <= 0) return;
+
+    const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (nextTimerAudioAtMs <= 0) {
+      nextTimerAudioAtMs = nowPerf;
+    }
+
+    if (nowPerf >= nextTimerAudioAtMs) {
+      const totalDuration = currentGameState.duration || 300;
+      const sched = computeTimerTickSchedule(remaining, totalDuration);
+      sound.playTimerPulse(sched);
+      nextTimerAudioAtMs = nowPerf + sched.intervalMs;
     }
   } else {
-    timerDisplay?.classList.remove('urgent');
-    updateTimerUrgencyUI('normal');
+    nextTimerAudioAtMs = 0;
   }
-}, 100);
+}, 30);
 
 // Helper: Device Vibration
 function triggerHaptic(pattern) {
@@ -2276,8 +2236,8 @@ window.addEventListener('keydown', (e) => {
             renderOperatorHudStatus({
               active: true,
               mode: 'hold',
-              label: `نگه‌داشتن فعال شد (HOLD) · رقم فعلی ثانیه: ${digit}`,
-              detail: 'روی رقم ثانیه اعلامی ناظر کلید Space را رها کنید (Esc = لغو ایمن).',
+              label: 'نگه‌داشتن فعال شد (HOLD) · منتظر فرمان رهاسازی ناظر',
+              detail: 'با اعلام شفاهی ناظر کلید Space را رها کنید (Esc = لغو ایمن).',
               progress: 1,
               variant: 'hold'
             });
@@ -2360,8 +2320,8 @@ window.addEventListener('keyup', (e) => {
       renderOperatorHudStatus({
         active: false,
         mode: 'committed',
-        label: `رهاسازی دکمه (HOLD) روی رقم ${lastDigit} ثبت شد`,
-        detail: `مدت نگه‌داشتن: ${duration}ms · رقم ثانیه ارسالی: ${lastDigit}`,
+        label: '✓ رهاسازی دکمه (HOLD) ثبت و به سرور ارسال شد',
+        detail: `مدت نگه‌داشتن: ${duration}ms · زمان رهاسازی ثبت گردید`,
         progress: 1,
         variant: 'success'
       });

@@ -4,6 +4,34 @@
  * Device playback is enabled on the Operator's device (note: in an in-person room, sound from the Operator's phone may physically be heard in the room; Observer wears headphones/agreed alternative and must not use game audio).
  */
 
+/**
+ * Pure continuous timer-tick schedule evaluator.
+ * Accelerates strictly and monotonically every moment as `remainingSeconds` decreases
+ * from `totalDurationSeconds` down to `0`, and jumps immediately faster whenever a strike
+ * deducts penalty time.
+ */
+export function computeTimerTickSchedule(remainingSeconds, totalDurationSeconds = 300) {
+  const dur = Math.max(1, Number(totalDurationSeconds) || 300);
+  const rem = Math.max(0, Math.min(dur, Number(remainingSeconds) || 0));
+  const progress = 1 - rem / dur; // 0.0 at full duration -> 1.0 at 0s
+  const finalMinuteProgress = rem < 60 ? (60 - rem) / 60 : 0;
+
+  // Strictly monotonic interval curve: 1000ms at start -> ~544ms at 60s -> 120ms at 0s
+  const intervalMs =
+    1000 -
+    580 * Math.pow(progress, 1.08) -
+    300 * Math.pow(finalMinuteProgress, 1.35);
+
+  const urgency = Math.min(1, Math.max(0, progress * 0.65 + finalMinuteProgress * 0.35));
+  const pitch = 840 + 880 * Math.pow(progress, 1.2) + 220 * finalMinuteProgress;
+
+  return {
+    intervalMs: Math.max(120, Math.min(1000, intervalMs)),
+    pitch,
+    urgency
+  };
+}
+
 class SoundEngine {
   constructor() {
     this.ctx = null;
@@ -42,6 +70,46 @@ class SoundEngine {
     } catch (e) {
       console.warn('AudioContext initialization error:', e);
     }
+  }
+
+  playTimerPulse({ pitch = 900, urgency = 0 } = {}) {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const safeUrgency = Math.max(0, Math.min(1, Number(urgency) || 0));
+      const safePitch = Math.max(300, Math.min(2600, Number(pitch) || 900));
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = safeUrgency >= 0.72 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(safePitch, now);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(240, safePitch * 0.34), now + 0.044);
+
+      const peakGain = 0.27 + safeUrgency * 0.14;
+      gain.gain.setValueAtTime(peakGain, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.046);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.052);
+
+      // High-urgency overtone pulse in the final phase for unmistakable tension
+      if (safeUrgency >= 0.78) {
+        const hiOsc = this.ctx.createOscillator();
+        const hiGain = this.ctx.createGain();
+        hiOsc.type = 'square';
+        hiOsc.frequency.setValueAtTime(safePitch * 1.25, now + 0.012);
+        hiGain.gain.setValueAtTime((safeUrgency - 0.74) * 0.32, now + 0.012);
+        hiGain.gain.exponentialRampToValueAtTime(0.001, now + 0.056);
+        hiOsc.connect(hiGain);
+        hiGain.connect(this.ctx.destination);
+        hiOsc.start(now + 0.012);
+        hiOsc.stop(now + 0.062);
+      }
+    } catch (err) {}
   }
 
   playTick(pitch = 1000) {

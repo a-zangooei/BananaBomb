@@ -92,43 +92,16 @@
       </div>
     </header>
 
-    <!-- Active Round Compact Tactical HUD Strip (Hidden in Lobby; Opaque surface over WebGL) -->
+    <!-- Active Round Compact Tactical HUD Strip (Hidden in Lobby; Zero 2D Timer/Strikes — Timer lives on 3D Briefcase Lid) -->
     <section class="timer-panel" id="activeRoundHud" style="display: none;" aria-label="نوار وضعیت عملیات بمب">
-      <div class="hud-timer-cluster" id="hudTimerCluster" data-urgency="normal">
-        <span class="hud-urgency-icon" id="timerUrgencyIcon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
-            <circle cx="12" cy="13" r="8"></circle>
-            <polyline points="12 9 12 13 14.5 14.5"></polyline>
-            <line x1="9" y1="2" x2="15" y2="2"></line>
-          </svg>
-        </span>
-        <div class="timer-digits-wrap">
-          <div class="timer-digits tabular-num" id="timerDisplay" dir="ltr">05:00</div>
-          <div class="timer-penalty-badge tabular-num" id="timerPenaltyBadge" dir="ltr" style="display: none;">-30s</div>
-        </div>
+      <div class="hud-role-context">
+        <strong class="hud-role-label" id="hudActiveRoleTitle">عملیات خنثی‌سازی</strong>
       </div>
 
       <div class="hud-metrics-cluster">
-        <div class="strikes-container" title="خطاهای ثبت‌شده در این راند">
-          <span class="strikes-label">خطاها:</span>
-          <span class="hud-ratio tabular-num" id="hudStrikeRatio" dir="ltr">0 / 3</span>
-          <div class="strike-boxes" id="strikeBoxes" aria-hidden="true">
-            <div class="strike-box" id="strike1">✕</div>
-            <div class="strike-box" id="strike2">✕</div>
-            <div class="strike-box" id="strike3">✕</div>
-          </div>
-        </div>
-
-        <span class="meta-sep hud-sep" aria-hidden="true">·</span>
-
         <div class="hud-progress-stat" title="ماژول‌های خنثی‌شده">
           <span class="hud-stat-label">خنثی‌شده:</span>
           <strong class="hud-ratio tabular-num" id="hudDefusedRatio" dir="ltr">0 / 3</strong>
-        </div>
-
-        <div class="serial-tag" id="serialTag" style="display: none;">
-          <span class="serial-prefix">سریال:</span>
-          <strong class="tabular-num" id="serialValue" dir="ltr">------</strong>
         </div>
       </div>
 
@@ -199,7 +172,7 @@
                   <h2>اپراتور</h2>
                   <span class="role-en" dir="ltr">OPERATOR</span>
                 </div>
-                <p>تنها لمس‌کننده بمب سه‌بعدی مونوکروم · بدون کلام · پخش صدای بازی روی این دستگاه.</p>
+                <p>تنها لمس‌کننده بمب مونوکروم (بدون امکان خواندن تایمر به دلیل کوررنگی) · پخش صدای تندشونده تایمر.</p>
               </div>
               <div class="role-card-footer">
                 <span class="role-constraint-line">عینک آفتابی · فرامین شفاهی از ناظر</span>
@@ -229,7 +202,7 @@
                   <h2>ناظر</h2>
                   <span class="role-en" dir="ltr">OBSERVER</span>
                 </div>
-                <p>مشاهده رنگ و شکل داخل کیف و پلاک سریال · تنها گوینده تیم و پل اشاره با راهنما.</p>
+                <p>تنها بیننده تایمر و خانه‌های خطا روی درب باز کیف، رنگ ماژول‌ها و سریال · تنها گوینده تیم.</p>
               </div>
               <div class="role-card-footer">
                 <span class="role-constraint-line">هدفون ایمن · بدون لمس بمب</span>
@@ -723,12 +696,12 @@
 
             <div class="tutorial-info-grid">
               <div class="tutorial-card">
-                <h4>۱. چیدمان نشستن</h4>
-                <p><strong>اپراتور</strong> و <strong>دارنده دفترچه راهنما</strong> روبه‌روی هم پشت میز می‌نشینند و درب بازشده کیف بمب مانع دید مستقیم دفترچه راهنما به داخل کیف می‌شود. <strong>ناظر</strong> در ضلع کناری میز می‌نشیند تا از زاویه جانبی رنگ و شکل داخل کیف و پلاک سریال را ببیند، با دفترچه راهنما با اشاره تبادل کند و شفاهاً به اپراتور فرمان دهد.</p>
+                <h4>۱. چیدمان نشستن و تایمر درب کیف</h4>
+                <p>تایمر بمب و خانه‌های خطا روی سطح داخلی <strong>درب بازشده کیف</strong> نصب شده‌اند: <strong>دارنده دفترچه راهنما</strong> پشت درب نشسته و آن را نمی‌بیند؛ <strong>اپراتور</strong> به علت کوررنگی قادر به خواندن ارقام آن نیست؛ و تنها <strong>ناظر</strong> از ضلع کناری، تایمر، خطاها، رنگ ماژول‌ها و پلاک سریال را می‌خواند.</p>
               </div>
               <div class="tutorial-card">
-                <h4>۲. واقعیت فیزیکی صدا</h4>
-                <p>افکت‌های صوتی عمومی (تیک تایمر و خطا) از گوشی <strong>اپراتور</strong> پخش می‌شود، اما <strong>هیچ معمایی سرنخ صوتی ندارد</strong> و کد مورس کاملاً بی‌صدا با لامپ نوری دیواره چپ کیف به اپراتور نمایش داده می‌شود تا صدایی به دفترچه راهنما نشت نکند. <strong>ناظر</strong> نیز نباید از صدای عمومی بازی استفاده کند.</p>
+                <h4>۲. واقعیت فیزیکی صدای تندشونده</h4>
+                <p>تیک تندشونده تایمر و صدای خطا تنها از بلندگوی گوشی <strong>اپراتور</strong> در اتاق پخش می‌شود تا اپراتور و دفترچه راهنما شتاب لحظه‌به‌لحظه زمان را حس کنند، در حالی که <strong>ناظر</strong> با هدفون ایمن صدای بازی را نمی‌شنود. کد مورس نیز کاملاً بی‌صدا با لامپ کناری نمایش داده می‌شود.</p>
               </div>
               <div class="tutorial-card tutorial-card-safety">
                 <h4>۳. ایمنی و دسترس‌پذیری</h4>

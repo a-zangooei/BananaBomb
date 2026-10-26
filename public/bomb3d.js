@@ -18,12 +18,19 @@ import { WorldVisualStyleManager } from './tactile-styler.js';
 import {
   BRIEFCASE_SPEC,
   buildBriefcaseBombRig,
-  computeOpticalMorseLampState
+  computeOpticalMorseLampState,
+  computeStrikeDisplayModel,
+  drawLidTimerCanvas
 } from './briefcase-rig.js';
 import { buildVanEnvironment } from './van-environment.js';
 import { buildWorldAvatars } from './world-avatars.js';
 
-export { BRIEFCASE_SPEC, computeOpticalMorseLampState };
+export {
+  BRIEFCASE_SPEC,
+  computeOpticalMorseLampState,
+  computeStrikeDisplayModel,
+  drawLidTimerCanvas
+};
 
 /**
  * Checks if WebGL is available in the current browser environment.
@@ -271,6 +278,20 @@ export function buildSharedWorldGraph({
     }
   }
 
+  function syncLidTimer(remainingSecondsOverride = null, penaltySeconds = 0) {
+    const rem =
+      remainingSecondsOverride !== null && remainingSecondsOverride !== undefined
+        ? remainingSecondsOverride
+        : (latestState?.remainingSeconds ?? latestState?.duration ?? 300);
+    briefcaseRig.updateLidTimer({
+      remainingSeconds: rem,
+      strikes: latestState?.strikes || 0,
+      maxStrikes: latestState?.maxStrikes || latestState?.difficulty?.maxStrikes || 3,
+      penaltySeconds,
+      isObserverView: isObserverRole(currentRole)
+    });
+  }
+
   function clearModules() {
     styleManager.clearModuleEdgeDisposables();
     for (const modInfo of moduleViews.values()) {
@@ -354,6 +375,7 @@ export function buildSharedWorldGraph({
 
     const nowMs = typeof performance !== 'undefined' ? performance.now() : 0;
     syncMorseLamp(nowMs);
+    syncLidTimer(state.remainingSeconds, 0);
   }
 
   function setRole(nextRole, { immediate = true } = {}) {
@@ -365,6 +387,8 @@ export function buildSharedWorldGraph({
     applyCurrentStyleProfile();
     if (latestState) {
       updateState(latestState);
+    } else {
+      syncLidTimer(300, 0);
     }
     scene.updateMatrixWorld(true);
   }
@@ -586,6 +610,7 @@ export function buildSharedWorldGraph({
     rebuildModules,
     updateState,
     syncMorseLamp,
+    syncLidTimer,
     setRole,
     setLowSpecMode,
     showReticleForDescriptor,
@@ -634,6 +659,8 @@ export class Bomb3DScene {
     this._frameDeltas = [];
     this._avgFrameMs = 16.6;
     this._keyboardReticleActive = false;
+    this._penaltyFlashSeconds = 0;
+    this._penaltyFlashUntilMs = 0;
 
     // Production Interaction State Machine
     this.interaction = new BombInteractionController({
@@ -771,6 +798,17 @@ export class Bomb3DScene {
     this.renderer.setSize(width, height);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = false;
+
+    const maxAniso = this.renderer.capabilities?.getMaxAnisotropy?.() || 1;
+    if (this.briefcaseRig) {
+      for (const tex of [
+        this.briefcaseRig.lidTimerTexture,
+        this.briefcaseRig.serialTexture,
+        this.briefcaseRig.morseLampTexture
+      ]) {
+        if (tex) tex.anisotropy = maxAniso;
+      }
+    }
 
     this.container.innerHTML = '';
     this.container.appendChild(this.renderer.domElement);
@@ -1126,6 +1164,12 @@ export class Bomb3DScene {
     this.world.updateState(state);
   }
 
+  triggerStrikePenaltyFlash(penaltySeconds = 30, durationMs = 1600) {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    this._penaltyFlashSeconds = Math.max(0, Number(penaltySeconds) || 0);
+    this._penaltyFlashUntilMs = now + Math.max(200, durationMs);
+  }
+
   animate() {
     if (!this.renderer || !this.scene || !this.camera || this.contextLost) return;
 
@@ -1145,11 +1189,13 @@ export class Bomb3DScene {
       }
     }
 
-    // Advance active touch/hold progress indicators & silent Optical Morse side-lamp
+    // Advance active touch/hold progress indicators, inner-lid timer & silent Optical Morse side-lamp
     this.interaction.tick();
     this.syncReticleWithInteraction();
     if (this.world) {
       this.world.syncMorseLamp(now);
+      const activePenalty = now < this._penaltyFlashUntilMs ? this._penaltyFlashSeconds : 0;
+      this.world.syncLidTimer(this.getTimerRemaining(), activePenalty);
     }
 
     const damping = prefersReducedMotion() ? 1.0 : 0.18;
