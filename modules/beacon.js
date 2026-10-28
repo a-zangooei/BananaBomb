@@ -1,4 +1,6 @@
 import { BEACON_RULES } from './rules-config.js';
+import { isOperatorRole, isObserverRole } from '../shared/roles.js';
+import { fisherYatesShuffle, isPlainObject } from '../shared/utils.js';
 
 /**
  * Server-side Silent Optical Morse Side-Lamp & Tactile Braille Dial Module
@@ -19,13 +21,7 @@ export const beaconModule = {
     const spectrumColor = colors[Math.floor(rng() * colors.length)];
 
     // Deterministic Fisher-Yates shuffle of [1, 2, 3] across the 3 physical dial slots (1..3)
-    const slotChannels = [1, 2, 3];
-    for (let i = slotChannels.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      const tmp = slotChannels[i];
-      slotChannels[i] = slotChannels[j];
-      slotChannels[j] = tmp;
-    }
+    const slotChannels = fisherYatesShuffle([1, 2, 3], rng);
 
     const tunedSlot = 1;
     const tunedChannel = slotChannels[tunedSlot - 1];
@@ -46,12 +42,9 @@ export const beaconModule = {
   filterForRole(role, state) {
     if (!state) return null;
 
-    const isOperator = role === 'operator' || role === 'blind';
-    const isObserver = role === 'observer' || role === 'deaf';
-
     // Operator sees West-side Optical Morse flashes + Braille channel labels on dial slots;
     // spectrumColor and targetChannel are STRICTLY OMITTED.
-    if (isOperator) {
+    if (isOperatorRole(role)) {
       return {
         id: 'beacon',
         solved: state.solved,
@@ -67,7 +60,7 @@ export const beaconModule = {
 
     // Observer sees colored Spectrum Indicator lamp + physical needle slot (1..3);
     // beats, pattern, Braille slotChannels, tunedChannel, and targetChannel are STRICTLY OMITTED.
-    if (isObserver) {
+    if (isObserverRole(role)) {
       return {
         id: 'beacon',
         solved: state.solved,
@@ -81,6 +74,22 @@ export const beaconModule = {
       id: 'beacon',
       solved: state.solved
     };
+  },
+
+  validateAction(action, rawData) {
+    if (action === 'tune') {
+      if (isPlainObject(rawData) && Number.isInteger(rawData.slot) && rawData.slot >= 1 && rawData.slot <= 3) {
+        return { ok: true, sanitizedData: { slot: rawData.slot }, targetKey: `tune_slot_${rawData.slot}` };
+      }
+      if (isPlainObject(rawData) && Number.isInteger(rawData.channel) && rawData.channel >= 1 && rawData.channel <= 3) {
+        return { ok: true, sanitizedData: { channel: rawData.channel }, targetKey: `tune_ch_${rawData.channel}` };
+      }
+      return { ok: false, message: 'جایگاه یا شماره کانال فانوس مورس نوری نامعتبر است (باید ۱، ۲ یا ۳ باشد).' };
+    }
+    if (action === 'transmit') {
+      return { ok: true, sanitizedData: {}, targetKey: 'tx' };
+    }
+    return { ok: false, message: 'نوع عملیات ماژول فانوس مورس نوری نامعتبر است.' };
   },
 
   handleAction(state, action, data) {

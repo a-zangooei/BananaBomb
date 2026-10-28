@@ -1,4 +1,6 @@
 import { WIRES_RULES } from './rules-config.js';
+import { isOperatorRole, isObserverRole } from '../shared/roles.js';
+import { isPlainObject } from '../shared/utils.js';
 
 /**
  * Server-side Wire Sequencer Module
@@ -27,11 +29,9 @@ export const wiresModule = {
 
   filterForRole(role, state, ctx = null) {
     if (!state) return null;
-    const isOperator = role === 'operator' || role === 'blind';
-    const isObserver = role === 'observer' || role === 'deaf';
 
     // NEVER leak correctWireIndex
-    if (isOperator) {
+    if (isOperatorRole(role)) {
       return {
         id: 'wires',
         count: state.wires.length,
@@ -39,7 +39,7 @@ export const wiresModule = {
         solved: state.solved
       };
     }
-    if (isObserver) {
+    if (isObserverRole(role)) {
       return {
         id: 'wires',
         wires: state.wires,
@@ -56,7 +56,33 @@ export const wiresModule = {
     };
   },
 
-  handleAction(state, action, data, ctx) {
+  validateAction(action, rawData) {
+    if (action === 'cut') {
+      if (
+        !isPlainObject(rawData) ||
+        !Number.isInteger(rawData.wireIndex) ||
+        rawData.wireIndex < 0 ||
+        rawData.wireIndex > 3
+      ) {
+        return {
+          ok: false,
+          message: 'شماره سیم ارسالی نامعتبر است (باید عدد صحیح ۰ تا ۳ باشد).'
+        };
+      }
+      return {
+        ok: true,
+        sanitizedData: { wireIndex: rawData.wireIndex },
+        targetKey: `wire_${rawData.wireIndex}`
+      };
+    }
+    return { ok: false, message: 'نوع عملیات ماژول سیم‌ها نامعتبر است.' };
+  },
+
+  isRedundantAction(state, action, sanitizedData) {
+    return Boolean(action === 'cut' && state?.cutWires?.includes(sanitizedData?.wireIndex));
+  },
+
+  handleAction(state, action, data) {
     if (state.solved) return { solved: true, strike: false };
 
     if (action === 'cut') {

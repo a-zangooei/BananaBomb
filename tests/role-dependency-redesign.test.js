@@ -182,6 +182,7 @@ describe('Triadic Role Redesign & Silent Optical Morse + Tactile Braille Verific
       const manualClient = await createClient();
 
       operatorClient.send({ type: 'join', role: 'operator', playerId: 'p-operator' });
+      await operatorClient.waitFor((m) => m.type === 'role_assigned');
       observerClient.send({ type: 'join', role: 'observer', playerId: 'p-observer' });
       manualClient.send({ type: 'join', role: 'manual', playerId: 'p-manual' });
 
@@ -252,6 +253,7 @@ describe('Triadic Role Redesign & Silent Optical Morse + Tactile Braille Verific
       const manualClient = await createClient();
 
       operatorClient.send({ type: 'join', role: 'operator', playerId: 'p-op' });
+      await operatorClient.waitFor((m) => m.type === 'role_assigned');
       observerClient.send({ type: 'join', role: 'observer', playerId: 'p-obs' });
       manualClient.send({ type: 'join', role: 'manual', playerId: 'p-man' });
 

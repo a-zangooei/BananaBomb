@@ -1,6 +1,6 @@
 {
-  "summary":  "طرح پیاده‌سازی انتقال تایمر بمب و نشانگر ضربدر خطاها از رابط کاربری دوبعدی به سطح داخلی درب بازشده کیف سه‌بعدی (خوانا فقط برای ناظر، ناخوانا برای اپراتور به دلیل دید تک‌رنگ و پنهان از دید دارنده دفترچه)، تطبیق تعداد خانه‌های ضربدر با سقف خطای درجه سختی (N-1) و سیستم صدای تیک‌تاک پیوسته و تندشونده از بلندگوی گوشی اپراتور.",
-  "updatedAt":  "2026-10-26T06:17:16.639286717Z",
+  "summary":  "Architectural refactoring blueprint for BananaBomb decomposing monolithic server, client UI, and 3D scene layers into cohesive, unidirectional ES modules with an isomorphic shared domain layer, self-contained bomb module validation contracts, headless-vs-WebGL scene separation, updated static test audits, and English architecture documentation while preserving 100% of existing gameplay, UX, and offline LAN behavior.",
+  "updatedAt":  "2026-10-26T06:52:22.707265910Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -1,36 +1,53 @@
+/**
+ * BananaBomb Client Application Coordinator.
+ *
+ * Orchestrates WebSocket session state, role selection & readiness, difficulty/seed lobby controls,
+ * 3D viewport lifecycle (`Bomb3DScene`), Operator-exclusive accelerating timer audio, and modular
+ * UI controllers (`./ui/*`).
+ */
 import { GameTransport } from './transport.js';
 import { sound, computeTimerTickSchedule } from './audio.js';
 import { Bomb3DScene, isWebGLAvailable } from './bomb3d.js';
 import { INTERACTION_DEFAULTS } from './interaction-controller.js';
-import { renderQrSvg } from './qr-svg.js';
 import { createHybridSessionManager } from './session-store.js';
+import { isOperator, isObserver, isManual, toFunctionalRoleKey } from '../shared/roles.js';
+import { hasCustomDifficultyOverrides } from '../shared/difficulty.js';
+import {
+  createToastController,
+  createWakeLockController,
+  initFullscreenControls,
+  initOrientationHint,
+  triggerHaptic
+} from './ui/viewport-ergonomics.js';
+import { createQrModalController } from './ui/qr-modal.js';
+import {
+  buildPermissionsHtml,
+  createReferenceSheetController
+} from './ui/reference-sheet.js';
+import { createCommAidController } from './ui/comm-aid-ui.js';
+import { createManualRenderer } from './ui/manual-renderer.js';
+import { initKeyboardControls } from './ui/keyboard-controls.js';
 
-// Expose sound engine for tactile audio feedback across modules
+// Retain global reference for backward-compatible debugging while passing `soundEngine` explicitly to Bomb3DScene
 window.soundEngine = sound;
 
 // --- Hybrid Mobile Session & Tab-Safe Identity ---
 const sessionManager = createHybridSessionManager();
-let playerId = sessionManager.playerId;
+const playerId = sessionManager.playerId;
 let myRole = sessionManager.getRole();
 let currentGameState = null;
-let lastGameStatus = null;
 let nextTimerAudioAtMs = 0;
 let lastCountdownBeepStep = null;
 let bombScene = null;
 let manualWorldScene = null;
 let manualDockMode = 'split';
-let selectedPermTabRole = 'operator';
-let activeRefTab = 'checklist';
-let lastRefTriggerEl = null;
 let isCustomDifficultyOpen = false;
 let isSeedPanelOpen = false;
 let audioUnlocked = false;
-let toastTimeoutId = null;
 
-// Initialize Transport Abstraction
 const transport = new GameTransport();
 
-// --- Core Shell & Phase Elements ---
+// --- Core Shell, HUD & Debrief Elements ---
 const appViewport = document.querySelector('.app-viewport');
 const lobbyTopBar = document.getElementById('lobbyTopBar');
 const activeRoundHud = document.getElementById('activeRoundHud');
@@ -39,20 +56,16 @@ const connStatus = document.getElementById('connStatus');
 const appToastBanner = document.getElementById('appToastBanner');
 const webglErrorBanner = document.getElementById('webglErrorBanner');
 
-// Active Round HUD Elements (Zero 2D Timer / Strikes — Timer & Strikes live on 3D Briefcase Lid)
 const hudActiveRoleTitle = document.getElementById('hudActiveRoleTitle');
 const hudDefusedRatio = document.getElementById('hudDefusedRatio');
 const btnInRoundHelp = document.getElementById('btnInRoundHelp');
 
-// Views, Countdown Curtain & Debrief Overlays
 const lobbySection = document.getElementById('lobbySection');
 const bomb3dSection = document.getElementById('bomb3dSection');
 const muteSection = document.getElementById('muteSection');
 const overlayCountdown = document.getElementById('overlayCountdown');
 const countdownDigitDisplay = document.getElementById('countdownDigitDisplay');
 const countdownProgressFill = document.getElementById('countdownProgressFill');
-const countdownRoleTitle = document.getElementById('countdownRoleTitle');
-const countdownRoleInstructions = document.getElementById('countdownRoleInstructions');
 const btnCancelCountdown = document.getElementById('btnCancelCountdown');
 const overlayExploded = document.getElementById('overlayExploded');
 const overlayDefused = document.getElementById('overlayDefused');
@@ -65,62 +78,18 @@ const defusedTimeStat = document.getElementById('defusedTimeStat');
 const defusedStrikesStat = document.getElementById('defusedStrikesStat');
 const defusedModulesStat = document.getElementById('defusedModulesStat');
 
-// Reference, QR Invite Modal & Fullscreen Elements
-const btnOpenQrModal = document.getElementById('btnOpenQrModal');
-const qrInviteModal = document.getElementById('qrInviteModal');
-const btnCloseQrModal = document.getElementById('btnCloseQrModal');
-const qrSvgContainer = document.getElementById('qrSvgContainer');
-const qrActiveUrlText = document.getElementById('qrActiveUrlText');
-const btnCopyLanUrl = document.getElementById('btnCopyLanUrl');
-const qrLocalhostNotice = document.getElementById('qrLocalhostNotice');
-const qrInterfaceSelectorWrap = document.getElementById('qrInterfaceSelectorWrap');
-const qrInterfaceButtons = document.getElementById('qrInterfaceButtons');
-const inputManualLanHost = document.getElementById('inputManualLanHost');
-const btnApplyManualLanHost = document.getElementById('btnApplyManualLanHost');
-const btnLobbyFullscreen = document.getElementById('btnLobbyFullscreen');
-const btnHudFullscreen = document.getElementById('btnHudFullscreen');
-
-const btnOpenReferenceSheet = document.getElementById('btnOpenReferenceSheet');
-const headerChecklistCount = document.getElementById('headerChecklistCount');
-const lobbyReferenceSheet = document.getElementById('lobbyReferenceSheet');
-const btnCloseReferenceSheet = document.getElementById('btnCloseReferenceSheet');
-const sheetTabCheckCount = document.getElementById('sheetTabCheckCount');
-const refTabButtons = Array.from(document.querySelectorAll('[data-ref-tab]'));
-const refTabPanes = Array.from(document.querySelectorAll('[data-ref-pane]'));
-
-// 3D Viewport & Legacy Hidden Sync Hooks
 const bomb3dContainer = document.getElementById('bomb3dContainer');
 const bomb3dRoleBanner = document.getElementById('bomb3dRoleBanner');
-const blindTactileHelper = document.getElementById('blindTactileHelper');
-const deafVisualHelper = document.getElementById('deafVisualHelper');
 const bombInRoundPermissions = document.getElementById('bombInRoundPermissions');
 const manualInRoundPermissions = document.getElementById('manualInRoundPermissions');
-const observerGestureDrawer = document.getElementById('observerGestureDrawer');
 
-// Easy-mode Communication Aid Widgets (Observer <-> Manual-holder bridge only)
-const observerCommAidWidget = document.getElementById('observerCommAidWidget');
-const observerCommAidBudget = document.getElementById('observerCommAidBudget');
-const observerCommAidFeedback = document.getElementById('observerCommAidFeedback');
-const manualCommAidWidget = document.getElementById('manualCommAidWidget');
-const manualCommAidBudget = document.getElementById('manualCommAidBudget');
-const manualCommAidFeedback = document.getElementById('manualCommAidFeedback');
-
-// INTERNAL IDENTIFIER MAPPING:
-// Legacy DOM/wire keys ('blind', 'deaf', 'mute') map directly to canonical functional roles:
-//   - 'blind' <-> 'operator' (اپراتور / Operator)
-//   - 'deaf'  <-> 'observer' (ناظر / Observer)
-//   - 'mute'  <-> 'manual'   (دفترچه راهنما / Manual-holder)
+// --- Lobby Role Cards & Readiness Controls ---
 const cardBlindEl = document.getElementById('cardBlind');
 const cardDeafEl = document.getElementById('cardDeaf');
 const cardMuteEl = document.getElementById('cardMute');
-
 const badgeBlindEl = document.getElementById('badgeBlind');
 const badgeDeafEl = document.getElementById('badgeDeaf');
 const badgeMuteEl = document.getElementById('badgeMute');
-
-const slotIndBlind = document.getElementById('slotIndBlind');
-const slotIndDeaf = document.getElementById('slotIndDeaf');
-const slotIndMute = document.getElementById('slotIndMute');
 const squadReadyRatio = document.getElementById('squadReadyRatio');
 
 const roleCards = {
@@ -142,9 +111,9 @@ const roleBadges = {
 };
 
 const slotIndicators = {
-  blind: { el: slotIndBlind, shortTitle: 'اپراتور' },
-  deaf: { el: slotIndDeaf, shortTitle: 'ناظر' },
-  mute: { el: slotIndMute, shortTitle: 'راهنما' }
+  blind: { el: document.getElementById('slotIndBlind'), shortTitle: 'اپراتور' },
+  deaf: { el: document.getElementById('slotIndDeaf'), shortTitle: 'ناظر' },
+  mute: { el: document.getElementById('slotIndMute'), shortTitle: 'راهنما' }
 };
 
 const releaseRoleButtons = {
@@ -153,639 +122,6 @@ const releaseRoleButtons = {
   mute: document.getElementById('btnReleaseMute')
 };
 
-// Functional Role Normalizers
-const isOperator = (r) => r === 'operator' || r === 'blind';
-const isObserver = (r) => r === 'observer' || r === 'deaf';
-const isManual = (r) => r === 'manual' || r === 'mute';
-
-function toFunctionalRoleKey(r) {
-  if (isOperator(r)) return 'operator';
-  if (isObserver(r)) return 'observer';
-  if (isManual(r)) return 'manual';
-  return 'operator';
-}
-
-// Canonical Role-Specific "You Can / You Cannot" Specification
-const ROLE_PERMISSIONS_SPEC = {
-  operator: {
-    title: 'اپراتور (Operator)',
-    can: [
-      'مشاهده نمای سه‌بعدی مونوکروم بمب و لامپ مورس نوری بی‌صدا در دیواره چپ بیرونی کیف (با دکمه «لامپ مورس» یا چرخش نگاه).',
-      'لمس مستقیم بمب و خواندن اعداد بریل دور سلکتور فانوس مورس نوری (⠁ = ۱ · ⠃ = ۲ · ⠉ = ۳) برای تنظیم کانال و نگه‌داشتن HOLD TX.',
-      'پخش صدای تندشونده تایمر و هشدار خطا از بلندگوی این گوشی در اتاق (شنیده‌شده توسط اپراتور و دفترچه‌دار).',
-      'دریافت دستورات کلامی از ناظر (از جمله زمان رهاسازی دکمه HOLD) و انتقال بی‌کلام الگوی چشمک‌زن لامپ مورس به ناظر.'
-    ],
-    cannot: [
-      'خواندن ارقام تایمر یا خانه‌های ضربدر خطا روی درب باز کیف (به دلیل دید مونوکروم و کوررنگی اپراتور).',
-      'صحبت کردن یا تولید هرگونه کلام در طول راند.',
-      'دیدن صفحه گوشی دفترچه راهنما یا ناظر، یا برقراری ارتباط مستقیم با دارنده دفترچه راهنما.',
-      'نشان دادن صفحه گوشی خود به سایر بازیکنان.'
-    ]
-  },
-  observer: {
-    title: 'ناظر (Observer) — پل ارتباطی تیم',
-    can: [
-      'مشاهده انحصاری تایمر دیجیتال و خانه‌های ضربدر خطا روی سطح داخلی درب باز کیف، به همراه رنگ ماژول‌ها، چراغ طیف مورس و پلاک سریال.',
-      'صحبت کردن شفاهی با اپراتور (شما تنها گوینده تیم هستید و لحظه دقیق رهاسازی دکمه HOLD را اعلام می‌کنید).',
-      'برقراری ارتباط دوطرفه با دارنده دفترچه راهنما از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
-      'نگاه به اطراف و زوم اپتیکال از صندلی کناری میز بدون لمس عملیاتی ماژول‌های بمب.'
-    ],
-    cannot: [
-      'لمس، بریدن سیم یا تعامل عملیاتی با هیچ‌یک از ماژول‌های بمب.',
-      'شنیدن یا استفاده از صدای تندشونده تایمر در اتاق (هدفون ایمن یا جایگزین توافقی الزامی است).',
-      'نشان دادن صفحه رنگی گوشی خود به اپراتور یا دارنده دفترچه راهنما، یا نگاه کردن به صفحه گوشی آن‌ها.',
-      'استفاده از موسیقی یا صدای بلند و آسیب‌زا در هدفون.'
-    ]
-  },
-  manual: {
-    title: 'دفترچه راهنما (Manual-holder)',
-    can: [
-      'مطالعه دفترچه قوانین ۲D راند جاری در کنار نمای سه‌بعدی نشسته پشت میز ون و شنیدن صدای تندشونده تایمر از گوشی اپراتور در اتاق.',
-      'برقراری ارتباط دوطرفه فقط با ناظر از طریق اشاره‌های توافقی دست (و کمک‌ارتباطی ۳ نمادی در حالت آسان).',
-      'تحلیل سرنخ‌های اعلامی ناظر (رنگ‌ها، سریال، زمان و الگوی مورس) و انتقال دستور عمل با اشاره به ناظر.'
-    ],
-    cannot: [
-      'دیدن تایمر روی درب باز کیف یا داخل بمب (درب بازشده کیف مانع دید مستقیم شماست).',
-      'صحبت کردن یا زمزمه کردن با هیچ‌یک از بازیکنان.',
-      'دیدن صفحه گوشی اپراتور یا برقراری هرگونه ارتباط مستقیم با اپراتور.',
-      'نشان دادن صفحه دفترچه راهنما به ناظر یا اپراتور.'
-    ]
-  }
-};
-
-function buildPermissionsHtml(roleKey) {
-  const spec = ROLE_PERMISSIONS_SPEC[toFunctionalRoleKey(roleKey)] || ROLE_PERMISSIONS_SPEC.operator;
-  const canItems = spec.can.map((item) => `<li>${item}</li>`).join('');
-  const cannotItems = spec.cannot.map((item) => `<li>${item}</li>`).join('');
-  return `
-    <div class="perm-col perm-col-can">
-      <h4>✓ مجاز هستید (${spec.title}):</h4>
-      <ul class="perm-list">${canItems}</ul>
-    </div>
-    <div class="perm-col perm-col-cannot">
-      <h4>✕ مجاز نیستید (${spec.title}):</h4>
-      <ul class="perm-list">${cannotItems}</ul>
-    </div>
-  `;
-}
-
-// --- Reference & Checklist Modal Sheet Wiring ---
-const rolePermissionsBody = document.getElementById('rolePermissionsBody');
-const permTabButtons = document.querySelectorAll('[data-perm-role]');
-
-function renderLobbyPermissionsPanel(roleKey = selectedPermTabRole) {
-  selectedPermTabRole = toFunctionalRoleKey(roleKey);
-  permTabButtons.forEach((btn) => {
-    const isActive = btn.getAttribute('data-perm-role') === selectedPermTabRole;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-  if (rolePermissionsBody) {
-    rolePermissionsBody.innerHTML = buildPermissionsHtml(selectedPermTabRole);
-  }
-}
-
-permTabButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const r = btn.getAttribute('data-perm-role') || 'operator';
-    renderLobbyPermissionsPanel(r);
-  });
-});
-
-renderLobbyPermissionsPanel(myRole ? toFunctionalRoleKey(myRole) : 'operator');
-
-function setActiveReferenceTab(tabId) {
-  activeRefTab = tabId || 'checklist';
-  refTabButtons.forEach((btn) => {
-    const isMatch = btn.getAttribute('data-ref-tab') === activeRefTab;
-    btn.classList.toggle('active', isMatch);
-    btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
-  });
-  refTabPanes.forEach((pane) => {
-    pane.classList.toggle('active', pane.getAttribute('data-ref-pane') === activeRefTab);
-  });
-}
-
-function isReferenceSheetOpen() {
-  return Boolean(lobbyReferenceSheet && lobbyReferenceSheet.style.display !== 'none');
-}
-
-function openReferenceSheet(tabId = activeRefTab, permRole = null, triggerEl = null) {
-  if (!lobbyReferenceSheet) return;
-  if (triggerEl) {
-    lastRefTriggerEl = triggerEl;
-  }
-  if (permRole) {
-    renderLobbyPermissionsPanel(permRole);
-  }
-  setActiveReferenceTab(tabId);
-  lobbyReferenceSheet.style.display = 'flex';
-  btnCloseReferenceSheet?.focus();
-}
-
-function closeReferenceSheet() {
-  if (!lobbyReferenceSheet || lobbyReferenceSheet.style.display === 'none') return;
-  lobbyReferenceSheet.style.display = 'none';
-  if (lastRefTriggerEl && typeof lastRefTriggerEl.focus === 'function') {
-    lastRefTriggerEl.focus();
-  }
-}
-
-refTabButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    setActiveReferenceTab(btn.getAttribute('data-ref-tab') || 'checklist');
-  });
-});
-
-if (btnOpenReferenceSheet) {
-  btnOpenReferenceSheet.addEventListener('click', () => {
-    openReferenceSheet(activeRefTab || 'checklist', myRole ? toFunctionalRoleKey(myRole) : null, btnOpenReferenceSheet);
-  });
-}
-
-if (btnInRoundHelp) {
-  btnInRoundHelp.addEventListener('click', () => {
-    const targetTab = isOperator(myRole) ? 'permissions' : 'gestures';
-    openReferenceSheet(targetTab, myRole ? toFunctionalRoleKey(myRole) : 'operator', btnInRoundHelp);
-  });
-}
-
-if (btnCloseReferenceSheet) {
-  btnCloseReferenceSheet.addEventListener('click', closeReferenceSheet);
-}
-
-if (lobbyReferenceSheet) {
-  lobbyReferenceSheet.addEventListener('click', (e) => {
-    if (e.target === lobbyReferenceSheet) {
-      closeReferenceSheet();
-    }
-  });
-}
-
-document.querySelectorAll('[data-open-perm]').forEach((btn) => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const roleTarget = btn.getAttribute('data-open-perm') || 'operator';
-    openReferenceSheet('permissions', roleTarget, btn);
-  });
-});
-
-// Non-blocking Toast Helper
-function showToast(message, variant = 'info', durationMs = 3600) {
-  if (!appToastBanner || !message) return;
-  appToastBanner.textContent = message;
-  appToastBanner.className =
-    'app-toast-banner' +
-    (variant === 'error' ? ' toast-error' : variant === 'success' ? ' toast-success' : '');
-  appToastBanner.style.display = 'block';
-  if (toastTimeoutId) clearTimeout(toastTimeoutId);
-  toastTimeoutId = setTimeout(() => {
-    if (appToastBanner) appToastBanner.style.display = 'none';
-  }, durationMs);
-}
-
-// --- Offline Vector QR Code LAN Invite Modal ---
-let detectedLanInterfaces = [];
-let detectedServerPort = Number(window.location.port) || 3000;
-let activeQrUrl = window.location.origin;
-let lastQrTriggerEl = null;
-
-function isLoopbackHost(hostname) {
-  const h = String(hostname || '').toLowerCase();
-  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
-}
-
-function normalizeManualLanUrl(rawInput, fallbackPort = detectedServerPort) {
-  let val = String(rawInput || '').trim();
-  if (!val) return '';
-  if (!/^https?:\/\//i.test(val)) {
-    val = `http://${val}`;
-  }
-  try {
-    const parsed = new URL(val);
-    if (!parsed.port && fallbackPort && parsed.protocol === 'http:') {
-      parsed.port = String(fallbackPort);
-    }
-    return parsed.origin;
-  } catch (e) {
-    return '';
-  }
-}
-
-function renderQrModalUrl(targetUrl) {
-  if (!targetUrl) return;
-  activeQrUrl = targetUrl;
-  if (qrActiveUrlText) {
-    qrActiveUrlText.textContent = activeQrUrl;
-  }
-  if (qrSvgContainer) {
-    try {
-      qrSvgContainer.innerHTML = renderQrSvg(activeQrUrl, {
-        ariaLabel: `QR Code ${activeQrUrl}`
-      });
-    } catch (e) {
-      qrSvgContainer.textContent = activeQrUrl;
-    }
-  }
-
-  let isCurrentQrLoopback = false;
-  try {
-    isCurrentQrLoopback = isLoopbackHost(new URL(activeQrUrl).hostname);
-  } catch (e) {}
-
-  if (qrLocalhostNotice) {
-    qrLocalhostNotice.style.display = isCurrentQrLoopback ? 'block' : 'none';
-  }
-
-  if (qrInterfaceButtons) {
-    qrInterfaceButtons.querySelectorAll('.qr-iface-btn').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-lan-url') === activeQrUrl);
-    });
-  }
-}
-
-function renderDetectedInterfaceButtons() {
-  if (!qrInterfaceSelectorWrap || !qrInterfaceButtons) return;
-  if (!Array.isArray(detectedLanInterfaces) || detectedLanInterfaces.length === 0) {
-    qrInterfaceSelectorWrap.style.display = 'none';
-    qrInterfaceButtons.innerHTML = '';
-    return;
-  }
-
-  qrInterfaceSelectorWrap.style.display = 'flex';
-  qrInterfaceButtons.innerHTML = '';
-  detectedLanInterfaces.forEach((iface) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'qr-iface-btn tabular-num' + (iface.url === activeQrUrl ? ' active' : '');
-    btn.setAttribute('dir', 'ltr');
-    btn.setAttribute('data-lan-url', iface.url);
-    btn.textContent = `${iface.address}:${detectedServerPort} (${iface.name})`;
-    btn.addEventListener('click', () => {
-      try {
-        localStorage.removeItem('defusal_manual_lan_url');
-      } catch (e) {}
-      renderQrModalUrl(iface.url);
-    });
-    qrInterfaceButtons.appendChild(btn);
-  });
-}
-
-async function refreshLanQrEndpoints() {
-  let savedManualUrl = '';
-  try {
-    savedManualUrl = localStorage.getItem('defusal_manual_lan_url') || '';
-  } catch (e) {}
-
-  try {
-    const resp = await fetch('/api/lan-info', { cache: 'no-store' });
-    if (resp.ok) {
-      const info = await resp.json();
-      if (info?.port) detectedServerPort = Number(info.port) || detectedServerPort;
-      if (Array.isArray(info?.interfaces)) {
-        detectedLanInterfaces = info.interfaces;
-      }
-    }
-  } catch (e) {
-    // Offline fallback if server route unreachable
-  }
-
-  if (inputManualLanHost && !inputManualLanHost.value) {
-    inputManualLanHost.placeholder = `192.168.43.1:${detectedServerPort}`;
-  }
-
-  let preferredUrl = window.location.origin;
-  if (savedManualUrl) {
-    preferredUrl = savedManualUrl;
-  } else if (isLoopbackHost(window.location.hostname) && detectedLanInterfaces.length > 0) {
-    preferredUrl = detectedLanInterfaces[0].url;
-  }
-
-  renderDetectedInterfaceButtons();
-  renderQrModalUrl(preferredUrl);
-}
-
-function isQrModalOpen() {
-  return Boolean(qrInviteModal && qrInviteModal.style.display !== 'none');
-}
-
-function openQrModal(triggerEl = null) {
-  if (!qrInviteModal) return;
-  if (triggerEl) lastQrTriggerEl = triggerEl;
-  qrInviteModal.style.display = 'flex';
-  renderQrModalUrl(activeQrUrl || window.location.origin);
-  refreshLanQrEndpoints();
-  btnCloseQrModal?.focus();
-}
-
-function closeQrModal() {
-  if (!qrInviteModal || qrInviteModal.style.display === 'none') return;
-  qrInviteModal.style.display = 'none';
-  if (lastQrTriggerEl && typeof lastQrTriggerEl.focus === 'function') {
-    lastQrTriggerEl.focus();
-  }
-}
-
-if (btnOpenQrModal) {
-  btnOpenQrModal.addEventListener('click', () => openQrModal(btnOpenQrModal));
-}
-if (btnCloseQrModal) {
-  btnCloseQrModal.addEventListener('click', closeQrModal);
-}
-if (qrInviteModal) {
-  qrInviteModal.addEventListener('click', (e) => {
-    if (e.target === qrInviteModal) closeQrModal();
-  });
-}
-
-if (btnApplyManualLanHost && inputManualLanHost) {
-  const applyManualHost = () => {
-    const raw = inputManualLanHost.value.trim();
-    if (!raw) {
-      try {
-        localStorage.removeItem('defusal_manual_lan_url');
-      } catch (e) {}
-      refreshLanQrEndpoints();
-      return;
-    }
-    const normalized = normalizeManualLanUrl(raw, detectedServerPort);
-    if (!normalized) {
-      showToast('قالب آدرس واردشده معتبر نیست (مثال: 192.168.43.1:3000).', 'error', 2800);
-      return;
-    }
-    try {
-      localStorage.setItem('defusal_manual_lan_url', normalized);
-    } catch (e) {}
-    renderQrModalUrl(normalized);
-    showToast('کد QR بر اساس آدرس جدید به‌روز شد.', 'success', 2200);
-  };
-
-  btnApplyManualLanHost.addEventListener('click', applyManualHost);
-  inputManualLanHost.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      applyManualHost();
-    }
-  });
-}
-
-if (btnCopyLanUrl) {
-  btnCopyLanUrl.addEventListener('click', async () => {
-    const textToCopy = activeQrUrl || window.location.origin;
-    let copied = false;
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      try {
-        await navigator.clipboard.writeText(textToCopy);
-        copied = true;
-      } catch (e) {}
-    }
-    if (!copied) {
-      try {
-        const tempArea = document.createElement('textarea');
-        tempArea.value = textToCopy;
-        tempArea.setAttribute('readonly', '');
-        tempArea.style.position = 'fixed';
-        tempArea.style.opacity = '0';
-        document.body.appendChild(tempArea);
-        tempArea.select();
-        copied = document.execCommand('copy');
-        document.body.removeChild(tempArea);
-      } catch (e) {}
-    }
-    if (copied) {
-      showToast('آدرس اتصال کپی شد.', 'success', 2000);
-    } else {
-      showToast('امکان کپی خودکار نبود؛ آدرس را از کادر بالا بخوانید.', 'info', 2800);
-    }
-  });
-}
-
-// --- Screen Wake Lock & Fullscreen Ergonomics ---
-let wakeLockSentinel = null;
-
-function shouldHoldScreenWakeLock(status = currentGameState?.status) {
-  return status === 'countdown' || status === 'running';
-}
-
-async function acquireScreenWakeLock() {
-  if (!('wakeLock' in navigator) || !navigator.wakeLock?.request) return;
-  if (document.visibilityState !== 'visible') return;
-  if (wakeLockSentinel) return;
-  try {
-    const sentinel = await navigator.wakeLock.request('screen');
-    wakeLockSentinel = sentinel;
-    sentinel.addEventListener?.('release', () => {
-      if (wakeLockSentinel === sentinel) {
-        wakeLockSentinel = null;
-      }
-    });
-  } catch (e) {
-    // Gracefully ignore when battery saver or browser policy blocks wakeLock
-  }
-}
-
-async function releaseScreenWakeLock() {
-  if (!wakeLockSentinel) return;
-  const sentinel = wakeLockSentinel;
-  wakeLockSentinel = null;
-  try {
-    await sentinel.release();
-  } catch (e) {}
-}
-
-function syncScreenWakeLock(status = currentGameState?.status) {
-  if (shouldHoldScreenWakeLock(status)) {
-    acquireScreenWakeLock();
-  } else {
-    releaseScreenWakeLock();
-  }
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && shouldHoldScreenWakeLock()) {
-    acquireScreenWakeLock();
-  }
-});
-
-function getFullscreenElement() {
-  return document.fullscreenElement || document.webkitFullscreenElement || null;
-}
-
-function syncFullscreenButtonsUI() {
-  const active = Boolean(getFullscreenElement());
-  [btnLobbyFullscreen, btnHudFullscreen].forEach((btn) => {
-    if (!btn) return;
-    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    btn.setAttribute('aria-label', active ? 'خروج از حالت تمام‌صفحه' : 'ورود به حالت تمام‌صفحه');
-    btn.setAttribute('title', active ? 'خروج از حالت تمام‌صفحه' : 'حالت تمام‌صفحه');
-    const enterIcon = btn.querySelector('.fs-icon-enter');
-    const exitIcon = btn.querySelector('.fs-icon-exit');
-    if (enterIcon) enterIcon.style.display = active ? 'none' : 'block';
-    if (exitIcon) exitIcon.style.display = active ? 'block' : 'none';
-  });
-}
-
-async function toggleAppFullscreen() {
-  const rootEl = document.documentElement;
-  const currentFs = getFullscreenElement();
-  try {
-    if (currentFs) {
-      if (document.exitFullscreen) {
-        await document.exitFullscreen();
-      } else if (document.webkitExitFullscreen) {
-        document.webkitExitFullscreen();
-      }
-    } else if (rootEl.requestFullscreen) {
-      await rootEl.requestFullscreen();
-    } else if (rootEl.webkitRequestFullscreen) {
-      rootEl.webkitRequestFullscreen();
-    } else {
-      showToast('مرورگر فعلی از حالت تمام‌صفحه مستقیم پشتیبانی نمی‌کند؛ گزینه افزودن به صفحه اصلی (Add to Home Screen) پیشنهاد می‌شود.', 'info', 3800);
-      return;
-    }
-  } catch (e) {
-    showToast('تغییر وضعیت تمام‌صفحه توسط مرورگر محدود شد.', 'info', 2500);
-  }
-  syncFullscreenButtonsUI();
-}
-
-[btnLobbyFullscreen, btnHudFullscreen].forEach((btn) => {
-  if (btn) {
-    btn.addEventListener('click', toggleAppFullscreen);
-  }
-});
-document.addEventListener('fullscreenchange', syncFullscreenButtonsUI);
-document.addEventListener('webkitfullscreenchange', syncFullscreenButtonsUI);
-syncFullscreenButtonsUI();
-
-// --- Pre-Start 3s Readiness Role Reminders ---
-const COUNTDOWN_ROLE_PREP = {
-  operator: {
-    title: 'آماده‌باش نقش شما: اپراتور (Operator)',
-    items: [
-      'عینک آفتابی یا محدودیت دید توافقی خود را همین الان بزنید.',
-      'در طول راند مطلقاً صحبت نکنید؛ کد مورس نوری دیواره چپ کیف را با ضربه میز یا اشاره به ناظر برسانید.',
-      'اعداد بریل دور سلکتور: ⠁ = ۱ · ⠃ = ۲ · ⠉ = ۳ (گوشی را محرمانه نگه دارید).'
-    ]
-  },
-  observer: {
-    title: 'آماده‌باش نقش شما: ناظر (Observer)',
-    items: [
-      'هدفون ایمن را روی گوش بگذارید تا از صدای بازی استفاده نکنید.',
-      'در ضلع کناری میز مستقر شوید؛ شما تنها گوینده تیم هستید.',
-      'صفحه رنگی گوشی خود را از دید سایر بازیکنان محرمانه نگه دارید.'
-    ]
-  },
-  manual: {
-    title: 'آماده‌باش نقش شما: دفترچه راهنما (Manual-holder)',
-    items: [
-      'پشت درب کیف (روبه‌روی اپراتور) بنشینید و مطلقاً صحبت نکنید.',
-      'صفحه قوانین را فقط در زاویه دید خود نگه دارید.',
-      'فقط از طریق اشاره‌های توافقی دست با ناظر ارتباط برقرار کنید.'
-    ]
-  }
-};
-
-function renderCountdownCurtainRolePrep(roleKey) {
-  const prep = COUNTDOWN_ROLE_PREP[toFunctionalRoleKey(roleKey)] || COUNTDOWN_ROLE_PREP.operator;
-  if (countdownRoleTitle) {
-    countdownRoleTitle.textContent = myRole ? prep.title : 'آماده‌باش عملیات · تماشاگر';
-  }
-  if (countdownRoleInstructions) {
-    countdownRoleInstructions.innerHTML = prep.items.map((item) => `<li>${item}</li>`).join('');
-  }
-}
-
-// --- Pre-Round Checklist Management ---
-const checklistInputs = Array.from(document.querySelectorAll('#preRoundChecklistItems input[type="checkbox"]'));
-const checklistProgressBadge = document.getElementById('checklistProgressBadge');
-const btnCheckAllReady = document.getElementById('btnCheckAllReady');
-const chkLiveRoleHint = document.getElementById('chkLiveRoleHint');
-const chkLiveConnHint = document.getElementById('chkLiveConnHint');
-
-function loadChecklistState() {
-  try {
-    const raw = sessionStorage.getItem('defusal_checklist_state');
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    return {};
-  }
-}
-
-function saveChecklistState(mapObj) {
-  try {
-    sessionStorage.setItem('defusal_checklist_state', JSON.stringify(mapObj));
-  } catch (e) {}
-}
-
-function syncChecklistUI(state = currentGameState) {
-  const checkedCount = checklistInputs.filter((el) => el.checked).length;
-  const totalCount = checklistInputs.length || 7;
-  const isComplete = checkedCount === totalCount;
-
-  if (checklistProgressBadge) {
-    checklistProgressBadge.textContent = `${checkedCount} از ${totalCount} تایید شد`;
-    checklistProgressBadge.classList.toggle('complete', isComplete);
-  }
-  if (headerChecklistCount) {
-    headerChecklistCount.textContent = `${checkedCount}/${totalCount}`;
-    headerChecklistCount.classList.toggle('complete', isComplete);
-  }
-  if (sheetTabCheckCount) {
-    sheetTabCheckCount.textContent = `${checkedCount}/${totalCount}`;
-  }
-  if (btnCheckAllReady) {
-    btnCheckAllReady.textContent = isComplete ? 'بازنشانی چک‌لیست' : 'تایید همه';
-  }
-  if (chkLiveRoleHint) {
-    if (myRole) {
-      const title = ROLE_PERMISSIONS_SPEC[toFunctionalRoleKey(myRole)]?.title || '';
-      chkLiveRoleHint.textContent = `(نقش فعلی شما: ${title})`;
-    } else {
-      chkLiveRoleHint.textContent = '(هنوز نقشی انتخاب نکرده‌اید)';
-    }
-  }
-  if (chkLiveConnHint && state?.roles) {
-    const connectedCount = ['blind', 'deaf', 'mute'].filter((k) => state.roles[k]?.connected).length;
-    chkLiveConnHint.textContent = `(وضعیت شبکه: ${connectedCount} از ۳ بازیکن متصل)`;
-  }
-}
-
-const initialChecklistMap = loadChecklistState();
-checklistInputs.forEach((input) => {
-  const key = input.getAttribute('data-check-key');
-  if (key && initialChecklistMap[key]) {
-    input.checked = true;
-  }
-  input.addEventListener('change', () => {
-    const nextMap = {};
-    checklistInputs.forEach((chk) => {
-      const k = chk.getAttribute('data-check-key');
-      if (k) nextMap[k] = chk.checked;
-    });
-    saveChecklistState(nextMap);
-    syncChecklistUI();
-  });
-});
-
-if (btnCheckAllReady) {
-  btnCheckAllReady.addEventListener('click', () => {
-    const allChecked = checklistInputs.every((el) => el.checked);
-    const nextVal = !allChecked;
-    const nextMap = {};
-    checklistInputs.forEach((chk) => {
-      chk.checked = nextVal;
-      const k = chk.getAttribute('data-check-key');
-      if (k) nextMap[k] = nextVal;
-    });
-    saveChecklistState(nextMap);
-    syncChecklistUI();
-  });
-}
-
-syncChecklistUI();
-
-// --- Lobby Action & Configuration Elements ---
 const btnUnlockAudio = document.getElementById('btnUnlockAudio');
 const audioBanner = document.getElementById('audioBanner');
 const myRoleActionRow = document.getElementById('myRoleActionRow');
@@ -798,16 +134,14 @@ const startBlockerReason = document.getElementById('startBlockerReason');
 const btnRestartExploded = document.getElementById('btnRestartExploded');
 const btnRestartDefused = document.getElementById('btnRestartDefused');
 
-// Lobby Seed Controls & Dynamic Manual
+// --- Lobby Seed & Difficulty Elements ---
 const lobbySeedDisplay = document.getElementById('lobbySeedDisplay');
 const btnToggleSeedForm = document.getElementById('btnToggleSeedForm');
 const lobbySeedContainer = document.getElementById('lobbySeedContainer');
 const hostSeedControls = document.getElementById('hostSeedControls');
 const inputCustomSeed = document.getElementById('inputCustomSeed');
 const btnApplySeed = document.getElementById('btnApplySeed');
-const muteManualContainer = document.getElementById('muteManualContainer');
 
-// Authoritative Difficulty Preset Elements
 const btnPresetEasy = document.getElementById('btnPresetEasy');
 const btnPresetNormal = document.getElementById('btnPresetNormal');
 const btnPresetHard = document.getElementById('btnPresetHard');
@@ -829,32 +163,7 @@ const overrideCommAidEnabled = document.getElementById('overrideCommAidEnabled')
 const overrideCommAidBudget = document.getElementById('overrideCommAidBudget');
 const btnApplyCustomDifficulty = document.getElementById('btnApplyCustomDifficulty');
 
-const CANONICAL_PRESET_BASELINES = {
-  easy: { duration: 300, maxStrikes: 3, moduleCount: 2, timePenaltySeconds: 15, timerGraceSeconds: 30, wireIndexLabels: true, commAidEnabled: true, commAidBudget: 5 },
-  normal: { duration: 300, maxStrikes: 3, moduleCount: 3, timePenaltySeconds: 30, timerGraceSeconds: 0, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 },
-  hard: { duration: 210, maxStrikes: 2, moduleCount: 4, timePenaltySeconds: 45, timerGraceSeconds: 0, wireIndexLabels: false, commAidEnabled: false, commAidBudget: 0 }
-};
-
-function hasCustomDifficultyOverrides(diff) {
-  if (!diff || !diff.preset) return false;
-  if (typeof diff.isCustom === 'boolean') {
-    return diff.isCustom;
-  }
-  const base = CANONICAL_PRESET_BASELINES[diff.preset];
-  if (!base) return true;
-  return (
-    diff.duration !== base.duration ||
-    diff.maxStrikes !== base.maxStrikes ||
-    diff.moduleCount !== base.moduleCount ||
-    diff.timePenaltySeconds !== base.timePenaltySeconds ||
-    Number(diff.features?.timerGraceSeconds || 0) !== base.timerGraceSeconds ||
-    Boolean(diff.features?.wireIndexLabels) !== base.wireIndexLabels ||
-    Boolean(diff.features?.commAidEnabled) !== base.commAidEnabled ||
-    (diff.features?.commAidEnabled && Number(diff.features?.commAidBudget || 0) !== base.commAidBudget)
-  );
-}
-
-// --- Quick Camera Views, Tuning Popover & Operator HUD ---
+// --- Camera Presets, Tuning Popover & Operator HUD Elements ---
 const btnViewFront = document.getElementById('btnViewFront');
 const btnViewBack = document.getElementById('btnViewBack');
 const btnViewBridge = document.getElementById('btnViewBridge');
@@ -878,15 +187,106 @@ const operatorHudModeTag = document.getElementById('operatorHudModeTag');
 const operatorHudLabel = document.getElementById('operatorHudLabel');
 const operatorHudDetail = document.getElementById('operatorHudDetail');
 const operatorHudProgressFill = document.getElementById('operatorHudProgressFill');
-const orientationHint = document.getElementById('orientationHint');
-const btnCloseOrientationHint = document.getElementById('btnCloseOrientationHint');
 
+// --- Instantiate Cohesive UI Sub-Controllers ---
+const { showToast } = createToastController(appToastBanner);
+
+const { syncScreenWakeLock } = createWakeLockController({
+  getGameStatus: () => currentGameState?.status
+});
+
+initFullscreenControls({
+  buttons: [
+    document.getElementById('btnLobbyFullscreen'),
+    document.getElementById('btnHudFullscreen')
+  ],
+  showToast
+});
+
+const { updateOrientationHint } = initOrientationHint({
+  hintEl: document.getElementById('orientationHint'),
+  closeBtn: document.getElementById('btnCloseOrientationHint'),
+  getGameStatus: () => currentGameState?.status
+});
+
+const { closeQrModal, isQrModalOpen } = createQrModalController({
+  elements: {
+    btnOpenQrModal: document.getElementById('btnOpenQrModal'),
+    qrInviteModal: document.getElementById('qrInviteModal'),
+    btnCloseQrModal: document.getElementById('btnCloseQrModal'),
+    qrSvgContainer: document.getElementById('qrSvgContainer'),
+    qrActiveUrlText: document.getElementById('qrActiveUrlText'),
+    btnCopyLanUrl: document.getElementById('btnCopyLanUrl'),
+    qrLocalhostNotice: document.getElementById('qrLocalhostNotice'),
+    qrInterfaceSelectorWrap: document.getElementById('qrInterfaceSelectorWrap'),
+    qrInterfaceButtons: document.getElementById('qrInterfaceButtons'),
+    inputManualLanHost: document.getElementById('inputManualLanHost'),
+    btnApplyManualLanHost: document.getElementById('btnApplyManualLanHost')
+  },
+  showToast
+});
+
+const {
+  closeReferenceSheet,
+  isReferenceSheetOpen,
+  renderLobbyPermissionsPanel,
+  renderCountdownCurtainRolePrep,
+  syncChecklistUI
+} = createReferenceSheetController({
+  elements: {
+    btnOpenReferenceSheet: document.getElementById('btnOpenReferenceSheet'),
+    btnInRoundHelp,
+    lobbyReferenceSheet: document.getElementById('lobbyReferenceSheet'),
+    btnCloseReferenceSheet: document.getElementById('btnCloseReferenceSheet'),
+    headerChecklistCount: document.getElementById('headerChecklistCount'),
+    sheetTabCheckCount: document.getElementById('sheetTabCheckCount'),
+    refTabButtons: Array.from(document.querySelectorAll('[data-ref-tab]')),
+    refTabPanes: Array.from(document.querySelectorAll('[data-ref-pane]')),
+    rolePermissionsBody: document.getElementById('rolePermissionsBody'),
+    permTabButtons: Array.from(document.querySelectorAll('[data-perm-role]')),
+    openPermButtons: Array.from(document.querySelectorAll('[data-open-perm]')),
+    checklistInputs: Array.from(document.querySelectorAll('#preRoundChecklistItems input[type="checkbox"]')),
+    checklistProgressBadge: document.getElementById('checklistProgressBadge'),
+    btnCheckAllReady: document.getElementById('btnCheckAllReady'),
+    chkLiveRoleHint: document.getElementById('chkLiveRoleHint'),
+    chkLiveConnHint: document.getElementById('chkLiveConnHint'),
+    countdownRoleTitle: document.getElementById('countdownRoleTitle'),
+    countdownRoleInstructions: document.getElementById('countdownRoleInstructions')
+  },
+  getMyRole: () => myRole,
+  getGameState: () => currentGameState
+});
+
+const { renderCommAidWidgets, flashForCurrentRole: flashCommAidForRole } = createCommAidController({
+  elements: {
+    observerCommAidWidget: document.getElementById('observerCommAidWidget'),
+    observerCommAidBudget: document.getElementById('observerCommAidBudget'),
+    observerCommAidFeedback: document.getElementById('observerCommAidFeedback'),
+    manualCommAidWidget: document.getElementById('manualCommAidWidget'),
+    manualCommAidBudget: document.getElementById('manualCommAidBudget'),
+    manualCommAidFeedback: document.getElementById('manualCommAidFeedback'),
+    symbolButtons: Array.from(document.querySelectorAll('[data-comm-symbol]'))
+  },
+  getMyRole: () => myRole,
+  getPlayerId: () => playerId,
+  sendSignal: (payload) => transport.send('comm_signal', payload)
+});
+
+const { renderDynamicManual } = createManualRenderer({
+  containerEl: document.getElementById('muteManualContainer')
+});
+
+// --- Operator Tuning, Camera Presets & Hybrid Manual Dock ---
 let operatorHoldThresholdMs =
   Number(localStorage.getItem('bomb_hold_threshold_ms')) || INTERACTION_DEFAULTS.buttonHoldThresholdMs;
 operatorHoldThresholdMs = Math.max(
   INTERACTION_DEFAULTS.minHoldThresholdMs,
   Math.min(INTERACTION_DEFAULTS.maxHoldThresholdMs, operatorHoldThresholdMs)
 );
+
+function isTuningPopoverOpen() {
+  return Boolean(operatorTuningPopover && operatorTuningPopover.style.display !== 'none');
+}
 
 function setTuningPopoverOpen(open) {
   if (!operatorTuningPopover) return;
@@ -898,18 +298,15 @@ function setTuningPopoverOpen(open) {
 
 if (btnToggleTuningPopover) {
   btnToggleTuningPopover.addEventListener('click', () => {
-    const currentlyOpen = operatorTuningPopover?.style.display !== 'none';
-    setTuningPopoverOpen(!currentlyOpen);
+    setTuningPopoverOpen(!isTuningPopoverOpen());
   });
 }
-
 if (btnCloseTuningPopover) {
   btnCloseTuningPopover.addEventListener('click', () => setTuningPopoverOpen(false));
 }
-
 if (bomb3dContainer) {
   bomb3dContainer.addEventListener('pointerdown', () => {
-    if (operatorTuningPopover && operatorTuningPopover.style.display !== 'none') {
+    if (isTuningPopoverOpen()) {
       setTuningPopoverOpen(false);
     }
   });
@@ -1033,7 +430,8 @@ function ensureManualWorldScene(state) {
       manual3dContainer,
       myRole || 'manual',
       null,
-      () => getCurrentRemainingSeconds()
+      () => getCurrentRemainingSeconds(),
+      { soundEngine: sound }
     );
     const savedSens = localStorage.getItem('bomb_camera_sensitivity') || '1.0';
     manualWorldScene.setSensitivity(savedSens);
@@ -1054,12 +452,8 @@ if (cameraSensitivity) {
     const val = e.target.value;
     if (sensitivityValue) sensitivityValue.textContent = `${parseFloat(val).toFixed(1)}x`;
     localStorage.setItem('bomb_camera_sensitivity', val);
-    if (bombScene) {
-      bombScene.setSensitivity(val);
-    }
-    if (manualWorldScene) {
-      manualWorldScene.setSensitivity(val);
-    }
+    if (bombScene) bombScene.setSensitivity(val);
+    if (manualWorldScene) manualWorldScene.setSensitivity(val);
   });
 }
 
@@ -1078,13 +472,11 @@ if (holdThresholdSlider) {
     operatorHoldThresholdMs = nextMs;
     if (holdThresholdValue) holdThresholdValue.textContent = `${nextMs}ms`;
     localStorage.setItem('bomb_hold_threshold_ms', String(nextMs));
-    if (bombScene) {
-      bombScene.setHoldThreshold(nextMs);
-    }
+    if (bombScene) bombScene.setHoldThreshold(nextMs);
   });
 }
 
-// Host Custom Seed Toggle & Input Handling
+// --- Host Custom Seed & Difficulty Controls ---
 if (btnToggleSeedForm && lobbySeedContainer) {
   btnToggleSeedForm.addEventListener('click', () => {
     isSeedPanelOpen = !isSeedPanelOpen;
@@ -1105,41 +497,62 @@ if (btnApplySeed && inputCustomSeed) {
       if (lobbySeedContainer) lobbySeedContainer.style.display = 'none';
     }
   };
-
   btnApplySeed.addEventListener('click', submitCustomSeed);
   inputCustomSeed.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      submitCustomSeed();
-    }
+    if (e.key === 'Enter') submitCustomSeed();
   });
 }
 
-if (btnCloseOrientationHint) {
-  btnCloseOrientationHint.addEventListener('click', () => {
-    if (orientationHint) orientationHint.style.display = 'none';
-    sessionStorage.setItem('dismissed_orientation_hint', 'true');
+[btnPresetEasy, btnPresetNormal, btnPresetHard].forEach((btn) => {
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    isCustomDifficultyOpen = false;
+    const presetId = btn.getAttribute('data-preset');
+    transport.send('set_difficulty', { presetId });
+  });
+});
+
+if (btnPresetCustom) {
+  btnPresetCustom.addEventListener('click', () => {
+    isCustomDifficultyOpen = !isCustomDifficultyOpen;
+    if (currentGameState) renderState(currentGameState);
   });
 }
 
-function updateOrientationHint() {
-  if (!orientationHint) return;
-  const isPortraitPhone = window.innerHeight > window.innerWidth && window.innerWidth <= 600;
-  const dismissed = sessionStorage.getItem('dismissed_orientation_hint') === 'true';
-  if (isPortraitPhone && !dismissed && currentGameState?.status === 'running') {
-    orientationHint.style.display = 'flex';
-  } else {
-    orientationHint.style.display = 'none';
-  }
-}
-window.addEventListener('resize', updateOrientationHint);
-window.addEventListener('orientationchange', updateOrientationHint);
+if (btnApplyCustomDifficulty) {
+  btnApplyCustomDifficulty.addEventListener('click', () => {
+    const duration = parseInt(overrideDuration.value, 10);
+    const maxStrikes = parseInt(overrideStrikes.value, 10);
+    const moduleCount = parseInt(overrideModules.value, 10);
+    const timePenaltySeconds = parseInt(overridePenalty.value, 10);
+    const wireIndexLabels = overrideWireIndexLabels ? overrideWireIndexLabels.checked : false;
+    const commAidEnabled = overrideCommAidEnabled ? overrideCommAidEnabled.checked : false;
+    const commAidBudget = overrideCommAidBudget ? parseInt(overrideCommAidBudget.value, 10) : 5;
 
-// Check WebGL availability
+    isCustomDifficultyOpen = true;
+    transport.send('set_difficulty', {
+      presetId: currentGameState?.difficulty?.preset || 'normal',
+      customOverrides: {
+        duration,
+        maxStrikes,
+        moduleCount,
+        timePenaltySeconds,
+        features: {
+          wireIndexLabels,
+          commAidEnabled,
+          commAidBudget
+        }
+      }
+    });
+    showToast('تنظیمات سفارشی راند ثبت شد.', 'success', 2200);
+  });
+}
+
+// --- WebGL Banner & Audio Activation ---
 if (!isWebGLAvailable()) {
   if (webglErrorBanner) webglErrorBanner.style.display = 'block';
 }
 
-// Audio activation (played from Operator's device)
 function syncAudioBannerVisibility() {
   if (!audioBanner) return;
   const showForRole = !myRole || isOperator(myRole);
@@ -1162,73 +575,14 @@ if (btnUnlockAudio) {
 document.addEventListener('touchstart', () => sound.init(), { once: true });
 document.addEventListener('mousedown', () => sound.init(), { once: true });
 
-// Easy-Mode 3-Symbol Communication Aid Wiring (Observer <-> Manual-holder bridge)
-function sendCommAidSignal(symbolId) {
-  if (!symbolId) return;
-  const actionId = `${playerId || 'p'}-comm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  transport.send('comm_signal', { symbolId, actionId });
-}
-
-document.querySelectorAll('[data-comm-symbol]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const symbolId = btn.getAttribute('data-comm-symbol');
-    sendCommAidSignal(symbolId);
-  });
-});
-
-function flashCommAidWidget(widgetEl) {
-  if (!widgetEl) return;
-  widgetEl.classList.add('comm-flash');
-  setTimeout(() => {
-    widgetEl.classList.remove('comm-flash');
-  }, 900);
-}
-
-function renderCommAidWidgets(state) {
-  const commAid = state?.commAid;
-  const isRunning = state?.status === 'running';
-  const showForObserver = isRunning && isObserver(myRole) && Boolean(commAid?.enabled);
-  const showForManual = isRunning && isManual(myRole) && Boolean(commAid?.enabled);
-
-  if (observerCommAidWidget) {
-    observerCommAidWidget.style.display = showForObserver ? 'flex' : 'none';
+// Helper: Visual HUD alert on strike
+function flashRedAlert() {
+  if (activeRoundHud) {
+    activeRoundHud.classList.add('strike-alert-flash');
+    setTimeout(() => {
+      activeRoundHud.classList.remove('strike-alert-flash');
+    }, 420);
   }
-  if (manualCommAidWidget) {
-    manualCommAidWidget.style.display = showForManual ? 'flex' : 'none';
-  }
-
-  if (!commAid || (!showForObserver && !showForManual)) return;
-
-  const remaining = commAid.remainingUses ?? 0;
-  const total = commAid.totalBudget ?? 0;
-  const budgetStr = `${remaining} / ${total}`;
-  const isExhausted = remaining <= 0;
-
-  let feedbackText = isExhausted
-    ? 'سهمیه کمک‌ارتباطی تمام شد؛ با اشاره‌های توافقی ادامه دهید.'
-    : 'ارسال فقط در پل ناظر ↔ دفترچه راهنما · هر ارسال ۱ سهمیه';
-
-  if (commAid.lastSignal) {
-    const sig = commAid.lastSignal;
-    feedbackText = `آخرین پیام (${sig.senderTitle}): «${sig.symbol} ${sig.label}» · باقی‌مانده: ${remaining} از ${total}`;
-  }
-
-  [
-    { widget: observerCommAidWidget, budgetEl: observerCommAidBudget, fbEl: observerCommAidFeedback },
-    { widget: manualCommAidWidget, budgetEl: manualCommAidBudget, fbEl: manualCommAidFeedback }
-  ].forEach(({ widget, budgetEl, fbEl }) => {
-    if (!widget) return;
-    if (budgetEl) {
-      budgetEl.textContent = budgetStr;
-      budgetEl.classList.toggle('exhausted', isExhausted);
-    }
-    if (fbEl) {
-      fbEl.textContent = feedbackText;
-    }
-    widget.querySelectorAll('[data-comm-symbol]').forEach((btn) => {
-      btn.disabled = isExhausted;
-    });
-  });
 }
 
 // --- Transport Event Listeners ---
@@ -1248,7 +602,6 @@ transport.onEvent((eventType, data) => {
   }
 
   if (eventType === '_time_synced') {
-    // Clock offset is maintained internally by transport.getServerTime() without exposing raw telemetry in UI
     return;
   }
 
@@ -1259,8 +612,7 @@ transport.onEvent((eventType, data) => {
 
   if (eventType === 'comm_signal_sent') {
     triggerHaptic([35, 25]);
-    if (isObserver(myRole)) flashCommAidWidget(observerCommAidWidget);
-    if (isManual(myRole)) flashCommAidWidget(manualCommAidWidget);
+    flashCommAidForRole();
     if (data?.signal) {
       showToast(
         `${data.signal.senderTitle}: «${data.signal.symbol} ${data.signal.label}» (باقی‌مانده: ${data.remainingUses} از ${data.totalBudget})`,
@@ -1294,7 +646,6 @@ transport.onEvent((eventType, data) => {
     const prevState = currentGameState;
     currentGameState = data.state;
 
-    // Synchronize local role state with server authoritative role ownership
     let serverAssignedRole = null;
     if (currentGameState.roles) {
       for (const rKey of ['blind', 'deaf', 'mute']) {
@@ -1317,11 +668,8 @@ transport.onEvent((eventType, data) => {
 
     syncAudioBannerVisibility();
     syncScreenWakeLock(currentGameState.status);
-
-    // Device audio output is active only on the Operator's device
     sound.setEnabled(isOperator(myRole));
 
-    // Trigger one-time explosion, defusal, or round-start sounds upon state change
     if (prevState?.status !== 'exploded' && currentGameState.status === 'exploded') {
       if (isOperator(myRole)) sound.playExplosion();
     } else if (prevState?.status !== 'defused' && currentGameState.status === 'defused') {
@@ -1339,7 +687,6 @@ transport.onEvent((eventType, data) => {
       setTuningPopoverOpen(false);
     }
 
-    // Automatically close overlays/sheets and arm continuous timer audio when entering active round
     if (prevState?.status !== 'running' && currentGameState.status === 'running') {
       closeQrModal();
       closeReferenceSheet();
@@ -1350,7 +697,6 @@ transport.onEvent((eventType, data) => {
       nextTimerAudioAtMs = 0;
     }
 
-    lastGameStatus = currentGameState.status;
     renderState(currentGameState);
     return;
   }
@@ -1392,7 +738,6 @@ transport.onEvent((eventType, data) => {
       bombScene.triggerStrikePenaltyFlash(penaltySec);
     }
 
-    // Immediately pull forward the next accelerating audio tick after a time penalty drop
     if (isOperator(myRole) && currentGameState?.status === 'running') {
       const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const sched = computeTimerTickSchedule(
@@ -1508,7 +853,6 @@ function renderState(state) {
   const isLobbyPhase = state.status === 'waiting' || state.status === 'ready';
   const isCountdownPhase = state.status === 'countdown';
 
-  // 1. Viewport Phase & Top Bar vs Active Round HUD
   if (appViewport) {
     appViewport.setAttribute('data-phase', isLobbyPhase || isCountdownPhase ? 'lobby' : 'active');
   }
@@ -1519,7 +863,6 @@ function renderState(state) {
     activeRoundHud.style.display = isLobbyPhase || isCountdownPhase ? 'none' : 'flex';
   }
 
-  // 2. Active Round HUD Metrics (Zero 2D Timer / Strikes / Serial — Mounted on 3D Briefcase)
   const maxStrikes = state.maxStrikes || 3;
   const defusedCount =
     state.modulesDefusedCount ??
@@ -1540,7 +883,6 @@ function renderState(state) {
     hudActiveRoleTitle.textContent = `عملیات خنثی‌سازی · ${roleLabel}`;
   }
 
-  // 3. Difficulty Preset & Host Controls
   if (state.difficulty) {
     const canChangeDifficulty = isHost && isLobbyPhase;
     const isCustomActive = isCustomDifficultyOpen || hasCustomDifficultyOverrides(state.difficulty);
@@ -1611,7 +953,6 @@ function renderState(state) {
     }
   }
 
-  // 4. Lobby Seed Display & Host Seed Form Toggle
   if (lobbySeedDisplay) {
     lobbySeedDisplay.textContent = state.roundSeed || '------';
   }
@@ -1629,7 +970,6 @@ function renderState(state) {
     hostSeedControls.style.display = canEditSeed ? 'flex' : 'none';
   }
 
-  // 5. Role Selection Cards & Squad Readiness Strip
   const missingRoleTitles = [];
   const disconnectedRoleTitles = [];
   const unreadyRoleTitles = [];
@@ -1708,7 +1048,6 @@ function renderState(state) {
     squadReadyRatio.textContent = `${readyPlayersCount} / 3`;
   }
 
-  // Secondary Role Actions (Ready Toggle + Leave Role)
   if (myRoleActionRow) {
     myRoleActionRow.style.display = myRole && isLobbyPhase ? 'flex' : 'none';
   }
@@ -1722,7 +1061,6 @@ function renderState(state) {
   syncAudioBannerVisibility();
   renderCommAidWidgets(state);
 
-  // 6. Start Button Readiness & Clear Blocker Reason
   if (btnStartGame) {
     const isTeamReady = state.status === 'ready';
     const labelTarget = btnStartGameLabel || btnStartGame;
@@ -1769,7 +1107,6 @@ function renderState(state) {
     }
   }
 
-  // 7. Pre-Start Countdown Curtain & Endgame Debrief Overlays Management
   if (overlayCountdown) {
     overlayCountdown.classList.toggle('active', state.status === 'countdown');
   }
@@ -1829,7 +1166,6 @@ function renderState(state) {
     return;
   }
 
-  // 8. Active View Router
   [lobbySection, bomb3dSection, muteSection].forEach((sec) => sec.classList.remove('active'));
 
   if (state.status === 'running') {
@@ -1850,6 +1186,7 @@ function renderState(state) {
           () => getCurrentRemainingSeconds(),
           {
             holdThresholdMs: operatorHoldThresholdMs,
+            soundEngine: sound,
             onInteractionStatus: (status) => renderOperatorHudStatus(status)
           }
         );
@@ -1907,14 +1244,9 @@ function renderState(state) {
   updateOrientationHint();
 }
 
-// Window resize handler for 3D canvases
 window.addEventListener('resize', () => {
-  if (bombScene) {
-    bombScene.resize();
-  }
-  if (manualWorldScene) {
-    manualWorldScene.resize();
-  }
+  if (bombScene) bombScene.resize();
+  if (manualWorldScene) manualWorldScene.resize();
 });
 
 // --- Synchronized Timer Calculation & Progressive Urgency ---
@@ -1937,7 +1269,6 @@ function formatTime(totalSeconds) {
 setInterval(() => {
   if (!currentGameState) return;
 
-  // Synchronized 3-second pre-start readiness countdown loop
   if (currentGameState.status === 'countdown' && currentGameState.countdownEndsAt) {
     const serverNow = transport.getServerTime();
     const totalMs = currentGameState.countdownDurationMs || 3000;
@@ -1988,718 +1319,28 @@ setInterval(() => {
   }
 }, 30);
 
-// Helper: Device Vibration
-function triggerHaptic(pattern) {
-  if (navigator.vibrate) {
-    try {
-      navigator.vibrate(pattern);
-    } catch (e) {}
-  }
-}
-
-// Helper: Visual HUD alert on strike
-function flashRedAlert() {
-  if (activeRoundHud) {
-    activeRoundHud.classList.add('strike-alert-flash');
-    setTimeout(() => {
-      activeRoundHud.classList.remove('strike-alert-flash');
-    }, 420);
-  }
-}
-
-// --- Keyboard Navigation & Accessibility Controls ---
-let isSpacePressed = false;
-let spacePressStartTime = 0;
-let spaceHoldReached = false;
-let spaceProgressTimer = null;
-let isWKeyActive = false;
-const keyboardSlotLockMap = new Map();
-
-function cancelKeyboardSpaceHold(reasonText = 'نگه‌داشتن کلید Space بدون ثبت خطا لغو شد.') {
-  if (!isSpacePressed) return;
-  isSpacePressed = false;
-  spaceHoldReached = false;
-  if (spaceProgressTimer) {
-    clearInterval(spaceProgressTimer);
-    spaceProgressTimer = null;
-  }
-  bombScene?.setKeyboardButtonReticle?.(false, false);
-  const btnView = bombScene?.moduleViews?.get('button');
-  if (btnView?.moduleDef?.onVisualState) {
-    btnView.moduleDef.onVisualState(
-      btnView.group,
-      { state: 'cancelled', progress: 0 },
-      myRole,
-      currentGameState?.modules?.button
-    );
-  }
-  renderOperatorHudStatus({
-    active: false,
-    mode: 'cancelled',
-    label: 'لغو ایمن دکمه (Space)',
-    detail: reasonText,
-    progress: 0,
-    variant: 'neutral'
-  });
-}
-
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    if (isQrModalOpen()) {
-      e.preventDefault();
-      closeQrModal();
-      return;
-    }
-    if (isReferenceSheetOpen()) {
-      e.preventDefault();
-      closeReferenceSheet();
-      return;
-    }
-    if (currentGameState?.status === 'countdown') {
-      e.preventDefault();
-      transport.send('cancel_countdown');
-      return;
-    }
-    if (operatorTuningPopover && operatorTuningPopover.style.display !== 'none') {
-      e.preventDefault();
-      setTuningPopoverOpen(false);
-      return;
-    }
-    cancelKeyboardSpaceHold('لغو دستی با کلید Escape — هیچ خطایی ثبت نشد.');
-    bombScene?.cancelActiveInteraction('escape_key');
-    return;
-  }
-
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-  if (isQrModalOpen() || isReferenceSheetOpen() || currentGameState?.status === 'countdown') return;
-
-  if (currentGameState?.status === 'running') {
-    if (bombScene) {
-      if (e.key === 'ArrowLeft') {
-        bombScene.targetRotY += 0.25;
-        e.preventDefault();
-      } else if (e.key === 'ArrowRight') {
-        bombScene.targetRotY -= 0.25;
-        e.preventDefault();
-      } else if (e.key === 'ArrowUp') {
-        bombScene.targetRotX = Math.min(1.4, bombScene.targetRotX + 0.18);
-        e.preventDefault();
-      } else if (e.key === 'ArrowDown') {
-        bombScene.targetRotX = Math.max(-1.4, bombScene.targetRotX - 0.18);
-        e.preventDefault();
-      } else if (e.key === 'r' || e.key === 'R') {
-        setActiveBombViewButton(btnViewFront);
-        bombScene.viewFront();
-      } else if (e.key === 'b' || e.key === 'B') {
-        setActiveBombViewButton(btnViewBack);
-        bombScene.viewBack();
-      } else if (e.key === 'l' || e.key === 'L') {
-        setActiveBombViewButton(btnViewBridge);
-        bombScene.viewTertiary();
-      }
-    }
-
-    // Operator physical interactions via keyboard (ignore key auto-repeat)
-    if (isOperator(myRole)) {
-      if (e.key === 'w' || e.key === 'W') {
-        isWKeyActive = true;
-      }
-
-      if (['1', '2', '3', '4'].includes(e.key) && !e.repeat) {
-        const index = parseInt(e.key, 10) - 1;
-        const now = Date.now();
-        const lockKey = isWKeyActive ? `wire:${index}` : `keypad:${index}`;
-        const lockedUntil = keyboardSlotLockMap.get(lockKey) || 0;
-        if (now < lockedUntil) return;
-        keyboardSlotLockMap.set(lockKey, now + INTERACTION_DEFAULTS.keypadDedupeLockMs);
-
-        if (isWKeyActive) {
-          if (
-            currentGameState?.modules?.wires &&
-            !currentGameState.modules.wires.solved &&
-            !currentGameState.modules.wires.cutWires?.includes(index)
-          ) {
-            triggerHaptic([35, 25]);
-            sound.playWireCut();
-            sendOperatorBombAction({
-              moduleId: 'wires',
-              action: 'cut',
-              data: { wireIndex: index }
-            });
-            renderOperatorHudStatus({
-              active: false,
-              mode: 'committed',
-              label: `سیم ${index + 1} قطع شد (کیبورد)`,
-              detail: 'فرمان قطع سیم به سرور ارسال شد.',
-              progress: 1,
-              variant: 'success'
-            });
-          }
-        } else if (
-          currentGameState?.modules?.keypad &&
-          !currentGameState.modules.keypad.solved &&
-          !currentGameState.modules.keypad.enteredSlots?.includes(index)
-        ) {
-          triggerHaptic(25);
-          sound.playClick();
-          sendOperatorBombAction({
-            moduleId: 'keypad',
-            action: 'press',
-            data: { slotIndex: index }
-          });
-          renderOperatorHudStatus({
-            active: false,
-            mode: 'committed',
-            label: `کلید کیپد ${index + 1} ثبت شد`,
-            detail: `فشردن کلید شماره ${index + 1} ارسال شد.`,
-            progress: 1,
-            variant: 'success'
-          });
-        }
-      }
-
-      if ((e.key === 'c' || e.key === 'C') && !e.repeat) {
-        const beaconState = currentGameState?.modules?.beacon;
-        if (beaconState && !beaconState.solved) {
-          const currSlot = beaconState.tunedSlot || beaconState.tunedChannel || 1;
-          const nextSlot = (currSlot % 3) + 1;
-          const slotChannels = Array.isArray(beaconState.slotChannels) ? beaconState.slotChannels : [1, 2, 3];
-          const mappedCh = slotChannels[nextSlot - 1] || nextSlot;
-          triggerHaptic(25);
-          sound.playClick();
-          sendOperatorBombAction({
-            moduleId: 'beacon',
-            action: 'tune',
-            data: { slot: nextSlot }
-          });
-          renderOperatorHudStatus({
-            active: false,
-            mode: 'committed',
-            label: `سلکتور مورس روی خانه ${nextSlot} (بریل کانال ${mappedCh}) تنظیم شد`,
-            detail: 'تغییر خانه سلکتور بریل ثبت گردید.',
-            progress: 1,
-            variant: 'success'
-          });
-        }
-      }
-
-      if ((e.key === 't' || e.key === 'T') && !e.repeat) {
-        const beaconState = currentGameState?.modules?.beacon;
-        if (beaconState && !beaconState.solved) {
-          triggerHaptic([30, 20]);
-          sound.playClick();
-          sendOperatorBombAction({
-            moduleId: 'beacon',
-            action: 'transmit'
-          });
-          renderOperatorHudStatus({
-            active: false,
-            mode: 'committed',
-            label: 'ارسال فرکانس (TX) ثبت شد',
-            detail: 'پالس فرکانسی به سرور ارسال شد.',
-            progress: 1,
-            variant: 'success'
-          });
-        }
-      }
-
-      if (e.code === 'Space' && !isSpacePressed && !e.repeat) {
-        e.preventDefault();
-        if (currentGameState?.modules?.button?.solved) return;
-
-        isSpacePressed = true;
-        spaceHoldReached = false;
-        spacePressStartTime = Date.now();
-        triggerHaptic(25);
-        sound.playTactileTick();
-
-        const btnView = bombScene?.moduleViews?.get('button');
-        const updateSpaceVisuals = () => {
-          if (!isSpacePressed) return;
-          const elapsed = Date.now() - spacePressStartTime;
-          const progress = Math.min(1, elapsed / operatorHoldThresholdMs);
-          const digit = Math.floor(Math.max(0, getCurrentRemainingSeconds())) % 10;
-
-          if (elapsed >= operatorHoldThresholdMs) {
-            if (!spaceHoldReached) {
-              spaceHoldReached = true;
-              triggerHaptic([40, 30, 40]);
-              sound.playTactileTick();
-            }
-            bombScene?.setKeyboardButtonReticle?.(true, true);
-            btnView?.moduleDef?.onVisualState?.(
-              btnView.group,
-              { state: 'holding', mode: 'hold', progress: 1, lastTimerDigit: digit },
-              myRole,
-              currentGameState?.modules?.button
-            );
-            renderOperatorHudStatus({
-              active: true,
-              mode: 'hold',
-              label: 'نگه‌داشتن فعال شد (HOLD) · منتظر فرمان رهاسازی ناظر',
-              detail: 'با اعلام شفاهی ناظر کلید Space را رها کنید (Esc = لغو ایمن).',
-              progress: 1,
-              variant: 'hold'
-            });
-          } else {
-            bombScene?.setKeyboardButtonReticle?.(true, false);
-            btnView?.moduleDef?.onVisualState?.(
-              btnView.group,
-              { state: 'pressing', mode: 'tap', progress, lastTimerDigit: digit },
-              myRole,
-              currentGameState?.modules?.button
-            );
-            renderOperatorHudStatus({
-              active: true,
-              mode: 'tap',
-              label: `حالت ضربه کوتاه (TAP) — ${Math.round(progress * 100)}% تا HOLD`,
-              detail: `رهاسازی الان = ضربه کوتاه | ادامه نگه‌داشتن (${operatorHoldThresholdMs}ms) = حالت HOLD`,
-              progress,
-              variant: 'info'
-            });
-          }
-        };
-
-        updateSpaceVisuals();
-        spaceProgressTimer = setInterval(updateSpaceVisuals, 45);
-      }
-    }
-  }
+// --- Initialize Keyboard & Accessibility Controls ---
+initKeyboardControls({
+  getMyRole: () => myRole,
+  getGameState: () => currentGameState,
+  getBombScene: () => bombScene,
+  getHoldThresholdMs: () => operatorHoldThresholdMs,
+  getCurrentRemainingSeconds,
+  isQrModalOpen,
+  closeQrModal,
+  isReferenceSheetOpen,
+  closeReferenceSheet,
+  isTuningPopoverOpen,
+  setTuningPopoverOpen,
+  onCancelCountdown: () => transport.send('cancel_countdown'),
+  onSelectBombViewButton: setActiveBombViewButton,
+  viewButtons: {
+    front: btnViewFront,
+    back: btnViewBack,
+    bridge: btnViewBridge
+  },
+  sendOperatorBombAction,
+  renderOperatorHudStatus,
+  sound,
+  triggerHaptic
 });
-
-window.addEventListener('keyup', (e) => {
-  if (e.key === 'w' || e.key === 'W') {
-    isWKeyActive = false;
-  }
-
-  if (e.code === 'Space' && isSpacePressed && isOperator(myRole)) {
-    e.preventDefault();
-    isSpacePressed = false;
-    if (spaceProgressTimer) {
-      clearInterval(spaceProgressTimer);
-      spaceProgressTimer = null;
-    }
-    bombScene?.setKeyboardButtonReticle?.(false, false);
-
-    const duration = Date.now() - spacePressStartTime;
-    const isHold = spaceHoldReached || duration >= operatorHoldThresholdMs;
-    spaceHoldReached = false;
-    const lastDigit = Math.floor(Math.max(0, getCurrentRemainingSeconds())) % 10;
-
-    const btnView = bombScene?.moduleViews?.get('button');
-    btnView?.moduleDef?.onVisualState?.(
-      btnView.group,
-      { state: 'committed', mode: isHold ? 'hold_release' : 'tap', progress: 1, lastTimerDigit: lastDigit },
-      myRole,
-      currentGameState?.modules?.button
-    );
-
-    if (!isHold) {
-      triggerHaptic(35);
-      sound.playClick();
-      sendOperatorBombAction({
-        moduleId: 'button',
-        action: 'press'
-      });
-      renderOperatorHudStatus({
-        active: false,
-        mode: 'committed',
-        label: 'ضربه کوتاه (TAP) روی دکمه ثبت شد',
-        detail: `مدت فشردن: ${duration}ms (کمتر از آستانه ${operatorHoldThresholdMs}ms)`,
-        progress: 1,
-        variant: 'success'
-      });
-    } else {
-      triggerHaptic([40, 30, 40]);
-      sound.playClick();
-      sendOperatorBombAction({
-        moduleId: 'button',
-        action: 'release',
-        data: { releaseDigit: lastDigit }
-      });
-      renderOperatorHudStatus({
-        active: false,
-        mode: 'committed',
-        label: '✓ رهاسازی دکمه (HOLD) ثبت و به سرور ارسال شد',
-        detail: `مدت نگه‌داشتن: ${duration}ms · زمان رهاسازی ثبت گردید`,
-        progress: 1,
-        variant: 'success'
-      });
-    }
-  }
-});
-
-window.addEventListener('blur', () => {
-  cancelKeyboardSpaceHold('خروج تمرکز از پنجره — نگه‌داشتن Space بدون خطا لغو شد.');
-  isWKeyActive = false;
-});
-
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    cancelKeyboardSpaceHold('تغییر تب مرورگر — نگه‌داشتن Space بدون خطا لغو شد.');
-    isWKeyActive = false;
-  }
-});
-
-// --- Dynamic Tactical Field Manual Renderer for Manual-holder Role ---
-let currentManualFilter = 'all';
-let currentBeaconSpectrumFilter = 'all';
-
-function renderDynamicManual(manual, state) {
-  if (!muteManualContainer) return;
-  if (!manual) {
-    muteManualContainer.innerHTML = `
-      <div class="manual-section manual-loading-placeholder">
-        در انتظار دریافت پروتکل‌های اختصاصی این راند...
-      </div>
-    `;
-    return;
-  }
-
-  const { seed, button, wires, keypad, beacon } = manual;
-
-  // 1. Live Operational Threat Matrix (Unboxed Metadata — Zero Pills)
-  const modulesDefused =
-    state?.modulesDefusedCount ??
-    Object.values(state?.modules || {}).filter((m) => m?.solved).length;
-  const totalModules = state?.totalModulesCount || 4;
-  const remainingModules = Math.max(0, totalModules - modulesDefused);
-
-  let threatPhaseText = `وضعیت عملیات: ${remainingModules} از ${totalModules} ماژول مسلح است`;
-  if (remainingModules === 0) {
-    threatPhaseText = 'تمام ماژول‌های این راند خنثی شدند';
-  } else if (remainingModules === 1) {
-    threatPhaseText = 'مرحله پایانی: تنها ۱ ماژول مسلح باقی مانده است';
-  }
-
-  const activeModuleIds = state?.moduleIds || ['wires', 'button', 'keypad', 'beacon'];
-  const moduleMetaList = [
-    { id: 'button', label: 'دکمه کاتالیزور', solved: Boolean(state?.modules?.button?.solved) },
-    { id: 'wires', label: 'فیوزهای سیم‌کشی', solved: Boolean(state?.modules?.wires?.solved) },
-    { id: 'keypad', label: 'صفحه‌کلید رمزی', solved: Boolean(state?.modules?.keypad?.solved) },
-    { id: 'beacon', label: 'فانوس مورس نوری', solved: Boolean(state?.modules?.beacon?.solved) }
-  ].filter((m) => activeModuleIds.includes(m.id));
-
-  const stepsHtml = Array.from(
-    { length: totalModules },
-    (_, i) => `<div class="threat-step ${i < modulesDefused ? 'defused' : ''}"></div>`
-  ).join('');
-
-  const statusLineHtml = moduleMetaList
-    .map(
-      (m) => `
-      <span class="manual-mod-stat ${m.solved ? 'is-solved' : 'is-armed'}">
-        ${m.solved ? '✓' : '●'} ${m.label}: <strong>${m.solved ? 'خنثی' : 'مسلح'}</strong>
-      </span>
-    `
-    )
-    .join('<span class="meta-sep" aria-hidden="true">·</span>');
-
-  const matrixHtml = `
-    <div class="threat-matrix-card" id="manual-matrix">
-      <div class="threat-matrix-header">
-        <span class="threat-phase-title">${threatPhaseText}</span>
-        <span class="manual-seed-tag" dir="ltr">CODE: ${seed || '------'}</span>
-      </div>
-      <div class="threat-progress-bar">
-        ${stepsHtml}
-      </div>
-      <div class="manual-modules-strip">
-        ${statusLineHtml}
-      </div>
-    </div>
-  `;
-
-  // 2. Segmented Module Filter Bar
-  const tabDefs = [
-    { id: 'all', label: 'همه پروتکل‌ها', show: true },
-    { id: 'button', label: 'دکمه', show: activeModuleIds.includes('button'), solved: Boolean(state?.modules?.button?.solved) },
-    { id: 'wires', label: 'سیم‌ها', show: activeModuleIds.includes('wires'), solved: Boolean(state?.modules?.wires?.solved) },
-    { id: 'keypad', label: 'کیپد', show: activeModuleIds.includes('keypad'), solved: Boolean(state?.modules?.keypad?.solved) },
-    { id: 'beacon', label: 'فانوس مورس نوری', show: activeModuleIds.includes('beacon'), solved: Boolean(state?.modules?.beacon?.solved) }
-  ].filter((t) => t.show);
-
-  if (!tabDefs.some((t) => t.id === currentManualFilter)) {
-    currentManualFilter = 'all';
-  }
-
-  const navTabsHtml = `
-    <div class="manual-nav-tabs" role="tablist" aria-label="فیلتر بخش‌های دفترچه">
-      ${tabDefs
-        .map(
-          (t) => `
-        <button type="button" class="manual-tab-btn ${currentManualFilter === t.id ? 'active' : ''}" data-filter="${t.id}">
-          ${t.solved ? '✓ ' : ''}${t.label}
-        </button>
-      `
-        )
-        .join('')}
-    </div>
-  `;
-
-  // 3. Button Module Section
-  let buttonHtml = '';
-  if (button && activeModuleIds.includes('button') && (currentManualFilter === 'all' || currentManualFilter === 'button')) {
-    const tapRows = (button.tapRows || [])
-      .map(
-        (r) => `
-      <tr>
-        <td>${r.condition}</td>
-        <td><strong>${r.action}</strong></td>
-      </tr>
-    `
-      )
-      .join('');
-
-    const stripRows = (button.stripRows || [])
-      .map(
-        (r) => `
-      <li>نوار کناری <strong>${r.colorName}</strong>: رهاسازی وقتی رقم یکان ثانیه برابر <strong class="tabular-num" dir="ltr">${r.digit}</strong> است (با اشاره به ناظر اعلام کنید).</li>
-    `
-      )
-      .join('');
-
-    buttonHtml = `
-      <div class="manual-section" id="manual-button">
-        <div class="manual-section-head">
-          <h4>۰۱. ماژول دکمه کاتالیزور</h4>
-          <span class="manual-protocol-code">${button.protocolName || ''}</span>
-        </div>
-        <table class="rule-table">
-          <thead>
-            <tr>
-              <th>شرط رنگ و شکل دکمه / سریال (گزارش ناظر)</th>
-              <th>اقدام لازم (اعلام با اشاره به ناظر)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tapRows}
-            <tr>
-              <td>${button.otherRow?.condition || 'سایر حالات دکمه'}</td>
-              <td><strong>${button.otherRow?.action || 'دکمه را نگه‌دار تا ناظر رنگ نوار کناری را ببیند'}</strong></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="manual-sub-box">
-          <strong>جدول رقم ثانیه رهاسازی در حالت نگه‌داشتن (HOLD):</strong>
-          <ul class="manual-checklist" style="margin-top: 6px;">
-            ${stripRows}
-          </ul>
-        </div>
-        <p class="manual-note">${button.note || ''}</p>
-      </div>
-    `;
-  }
-
-  // 4. Wires Module Section
-  let wiresHtml = '';
-  if (wires && activeModuleIds.includes('wires') && (currentManualFilter === 'all' || currentManualFilter === 'wires')) {
-    const steps = (wires.checklist || [])
-      .map(
-        (item) => `
-      <li>${item.condition} <strong>${item.action}</strong> بریده شود (شماره سیم را با اشاره به ناظر نشان دهید).</li>
-    `
-      )
-      .join('');
-
-    wiresHtml = `
-      <div class="manual-section" id="manual-wires">
-        <div class="manual-section-head">
-          <h4>۰۲. ماژول فیوزهای سیم‌کشی</h4>
-          <span class="manual-protocol-code">${wires.protocolName || ''}</span>
-        </div>
-        <ol class="manual-checklist">
-          ${steps}
-        </ol>
-        <p class="manual-note">${wires.note || ''}</p>
-      </div>
-    `;
-  }
-
-  // 5. Keypad Module Section
-  let keypadHtml = '';
-  if (keypad && activeModuleIds.includes('keypad') && (currentManualFilter === 'all' || currentManualFilter === 'keypad')) {
-    keypadHtml = `
-      <div class="manual-section" id="manual-keypad">
-        <div class="manual-section-head">
-          <h4>۰۳. ماژول نمادهای صفحه‌کلید</h4>
-          <span class="manual-protocol-code">${keypad.protocolName || ''}</span>
-        </div>
-        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">
-          ${keypad.note || ''}
-        </p>
-        <div class="symbol-priority-ribbon">
-          ${keypad.priorityRibbon}
-        </div>
-      </div>
-    `;
-  }
-
-  // 6. Optical Morse & Tactile Braille Module Section
-  let beaconHtml = '';
-  if (beacon && activeModuleIds.includes('beacon') && (currentManualFilter === 'all' || currentManualFilter === 'beacon')) {
-    const buildBeaconTable = (rows, headingLabel) => {
-      const trs = (rows || [])
-        .map(
-          (r) => `
-        <tr>
-          <td><strong>${r.name}</strong></td>
-          <td style="text-align: center;"><span class="rhythm-badge">${r.pattern}</span></td>
-          <td class="tabular-num" style="text-align: center; font-weight: 700; color: var(--accent-amber);">${r.channel} (${r.braille || ''})</td>
-        </tr>
-      `
-        )
-        .join('');
-      return `
-        <div style="margin-top: 8px;">
-          <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">${headingLabel}</div>
-          <table class="rule-table">
-            <thead>
-              <tr>
-                <th>کد پالس نوری</th>
-                <th style="text-align: center;">الگوی چشمک / ضربه میز</th>
-                <th style="text-align: center;">کانال هدف (بریل)</th>
-              </tr>
-            </thead>
-            <tbody>${trs}</tbody>
-          </table>
-        </div>
-      `;
-    };
-
-    const colorTables = beacon.colorTables || {};
-    let tablesMarkup = '';
-    if (currentBeaconSpectrumFilter === 'red') {
-      tablesMarkup = buildBeaconTable(colorTables.red, 'جدول چراغ طیف قرمز (Red):');
-    } else if (currentBeaconSpectrumFilter === 'blue') {
-      tablesMarkup = buildBeaconTable(colorTables.blue, 'جدول چراغ طیف آبی (Blue):');
-    } else if (currentBeaconSpectrumFilter === 'yellow') {
-      tablesMarkup = buildBeaconTable(colorTables.yellow, 'جدول چراغ طیف زرد (Yellow):');
-    } else {
-      tablesMarkup =
-        buildBeaconTable(colorTables.red, 'الف) چراغ طیف قرمز (Red):') +
-        buildBeaconTable(colorTables.blue, 'ب) چراغ طیف آبی (Blue):') +
-        buildBeaconTable(colorTables.yellow, 'ج) چراغ طیف زرد (Yellow):');
-    }
-
-    const brailleLegendHtml = (beacon.brailleLegend || [
-      { channel: 1, braille: '⠁', desc: 'نقطه بالا-چپ' },
-      { channel: 2, braille: '⠃', desc: 'دو نقطه عمودی چپ' },
-      { channel: 3, braille: '⠉', desc: 'دو نقطه افقی بالا' }
-    ])
-      .map(
-        (b) =>
-          `<span>کانال <strong class="tabular-num" dir="ltr">${b.channel}</strong>: <span class="braille-glyph" dir="ltr">${b.braille}</span> (${b.desc})</span>`
-      )
-      .join('<span class="meta-sep" aria-hidden="true">·</span>');
-
-    beaconHtml = `
-      <div class="manual-section" id="manual-beacon">
-        <div class="manual-section-head">
-          <h4>۰۴. ماژول فانوس مورس نوری (Optical Morse)</h4>
-          <span class="manual-protocol-code">${beacon.protocolName || ''}</span>
-        </div>
-
-        <p style="font-size: 0.79rem; color: var(--text-secondary); line-height: 1.65;">
-          لامپ مورس نوری در دیواره چپ بیرونی کیف <strong>کاملاً بی‌صداست</strong> و تنها در زاویه دید <strong>اپراتور</strong> قرار دارد. اپراتور ریتم نور (کوتاه و بلند) را با <strong>ضربه روی میز یا اشاره دست</strong> به <strong>ناظر</strong> نشان می‌دهد و ناظر رنگ چراغ طیف داخل ماژول (قرمز / آبی / زرد) و الگو را با اشاره به شما منتقل می‌کند:
-        </p>
-
-        <div class="parity-toggle-group" role="group" aria-label="فیلتر رنگ چراغ طیف فانوس مورس">
-          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'all' ? 'active' : ''}" data-spectrum="all">
-            همه رنگ‌ها
-          </button>
-          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'red' ? 'active' : ''}" data-spectrum="red">
-            چراغ قرمز
-          </button>
-          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'blue' ? 'active' : ''}" data-spectrum="blue">
-            چراغ آبی
-          </button>
-          <button type="button" class="parity-toggle-btn ${currentBeaconSpectrumFilter === 'yellow' ? 'active' : ''}" data-spectrum="yellow">
-            چراغ زرد
-          </button>
-        </div>
-
-        ${tablesMarkup}
-
-        <div class="manual-sub-box">
-          <strong>راهنمای تطبیق ریتم مورس نوری و اعداد بریل سلکتور اپراتور:</strong>
-          <div class="braille-legend-strip">${brailleLegendHtml}</div>
-          <ul class="manual-checklist" style="margin-top: 6px;">
-            <li><span class="tabular-num" dir="ltr">·· — ·</span> <strong>(وکتور):</strong> دو چشمک کوتاه، یک بلند، یک کوتاه</li>
-            <li><span class="tabular-num" dir="ltr">— · — ·</span> <strong>(سیگما):</strong> یک بلند، یک کوتاه، یک بلند، یک کوتاه</li>
-            <li><span class="tabular-num" dir="ltr">· — — ·</span> <strong>(دلتا):</strong> یک کوتاه، دو بلند، یک کوتاه</li>
-            <li><span class="tabular-num" dir="ltr">— — · ·</span> <strong>(امگا):</strong> دو چشمک بلند، دو چشمک کوتاه</li>
-          </ul>
-        </div>
-
-        <p class="manual-note">${beacon.note || ''}</p>
-      </div>
-    `;
-  }
-
-  muteManualContainer.innerHTML =
-    matrixHtml + navTabsHtml + buttonHtml + wiresHtml + keypadHtml + beaconHtml;
-
-  muteManualContainer.querySelectorAll('.manual-tab-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      currentManualFilter = e.currentTarget.getAttribute('data-filter') || 'all';
-      renderDynamicManual(manual, state);
-    });
-  });
-
-  muteManualContainer.querySelectorAll('[data-spectrum]').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      currentBeaconSpectrumFilter = e.currentTarget.getAttribute('data-spectrum') || 'all';
-      renderDynamicManual(manual, state);
-    });
-  });
-}
-
-// --- Difficulty Selection Host Event Listeners ---
-[btnPresetEasy, btnPresetNormal, btnPresetHard].forEach((btn) => {
-  if (!btn) return;
-  btn.addEventListener('click', () => {
-    isCustomDifficultyOpen = false;
-    const presetId = btn.getAttribute('data-preset');
-    transport.send('set_difficulty', { presetId });
-  });
-});
-
-if (btnPresetCustom) {
-  btnPresetCustom.addEventListener('click', () => {
-    isCustomDifficultyOpen = !isCustomDifficultyOpen;
-    if (currentGameState) {
-      renderState(currentGameState);
-    }
-  });
-}
-
-if (btnApplyCustomDifficulty) {
-  btnApplyCustomDifficulty.addEventListener('click', () => {
-    const duration = parseInt(overrideDuration.value, 10);
-    const maxStrikes = parseInt(overrideStrikes.value, 10);
-    const moduleCount = parseInt(overrideModules.value, 10);
-    const timePenaltySeconds = parseInt(overridePenalty.value, 10);
-    const wireIndexLabels = overrideWireIndexLabels ? overrideWireIndexLabels.checked : false;
-    const commAidEnabled = overrideCommAidEnabled ? overrideCommAidEnabled.checked : false;
-    const commAidBudget = overrideCommAidBudget ? parseInt(overrideCommAidBudget.value, 10) : 5;
-
-    isCustomDifficultyOpen = true;
-    transport.send('set_difficulty', {
-      presetId: currentGameState?.difficulty?.preset || 'normal',
-      customOverrides: {
-        duration,
-        maxStrikes,
-        moduleCount,
-        timePenaltySeconds,
-        features: {
-          wireIndexLabels,
-          commAidEnabled,
-          commAidBudget
-        }
-      }
-    });
-    showToast('تنظیمات سفارشی راند ثبت شد.', 'success', 2200);
-  });
-}

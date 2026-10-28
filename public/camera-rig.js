@@ -13,6 +13,7 @@
  *    can never move the ray origin past physical occluders such as the raised briefcase lid.
  */
 import * as THREE from 'three';
+import { toFunctionalRoleKey } from '../shared/roles.js';
 
 export const WORLD_LAYERS = Object.freeze({
   SHARED: 0,
@@ -28,9 +29,7 @@ export const CAMERA_FOV_LIMITS = Object.freeze({
 });
 
 export function normalizeWorldRole(role) {
-  if (role === 'deaf' || role === 'observer') return 'observer';
-  if (role === 'mute' || role === 'manual') return 'manual';
-  return 'operator';
+  return toFunctionalRoleKey(role);
 }
 
 export function setSubtreeLayer(rootObj, layerIndex) {

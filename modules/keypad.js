@@ -1,7 +1,8 @@
 /**
  * Server-side Cipher Keypad Module
  */
-import { fisherYatesShuffle } from './utils.js';
+import { fisherYatesShuffle, isPlainObject } from '../shared/utils.js';
+import { isOperatorRole, isObserverRole } from '../shared/roles.js';
 import { KEYPAD_RULES } from './rules-config.js';
 
 export const keypadModule = {
@@ -10,7 +11,6 @@ export const keypadModule = {
 
   create(rng, ctx) {
     const schema = ctx?.roundRules?.keypadSchema || KEYPAD_RULES.defaultSchema;
-    // Unbiased Fisher-Yates shuffle of the symbol pool
     const shuffledPool = fisherYatesShuffle(KEYPAD_RULES.symbolPool, rng);
     const shuffledSymbols = shuffledPool.slice(0, 4);
     const correctOrder = KEYPAD_RULES.evaluate(shuffledSymbols, schema.priorityOrder);
@@ -27,11 +27,9 @@ export const keypadModule = {
 
   filterForRole(role, state) {
     if (!state) return null;
-    const isOperator = role === 'operator' || role === 'blind';
-    const isObserver = role === 'observer' || role === 'deaf';
 
     // NEVER leak correctOrder
-    if (isOperator) {
+    if (isOperatorRole(role)) {
       return {
         id: 'keypad',
         slotCount: state.symbols.length,
@@ -40,7 +38,7 @@ export const keypadModule = {
         solved: state.solved
       };
     }
-    if (isObserver) {
+    if (isObserverRole(role)) {
       return {
         id: 'keypad',
         symbols: state.symbols,
@@ -56,7 +54,33 @@ export const keypadModule = {
     };
   },
 
-  handleAction(state, action, data, ctx) {
+  validateAction(action, rawData) {
+    if (action === 'press') {
+      if (
+        !isPlainObject(rawData) ||
+        !Number.isInteger(rawData.slotIndex) ||
+        rawData.slotIndex < 0 ||
+        rawData.slotIndex > 3
+      ) {
+        return {
+          ok: false,
+          message: 'شناسه کلید کیپد نامعتبر است (باید عدد صحیح ۰ تا ۳ باشد).'
+        };
+      }
+      return {
+        ok: true,
+        sanitizedData: { slotIndex: rawData.slotIndex },
+        targetKey: `slot_${rawData.slotIndex}`
+      };
+    }
+    return { ok: false, message: 'نوع عملیات ماژول کیپد نامعتبر است.' };
+  },
+
+  isRedundantAction(state, action, sanitizedData) {
+    return Boolean(action === 'press' && state?.enteredSlots?.includes(sanitizedData?.slotIndex));
+  },
+
+  handleAction(state, action, data) {
     if (state.solved) return { solved: true, strike: false };
 
     if (action === 'press') {

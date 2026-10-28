@@ -1,4 +1,6 @@
 import { BUTTON_RULES } from './rules-config.js';
+import { isOperatorRole, isObserverRole } from '../shared/roles.js';
+import { isPlainObject } from '../shared/utils.js';
 
 /**
  * Server-side Reactor Button Module
@@ -32,11 +34,9 @@ export const buttonModule = {
 
   filterForRole(role, state) {
     if (!state) return null;
-    const isOperator = role === 'operator' || role === 'blind';
-    const isObserver = role === 'observer' || role === 'deaf';
 
     // NEVER leak actionType or targetReleaseDigit
-    if (isOperator) {
+    if (isOperatorRole(role)) {
       return {
         id: 'button',
         solved: state.solved,
@@ -45,7 +45,7 @@ export const buttonModule = {
         holdStripColor: state.solved ? null : 'monochrome'
       };
     }
-    if (isObserver) {
+    if (isObserverRole(role)) {
       return {
         id: 'button',
         solved: state.solved,
@@ -59,6 +59,31 @@ export const buttonModule = {
       id: 'button',
       solved: state.solved
     };
+  },
+
+  validateAction(action, rawData) {
+    if (action === 'press') {
+      return { ok: true, sanitizedData: {}, targetKey: 'plunger_press' };
+    }
+    if (action === 'release') {
+      if (
+        !isPlainObject(rawData) ||
+        !Number.isInteger(rawData.releaseDigit) ||
+        rawData.releaseDigit < 0 ||
+        rawData.releaseDigit > 9
+      ) {
+        return {
+          ok: false,
+          message: 'پارامتر رقم رهاسازی دکمه نامعتبر است (باید عدد صحیح ۰ تا ۹ باشد).'
+        };
+      }
+      return {
+        ok: true,
+        sanitizedData: { releaseDigit: rawData.releaseDigit },
+        targetKey: 'plunger_release'
+      };
+    }
+    return { ok: false, message: 'نوع عملیات دکمه نامعتبر است.' };
   },
 
   handleAction(state, action, data, ctx) {
@@ -84,7 +109,7 @@ export const buttonModule = {
             reason: `دکمه در ثانیه با رقم ${state.targetReleaseDigit} با موفقیت رها شد!`
           };
         }
-        return { solved: false, strike: true, reason: `رهاسازی دکمه در ثانیه‌ی اشتباه!` };
+        return { solved: false, strike: true, reason: 'رهاسازی دکمه در ثانیه‌ی اشتباه!' };
       }
       return { solved: false, strike: true, reason: 'نگه‌داشتن دکمه در حالتی که نیاز به فشردن سریع بود!' };
     }

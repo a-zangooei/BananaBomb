@@ -874,6 +874,15 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
       const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
       const appJs = fs.readFileSync(path.join(rootDir, 'public/app.js'), 'utf8');
+      const uiDir = path.join(rootDir, 'public/ui');
+      const uiFilesText = fs.existsSync(uiDir)
+        ? fs
+            .readdirSync(uiDir)
+            .filter((f) => f.endsWith('.js'))
+            .sort()
+            .map((f) => fs.readFileSync(path.join(uiDir, f), 'utf8'))
+            .join('\n')
+        : '';
       const buttonClientJs = fs.readFileSync(path.join(rootDir, 'public/modules/button.js'), 'utf8');
       const interactionJs = fs.readFileSync(path.join(rootDir, 'public/interaction-controller.js'), 'utf8');
 
@@ -896,6 +905,7 @@ describe('Shared 3D Van World, Physical Occlusion, Seated Viewpoints & Tactile S
       assert.ok(!buttonClientJs.includes('رقم:'), 'button.js must not paint live timer digit on Operator button cap');
       assert.ok(!interactionJs.includes('رقم فعلی تایمر'), 'interaction-controller.js must not leak live timer digit to Operator HUD');
       assert.ok(!appJs.includes('رقم فعلی تایمر'), 'app.js must not leak live timer digit during Space-bar hold');
+      assert.ok(!uiFilesText.includes('رقم فعلی تایمر'), 'public/ui modules must not leak live timer digit during Space-bar hold');
 
       // 3. Accelerating timer audio is gated strictly to Operator role (audible in room to Operator + Manual-holder, silent on Observer device)
       assert.ok(appJs.includes('computeTimerTickSchedule'), 'app.js must use continuous computeTimerTickSchedule');

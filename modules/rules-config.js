@@ -2,6 +2,7 @@
  * Authoritative Single Source of Truth for BOMBANANA / BananaBomb Module Rules
  * Supports robust seed-based dynamic rule generation across rounds.
  */
+import { BRAILLE_DIGITS } from '../shared/utils.js';
 
 // --- Button Module Rules Engine ---
 export const BUTTON_SCHEMAS = [
@@ -194,11 +195,7 @@ export const BEACON_SPECTRUM_LABELS = {
   yellow: 'زرد (Yellow)'
 };
 
-export const BRAILLE_DIGITS = {
-  1: '⠁',
-  2: '⠃',
-  3: '⠉'
-};
+export { BRAILLE_DIGITS };
 
 export const BEACON_PATTERNS = [
   { id: 'vector', name: 'پالس وکتور (Vector)', patternStr: '·· — ·', beats: [1, 1, 3, 1] },

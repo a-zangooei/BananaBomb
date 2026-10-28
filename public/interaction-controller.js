@@ -21,6 +21,8 @@
  *   Per-slot submission lock preventing accidental double-submission from bounce/double-tap.
  */
 
+import { isOperatorRole } from '../shared/roles.js';
+
 export const INTERACTION_DEFAULTS = Object.freeze({
   buttonHoldThresholdMs: 380,
   minHoldThresholdMs: 250,
@@ -30,10 +32,6 @@ export const INTERACTION_DEFAULTS = Object.freeze({
   dragSlopPx: 12,
   keypadDedupeLockMs: 320
 });
-
-function isOperatorRole(role) {
-  return role === 'blind' || role === 'operator';
-}
 
 export class BombInteractionController {
   constructor(options = {}) {

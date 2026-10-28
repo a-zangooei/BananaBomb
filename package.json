@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "build": "node -e \"console.log('Build OK')\"",
-    "lint": "node --check server.js modules/*.js public/*.js public/modules/*.js",
+    "lint": "node --check server.js shared/*.js server/*.js modules/*.js public/*.js public/ui/*.js public/modules/*.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
   "dependencies": {

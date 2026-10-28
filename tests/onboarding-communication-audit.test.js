@@ -135,7 +135,16 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
 
   describe('1. Codebase & Rulebook Contradiction Audit', () => {
     const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
-    const appJs = fs.readFileSync(path.join(rootDir, 'public/app.js'), 'utf8');
+    const uiDir = path.join(rootDir, 'public/ui');
+    const uiFilesText = fs.existsSync(uiDir)
+      ? fs
+          .readdirSync(uiDir)
+          .filter((f) => f.endsWith('.js'))
+          .sort()
+          .map((f) => fs.readFileSync(path.join(uiDir, f), 'utf8'))
+          .join('\n')
+      : '';
+    const clientUiJs = `${fs.readFileSync(path.join(rootDir, 'public/app.js'), 'utf8')}\n${uiFilesText}`;
     const audioJs = fs.readFileSync(path.join(rootDir, 'public/audio.js'), 'utf8');
     const rulesConfigJs = fs.readFileSync(path.join(rootDir, 'modules/rules-config.js'), 'utf8');
 
@@ -144,8 +153,8 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
       assert.ok(!indexHtml.includes('نقش ناشنوا'), 'index.html must not label Observer as Deaf role');
       assert.ok(!indexHtml.includes('نقش لال'), 'index.html must not label Manual-holder as Mute role');
 
-      assert.ok(!appJs.includes('alert('), 'app.js must not use blocking window.alert');
-      assert.ok(!appJs.includes('window.open('), 'app.js must not use window.open');
+      assert.ok(!clientUiJs.includes('alert('), 'client UI modules must not use blocking window.alert');
+      assert.ok(!clientUiJs.includes('window.open('), 'client UI modules must not use window.open');
 
       // Verify puzzle-clue Morse audio is completely removed while general SFX remain
       assert.ok(!audioJs.includes('playBeaconBeep'), 'audio.js must not define playBeaconBeep');
@@ -154,7 +163,7 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
 
       // Verify zero inaccurate claims that only the Operator can hear audio in the shared room
       assert.ok(!indexHtml.includes('تنها اپراتور ریتم'), 'index.html must not claim exclusive Operator audio');
-      assert.ok(!appJs.includes('تنها <strong>اپراتور</strong> ریتم صوتی بوق‌ها را می‌شنود'), 'app.js must not claim exclusive Operator audio');
+      assert.ok(!clientUiJs.includes('تنها <strong>اپراتور</strong> ریتم صوتی بوق‌ها را می‌شنود'), 'client UI modules must not claim exclusive Operator audio');
       assert.ok(!rulesConfigJs.includes('تنها اپراتور الگوی ریتمیک بیپ را می‌شنود'), 'rules-config.js must not claim exclusive Operator audio');
     });
 
@@ -182,7 +191,7 @@ describe('Onboarding, Physical Setup Audit, Gesture Vocabulary & Easy-Mode Commu
 
       // You can / You cannot panel
       assert.ok(indexHtml.includes('id="rolePermissionsPanel"'), 'Missing role permissions panel');
-      assert.ok(appJs.includes('ROLE_PERMISSIONS_SPEC'), 'Missing structured role permissions specification');
+      assert.ok(clientUiJs.includes('ROLE_PERMISSIONS_SPEC'), 'Missing structured role permissions specification');
 
       // Gesture vocabulary items (9 distinct cards covering all required meanings)
       const gestureMatches = indexHtml.match(/class="gesture-item"/g) || [];

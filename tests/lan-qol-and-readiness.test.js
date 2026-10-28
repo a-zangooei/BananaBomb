@@ -443,9 +443,18 @@ describe('Offline QR SVG, Hybrid Mobile Session, Pre-Start Countdown & Slot Reco
     assert.ok(rejoinedState.state.serialNumber, 'Rejoined Observer immediately receives serial number mid-round');
   });
 
-  test('7. Frontend HTML and app.js wire QR modal, Wake Lock, Fullscreen toggles, and Readiness Curtain', () => {
+  test('7. Frontend HTML and client UI modules wire QR modal, Wake Lock, Fullscreen toggles, and Readiness Curtain', () => {
     const html = fs.readFileSync(path.join(ROOT_DIR, 'public', 'index.html'), 'utf8');
-    const appJs = fs.readFileSync(path.join(ROOT_DIR, 'public', 'app.js'), 'utf8');
+    const uiDir = path.join(ROOT_DIR, 'public', 'ui');
+    const uiFilesText = fs.existsSync(uiDir)
+      ? fs
+          .readdirSync(uiDir)
+          .filter((f) => f.endsWith('.js'))
+          .sort()
+          .map((f) => fs.readFileSync(path.join(uiDir, f), 'utf8'))
+          .join('\n')
+      : '';
+    const clientUiJs = `${fs.readFileSync(path.join(ROOT_DIR, 'public', 'app.js'), 'utf8')}\n${uiFilesText}`;
 
     for (const requiredId of [
       'btnOpenQrModal',
@@ -462,9 +471,9 @@ describe('Offline QR SVG, Hybrid Mobile Session, Pre-Start Countdown & Slot Reco
       assert.ok(html.includes(`id="${requiredId}"`), `index.html missing #${requiredId}`);
     }
 
-    assert.ok(appJs.includes('navigator.wakeLock'), 'app.js must integrate Screen Wake Lock API');
-    assert.ok(appJs.includes('requestFullscreen'), 'app.js must integrate Fullscreen API');
-    assert.ok(appJs.includes("transport.send('start_countdown'"), 'Start button must trigger synchronized 3s readiness countdown');
-    assert.ok(appJs.includes("transport.send('release_disconnected_role'"), 'Host release buttons must send release_disconnected_role');
+    assert.ok(clientUiJs.includes('navigator.wakeLock'), 'Client UI must integrate Screen Wake Lock API');
+    assert.ok(clientUiJs.includes('requestFullscreen'), 'Client UI must integrate Fullscreen API');
+    assert.ok(clientUiJs.includes("transport.send('start_countdown'"), 'Start button must trigger synchronized 3s readiness countdown');
+    assert.ok(clientUiJs.includes("transport.send('release_disconnected_role'"), 'Host release buttons must send release_disconnected_role');
   });
 });

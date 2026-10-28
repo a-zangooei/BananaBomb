@@ -11,6 +11,7 @@
  */
 import { createCanvas2D } from './canvas-utils.js';
 import { createCircleOutlineGeometry, TACTILE_PALETTE } from '../tactile-styler.js';
+import { BRAILLE_DOT_MAP } from '../../shared/utils.js';
 
 const NOOP_RAYCAST = () => {};
 
@@ -18,13 +19,6 @@ const SPECTRUM_COLOR_HEX = Object.freeze({
   red: 0xef4444,
   blue: 0x3b82f6,
   yellow: 0xfacc15
-});
-
-// Standard 6-dot Braille active dot indices (1-based: 1=top-left, 2=mid-left, 3=bot-left, 4=top-right, 5=mid-right, 6=bot-right)
-const BRAILLE_DOT_MAP = Object.freeze({
-  1: [1],
-  2: [1, 2],
-  3: [1, 4]
 });
 
 const SLOT_POSITION_NAMES = Object.freeze({
