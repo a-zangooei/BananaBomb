@@ -20,7 +20,12 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createCanvas2D } from './modules/canvas-utils.js';
+import { createCanvas2D, createColorCanvasTexture } from './modules/canvas-utils.js';
+
+const _hoodLocalPos = new THREE.Vector3();
+const _operatorEyeLocalPos = new THREE.Vector3();
+const _hoodUpVec = new THREE.Vector3(0, 1, 0);
+const _hoodBasisMat = new THREE.Matrix4();
 
 export const BRIEFCASE_SPEC = Object.freeze({
   worldOrigin: Object.freeze({ x: 0.0, y: 0.74, z: 0.04 }),
@@ -566,8 +571,7 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
   // --- 3. ExteriorSerialPlate on East (+X) Vertical Rim Wall facing Observer ---
   const serialCanvas = createCanvas2D(512, 128);
   drawSerialPlateCanvas(serialCanvas, null, false);
-  const serialTexture = new THREE.CanvasTexture(serialCanvas);
-  serialTexture.colorSpace = THREE.SRGBColorSpace;
+  const serialTexture = createColorCanvasTexture(THREE, serialCanvas, { dynamic: false });
 
   const serialBackingGeo = new THREE.BoxGeometry(0.003, 0.058, 0.236);
   const serialBackingMat = new THREE.MeshStandardMaterial({
@@ -641,23 +645,19 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
   // Angled directional hood oriented so local +Z points strictly at Operator's seated eye (0, 1.18, +0.46)
   const morseLampHoodGroup = new THREE.Group();
   morseLampHoodGroup.name = 'MorseLampHoodGroup';
-  const hoodLocalPos = new THREE.Vector3(
+  _hoodLocalPos.set(
     BRIEFCASE_SPEC.morseLampLocalPos.x,
     BRIEFCASE_SPEC.morseLampLocalPos.y,
     BRIEFCASE_SPEC.morseLampLocalPos.z
   );
-  const operatorEyeLocalPos = new THREE.Vector3(
+  _operatorEyeLocalPos.set(
     0.0 - BRIEFCASE_SPEC.worldOrigin.x,
     1.18 - BRIEFCASE_SPEC.worldOrigin.y,
     0.46 - BRIEFCASE_SPEC.worldOrigin.z
   );
-  const hoodBasisMat = new THREE.Matrix4().lookAt(
-    operatorEyeLocalPos,
-    hoodLocalPos,
-    new THREE.Vector3(0, 1, 0)
-  );
-  morseLampHoodGroup.position.copy(hoodLocalPos);
-  morseLampHoodGroup.quaternion.setFromRotationMatrix(hoodBasisMat);
+  _hoodBasisMat.lookAt(_operatorEyeLocalPos, _hoodLocalPos, _hoodUpVec);
+  morseLampHoodGroup.position.copy(_hoodLocalPos);
+  morseLampHoodGroup.quaternion.setFromRotationMatrix(_hoodBasisMat);
 
   // 5-sided deep optical blinder tunnel around the 0.044 × 0.032 lens plane:
   // Blocks 100% of Observer (+X) and Manual-holder (-Z) rays while leaving Operator (+Z local) 5/5 clear.
@@ -682,8 +682,7 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
 
   const morseLampCanvas = createCanvas2D(256, 192);
   drawMorseLampCanvas(morseLampCanvas, { isOperatorView: false, lit: false, intensity: 0 });
-  const morseLampTexture = new THREE.CanvasTexture(morseLampCanvas);
-  morseLampTexture.colorSpace = THREE.SRGBColorSpace;
+  const morseLampTexture = createColorCanvasTexture(THREE, morseLampCanvas, { dynamic: true });
 
   const morseLensGeo = new THREE.PlaneGeometry(0.044, 0.032);
   const morseLensMat = new THREE.MeshBasicMaterial({
@@ -805,8 +804,7 @@ export function buildBriefcaseBombRig({ styleManager = null, initialLidAngleRad 
 
   const lidTimerCanvas = createCanvas2D(512, 256);
   drawLidTimerCanvas(lidTimerCanvas, { isObserverView: false });
-  const lidTimerTexture = new THREE.CanvasTexture(lidTimerCanvas);
-  lidTimerTexture.colorSpace = THREE.SRGBColorSpace;
+  const lidTimerTexture = createColorCanvasTexture(THREE, lidTimerCanvas, { dynamic: true });
 
   // Keep PlaneGeometry unrotated in local XY so computeSurfaceSamplePointsWorld samples 5 XY points;
   // rotate the mesh +90° around +X so local +Z points along -Y_h (+Z_world when lid opens -95°).

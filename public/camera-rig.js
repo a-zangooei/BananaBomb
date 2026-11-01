@@ -355,23 +355,33 @@ export class SeatedCameraRig {
     this.camera.updateMatrixWorld(true);
   }
 
-  update(dampingAlpha = 0.18) {
+  update(dampingAlpha = 0.18, deltaSeconds = null) {
     const cfg = this.getConfig();
     this.clampOffsets();
 
-    //Shortest-angle wrap for baseYaw transitions
+    // Shortest-angle wrap for baseYaw transitions
     let yawDiff = this.baseYaw - this.currentBaseYaw;
     while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
     while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
 
-    const alpha = THREE.MathUtils.clamp(dampingAlpha, 0.01, 1.0);
-    this.currentBaseYaw += yawDiff * alpha;
-    this.currentBasePitch += (this.basePitch - this.currentBasePitch) * alpha;
-    this.currentYawOffset += (this.targetYawOffset - this.currentYawOffset) * alpha;
-    this.currentPitchOffset += (this.targetPitchOffset - this.currentPitchOffset) * alpha;
+    const alpha = computeFrameIndependentAlpha(dampingAlpha, deltaSeconds);
+    this.currentBaseYaw = Math.abs(yawDiff) < 1e-6 ? this.baseYaw : this.currentBaseYaw + yawDiff * alpha;
+
+    const basePitchDiff = this.basePitch - this.currentBasePitch;
+    this.currentBasePitch =
+      Math.abs(basePitchDiff) < 1e-6 ? this.basePitch : this.currentBasePitch + basePitchDiff * alpha;
+
+    const yawOffDiff = this.targetYawOffset - this.currentYawOffset;
+    this.currentYawOffset =
+      Math.abs(yawOffDiff) < 1e-6 ? this.targetYawOffset : this.currentYawOffset + yawOffDiff * alpha;
+
+    const pitchOffDiff = this.targetPitchOffset - this.currentPitchOffset;
+    this.currentPitchOffset =
+      Math.abs(pitchOffDiff) < 1e-6 ? this.targetPitchOffset : this.currentPitchOffset + pitchOffDiff * alpha;
 
     const prevFov = this.currentFov;
-    this.currentFov += (this.targetFov - this.currentFov) * alpha;
+    const fovDiff = this.targetFov - this.currentFov;
+    this.currentFov = Math.abs(fovDiff) < 1e-4 ? this.targetFov : this.currentFov + fovDiff * alpha;
 
     // Re-anchor camera position every frame so external code can never drift it
     this.camera.position.set(cfg.eyePosition.x, cfg.eyePosition.y, cfg.eyePosition.z);
@@ -388,3 +398,24 @@ export class SeatedCameraRig {
     }
   }
 }
+
+/**
+ * Converts a 60Hz-calibrated damping factor `baseAlphaAt60Hz` into a frame-rate independent
+ * exponential smoothing factor `1 - exp(-lambda * dt)` so 30Hz, 60Hz, 90Hz, and 120Hz displays
+ * converge identically in wall-clock time. Clamps large tab-resume deltas to 0.1s.
+ */
+export function computeFrameIndependentAlpha(baseAlphaAt60Hz = 0.18, deltaSeconds = null) {
+  const clampedBase = THREE.MathUtils.clamp(Number(baseAlphaAt60Hz) || 0.18, 0.01, 1.0);
+  if (clampedBase >= 0.9999 || deltaSeconds === null || deltaSeconds === undefined) {
+    return clampedBase;
+  }
+  const numDt = Number(deltaSeconds);
+  if (!Number.isFinite(numDt) || numDt <= 0) {
+    return clampedBase;
+  }
+  const clampedDt = Math.min(Math.max(numDt, 0.001), 0.1);
+  const lambda = -60 * Math.log(1 - clampedBase);
+  return THREE.MathUtils.clamp(1 - Math.exp(-lambda * clampedDt), 0.001, 1.0);
+}
+
+

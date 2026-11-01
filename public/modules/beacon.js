@@ -9,7 +9,11 @@
  *   and physical dial slot orientation, without Braille digits or Optical Morse lamp sightlines.
  * - Zero audio puzzle clues are emitted anywhere in the room.
  */
-import { createCanvas2D } from './canvas-utils.js';
+import {
+  createCanvas2D,
+  createColorCanvasTexture,
+  createTouchHitboxMaterial
+} from './canvas-utils.js';
 import { createCircleOutlineGeometry, TACTILE_PALETTE } from '../tactile-styler.js';
 import { BRAILLE_DOT_MAP } from '../../shared/utils.js';
 
@@ -218,11 +222,13 @@ export const beaconClientModule = {
       knobMesh.add(knobRim);
     }
 
+    // Shared invisible touch hitbox material across knob, Braille notches, and TX switch
+    const sharedHitMat = createTouchHitboxMaterial(THREE);
+
     // Invisible Knob Touch Hitbox
     const knobHitGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.1, 20);
     knobHitGeo.rotateX(Math.PI / 2);
-    const knobHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-    const knobHitMesh = new THREE.Mesh(knobHitGeo, knobHitMat);
+    const knobHitMesh = new THREE.Mesh(knobHitGeo, sharedHitMat);
     knobHitMesh.userData = {
       isKnob: true,
       isTouchHitbox: true,
@@ -264,6 +270,8 @@ export const beaconClientModule = {
     // 6. Enlarged Tactile Braille Slot Plates (Slots 1, 2, 3) around Dial with Dedicated Hitboxes
     const channelItems = [];
     const slotAngles = [0.78, 0, -0.78]; // Slot 1 = Left (+0.78 rad), Slot 2 = Center (0), Slot 3 = Right (-0.78 rad)
+    const notchGeo = new THREE.PlaneGeometry(0.16, 0.16);
+    const notchHitGeo = new THREE.BoxGeometry(0.21, 0.21, 0.09);
 
     slotAngles.forEach((ang, idx) => {
       const slotNum = idx + 1;
@@ -277,8 +285,7 @@ export const beaconClientModule = {
         isMonochrome,
         isHighlighted: idx === 0
       });
-      const tex = new THREE.CanvasTexture(canvas);
-      const notchGeo = new THREE.PlaneGeometry(0.16, 0.16);
+      const tex = createColorCanvasTexture(THREE, canvas, { dynamic: false });
       const notchMat = new THREE.MeshBasicMaterial({
         map: tex,
         transparent: true,
@@ -297,9 +304,7 @@ export const beaconClientModule = {
       };
       group.add(notchMesh);
 
-      const notchHitGeo = new THREE.BoxGeometry(0.21, 0.21, 0.09);
-      const notchHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-      const notchHitMesh = new THREE.Mesh(notchHitGeo, notchHitMat);
+      const notchHitMesh = new THREE.Mesh(notchHitGeo, sharedHitMat);
       notchHitMesh.position.set(lx, ly, 0.045);
       notchHitMesh.userData = {
         channelIndex: slotNum,
@@ -327,7 +332,7 @@ export const beaconClientModule = {
 
     const txCanvas = createCanvas2D(256, 96);
     drawTxCanvas(txCanvas, 'HOLD TX', 0, isMonochrome, false);
-    const txTex = new THREE.CanvasTexture(txCanvas);
+    const txTex = createColorCanvasTexture(THREE, txCanvas, { dynamic: true });
     const txFaceGeo = new THREE.PlaneGeometry(0.52, 0.17);
     const txFaceMat = new THREE.MeshBasicMaterial({
       map: txTex,
@@ -347,8 +352,7 @@ export const beaconClientModule = {
     txGroup.add(txFaceMesh);
 
     const txHitGeo = new THREE.BoxGeometry(0.62, 0.25, 0.11);
-    const txHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-    const txHitMesh = new THREE.Mesh(txHitGeo, txHitMat);
+    const txHitMesh = new THREE.Mesh(txHitGeo, sharedHitMat);
     txHitMesh.position.z = 0.03;
     txHitMesh.userData = {
       isTxButton: true,

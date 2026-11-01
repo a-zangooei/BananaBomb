@@ -60,3 +60,56 @@ export function prefersReducedMotion() {
   }
   return false;
 }
+
+/**
+ * Creates a color-accurate sRGB `THREE.CanvasTexture` for 2D canvas labels and HUD overlays.
+ * Dynamic textures that redraw frequently (timers, Morse pulses, hold progress arcs) disable
+ * per-upload mipmap chain regeneration (`generateMipmaps = false`, `LinearFilter`) to avoid
+ * mobile GPU upload stalls while preserving smooth bilinear sampling.
+ */
+export function createColorCanvasTexture(THREE, canvas, { dynamic = false } = {}) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  if (dynamic) {
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+  }
+  return tex;
+}
+
+/**
+ * Creates a shared, zero-fill-cost invisible proxy material for `THREE.Raycaster` touch hitboxes.
+ * Disables both `colorWrite` and `depthWrite` so mobile GPUs skip fragment blending while
+ * keeping full raycast intersection behavior.
+ */
+export function createTouchHitboxMaterial(THREE) {
+  return new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    colorWrite: false,
+    toneMapped: false
+  });
+}
+
+/**
+ * Applies hardware max anisotropic filtering to all mipmapped textures in a 3D subtree
+ * so oblique bomb-bay labels, keypad glyphs, and Braille cells remain sharp.
+ */
+export function applyAnisotropyToSubtree(rootObj, maxAnisotropy = 1) {
+  if (!rootObj || !(maxAnisotropy > 1)) return;
+  rootObj.traverse((obj) => {
+    if (!obj.material) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of mats) {
+      if (mat && mat.map && mat.map.isTexture && mat.map.generateMipmaps !== false) {
+        if (mat.map.anisotropy !== maxAnisotropy) {
+          mat.map.anisotropy = maxAnisotropy;
+          mat.map.needsUpdate = true;
+        }
+      }
+    }
+  });
+}
+

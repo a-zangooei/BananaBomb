@@ -160,17 +160,10 @@ function buildMonkeyUpperBody({ roleType, furMat, creamMat, darkMat, accessoryMa
  * Builds a clean, wrist-only floating gloved hand with explicit left/right chirality
  * and a sealed recessed wrist cap (zero forearm sleeve cylinders and zero negative scaling).
  */
-export function buildGlovedHandUnit({ side = 'right', gloveMat, cuffSealMat, styleManager }) {
-  const resolvedSide = side === 'left' ? 'left' : 'right';
+function createGloveBodyGeometry(resolvedSide) {
   // In local space, fingers extend toward -Z and palm faces -Y.
   // Medial (thumb) side is +X for the left hand and -X for the right hand.
   const thumbSign = resolvedSide === 'left' ? 1 : -1;
-
-  const handGroup = new THREE.Group();
-  handGroup.name = `FloatingGlovedHand_${resolvedSide}`;
-  handGroup.userData.isFloatingGlovedHand = true;
-  handGroup.userData.handSide = resolvedSide;
-
   const gloveParts = [
     // Rolled cartoon wrist cuff collar (closed cylinder + rounded roll)
     partCyl(0.034, 0.032, 0.024, 12, 0, 0.004, 0.018, Math.PI * 0.48, 0, 0),
@@ -188,6 +181,30 @@ export function buildGlovedHandUnit({ side = 'right', gloveMat, cuffSealMat, sty
   ];
   const gloveGeo = mergeGeometries(gloveParts, false);
   gloveParts.forEach((g) => g.dispose());
+  return gloveGeo;
+}
+
+/**
+ * Builds a clean, wrist-only floating gloved hand with explicit left/right chirality
+ * and a sealed recessed wrist cap (zero forearm sleeve cylinders and zero negative scaling).
+ */
+export function buildGlovedHandUnit({
+  side = 'right',
+  gloveMat,
+  cuffSealMat,
+  styleManager,
+  sharedGeometries = null
+}) {
+  const resolvedSide = side === 'left' ? 'left' : 'right';
+
+  const handGroup = new THREE.Group();
+  handGroup.name = `FloatingGlovedHand_${resolvedSide}`;
+  handGroup.userData.isFloatingGlovedHand = true;
+  handGroup.userData.handSide = resolvedSide;
+
+  const gloveGeo =
+    (resolvedSide === 'left' ? sharedGeometries?.leftGloveGeo : sharedGeometries?.rightGloveGeo) ||
+    createGloveBodyGeometry(resolvedSide);
 
   const gloveMesh = new THREE.Mesh(gloveGeo, gloveMat);
   gloveMesh.name = `GloveBody_${resolvedSide}`;
@@ -196,7 +213,8 @@ export function buildGlovedHandUnit({ side = 'right', gloveMat, cuffSealMat, sty
   handGroup.add(gloveMesh);
 
   // Recessed closed wrist seal cap closing the back of the cuff cleanly from every angle
-  const cuffCapGeo = partCyl(0.026, 0.026, 0.006, 12, 0, 0.005, 0.029, Math.PI * 0.48, 0, 0);
+  const cuffCapGeo =
+    sharedGeometries?.cuffCapGeo || partCyl(0.026, 0.026, 0.006, 12, 0, 0.005, 0.029, Math.PI * 0.48, 0, 0);
   const cuffCapMesh = new THREE.Mesh(cuffCapGeo, cuffSealMat);
   cuffCapMesh.name = `GloveWristSealCap_${resolvedSide}`;
   cuffCapMesh.userData.isAvatar = true;
@@ -234,6 +252,13 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
     }
   }
 
+  // Shared chiral glove geometries across the 3 seated teammates
+  const sharedHandGeos = {
+    leftGloveGeo: createGloveBodyGeometry('left'),
+    rightGloveGeo: createGloveBodyGeometry('right'),
+    cuffCapGeo: partCyl(0.026, 0.026, 0.006, 12, 0, 0.005, 0.029, Math.PI * 0.48, 0, 0)
+  };
+
   // --- 1. Operator Monkey (South +Z bench facing North -Z) ---
   const operatorBody = buildMonkeyUpperBody({
     roleType: 'operator',
@@ -255,12 +280,24 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   const opLeftRest = new THREE.Vector3(-0.205, 0.768, 0.315);
   const opRightRest = new THREE.Vector3(0.205, 0.768, 0.315);
 
-  const opLeftHand = buildGlovedHandUnit({ side: 'left', gloveMat, cuffSealMat, styleManager });
+  const opLeftHand = buildGlovedHandUnit({
+    side: 'left',
+    gloveMat,
+    cuffSealMat,
+    styleManager,
+    sharedGeometries: sharedHandGeos
+  });
   opLeftHand.name = 'OperatorLeftHand';
   opLeftHand.position.copy(opLeftRest);
   operatorHandsGroup.add(opLeftHand);
 
-  const opRightHand = buildGlovedHandUnit({ side: 'right', gloveMat, cuffSealMat, styleManager });
+  const opRightHand = buildGlovedHandUnit({
+    side: 'right',
+    gloveMat,
+    cuffSealMat,
+    styleManager,
+    sharedGeometries: sharedHandGeos
+  });
   opRightHand.name = 'OperatorRightHand';
   opRightHand.position.copy(opRightRest);
   operatorHandsGroup.add(opRightHand);
@@ -286,13 +323,25 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   const observerHandsGroup = new THREE.Group();
   observerHandsGroup.name = 'ObserverForegroundHands';
 
-  const obsNorthHand = buildGlovedHandUnit({ side: 'right', gloveMat, cuffSealMat, styleManager });
+  const obsNorthHand = buildGlovedHandUnit({
+    side: 'right',
+    gloveMat,
+    cuffSealMat,
+    styleManager,
+    sharedGeometries: sharedHandGeos
+  });
   obsNorthHand.name = 'ObserverRightHand';
   obsNorthHand.position.set(0.465, 0.768, -0.235);
   obsNorthHand.rotation.y = Math.PI * 0.5;
   observerHandsGroup.add(obsNorthHand);
 
-  const obsSouthHand = buildGlovedHandUnit({ side: 'left', gloveMat, cuffSealMat, styleManager });
+  const obsSouthHand = buildGlovedHandUnit({
+    side: 'left',
+    gloveMat,
+    cuffSealMat,
+    styleManager,
+    sharedGeometries: sharedHandGeos
+  });
   obsSouthHand.name = 'ObserverLeftHand';
   obsSouthHand.position.set(0.465, 0.768, 0.295);
   obsSouthHand.rotation.y = Math.PI * 0.5;
@@ -368,13 +417,25 @@ export function buildWorldAvatars({ styleManager = null } = {}) {
   manualPropGroup.add(manualInnerPageMesh);
 
   // Manual-holder's floating gloved hands holding the binder & resting for gestures
-  const manRightHand = buildGlovedHandUnit({ side: 'right', gloveMat, cuffSealMat, styleManager });
+  const manRightHand = buildGlovedHandUnit({
+    side: 'right',
+    gloveMat,
+    cuffSealMat,
+    styleManager,
+    sharedGeometries: sharedHandGeos
+  });
   manRightHand.name = 'ManualRightHand';
   manRightHand.position.set(-0.18, 0.772, -0.34);
   manRightHand.rotation.y = Math.PI;
   root.add(manRightHand);
 
-  const manLeftHand = buildGlovedHandUnit({ side: 'left', gloveMat, cuffSealMat, styleManager });
+  const manLeftHand = buildGlovedHandUnit({
+    side: 'left',
+    gloveMat,
+    cuffSealMat,
+    styleManager,
+    sharedGeometries: sharedHandGeos
+  });
   manLeftHand.name = 'ManualLeftHand';
   manLeftHand.position.set(0.295, 0.818, -0.465);
   manLeftHand.rotation.y = Math.PI;

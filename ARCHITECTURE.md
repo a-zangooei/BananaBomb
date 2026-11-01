@@ -112,7 +112,18 @@ Finally, add the corresponding rulebook section generator in `modules/rules-conf
 
 ---
 
-## 4. Development, Lint & Verification Commands
+## 4. Three.js Rendering & Mobile Performance Guidelines
+
+All 3D scene and module code targets **Vanilla Three.js** over offline LAN on mid-range Android devices:
+
+- **Headless Scene Graph vs. Live WebGL**: Keep geometry, materials, camera presets, and raycast sightlines pure in `public/world-graph.js` (zero `window` / WebGL dependencies) and keep `THREE.WebGLRenderer`, DOM listeners, and render-loop scheduling inside `public/bomb3d.js`.
+- **Color Management & `CanvasTexture` Policy**: Every procedural color `CanvasTexture` must use `createColorCanvasTexture(THREE, canvas, { dynamic })` (`THREE.SRGBColorSpace`). Set `dynamic: true` (`generateMipmaps = false`, `LinearFilter`) on frequently redrawn timers/Morse/hold-progress arcs, and `dynamic: false` on static/stateful labels so `applyAnisotropyToSubtree` sharpens oblique module markings.
+- **Explicit Resource Ownership & Disposal**: Share immutable `BufferGeometry` and `createTouchHitboxMaterial(THREE)` (`colorWrite: false, depthWrite: false`) instances across repeated slots within a module. Static shared resources registered in `WorldVisualStyleManager.disposables` are protected during `clearModules()` and disposed only on full world teardown (`world.dispose()`).
+- **Frame-Independent Motion & Mobile Budgets**: Use `SeatedCameraRig.update(dampingAlpha, deltaSeconds)` exponential damping (`1 - exp(-lambda * dt)`), suspend the render loop while `document.hidden` is true, avoid `backdrop-filter` over the WebGL canvas, and keep real-time shadow maps and multi-pass post-processing disabled in favor of merged static geometry and baked radial contact decals (`<= 150` mobile draw calls, DPR capped at `1.75`, `1.0` in `lowSpecMode` / software GL).
+
+---
+
+## 5. Development, Lint & Verification Commands
 
 ```bash
 # Install dependencies
@@ -127,3 +138,4 @@ npm run lint
 # Execute the full automated test suite (concurrency=1 for shared HTTP/WS server tests)
 npm test
 ```
+

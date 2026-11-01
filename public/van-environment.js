@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createCanvas2D } from './modules/canvas-utils.js';
+import { createCanvas2D, createColorCanvasTexture } from './modules/canvas-utils.js';
 
 const NOOP_RAYCAST = () => {};
 
@@ -46,7 +46,7 @@ function createSoftShadowTexture() {
     ctx.fillStyle = 'rgba(2, 6, 23, 0.24)';
   }
   ctx.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(canvas);
+  return createColorCanvasTexture(THREE, canvas, { dynamic: false });
 }
 
 export function buildVanEnvironment({ styleManager = null } = {}) {

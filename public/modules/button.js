@@ -4,7 +4,11 @@
  * live timer digit preview during Hold, non-color solved badge,
  * strict Operator monochrome wireframe compliance, and Observer-only clue gating.
  */
-import { createCanvas2D } from './canvas-utils.js';
+import {
+  createCanvas2D,
+  createColorCanvasTexture,
+  createTouchHitboxMaterial
+} from './canvas-utils.js';
 import { createCircleOutlineGeometry, TACTILE_PALETTE } from '../tactile-styler.js';
 
 const NOOP_RAYCAST = () => {};
@@ -111,7 +115,7 @@ export const buttonClientModule = {
     // 2b. Generous Invisible Touch Hitbox (radius 0.46) for reliable thumb presses
     const hitGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.24, 24);
     hitGeo.rotateX(Math.PI / 2);
-    const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const hitMat = createTouchHitboxMaterial(THREE);
     const hitMesh = new THREE.Mesh(hitGeo, hitMat);
     hitMesh.position.set(0, -0.05, 0.13);
     hitMesh.userData = {
@@ -124,7 +128,7 @@ export const buttonClientModule = {
 
     // 2c. Radial Hold-Progress Arc Overlay around Collar
     const progressCanvas = createCanvas2D(256, 256);
-    const progressTexture = new THREE.CanvasTexture(progressCanvas);
+    const progressTexture = createColorCanvasTexture(THREE, progressCanvas, { dynamic: true });
     const progressGeo = new THREE.PlaneGeometry(0.92, 0.92);
     const progressMat = new THREE.MeshBasicMaterial({
       map: progressTexture,
@@ -184,7 +188,7 @@ export const buttonClientModule = {
       isOperator ? '#e4e4e7' : '#475569',
       '#f8fafc'
     );
-    const labelTexture = new THREE.CanvasTexture(labelCanvas);
+    const labelTexture = createColorCanvasTexture(THREE, labelCanvas, { dynamic: false });
     const capGeo = new THREE.PlaneGeometry(btnRadius * 1.52, btnRadius * 1.52);
     const capMat = new THREE.MeshBasicMaterial({
       map: labelTexture,

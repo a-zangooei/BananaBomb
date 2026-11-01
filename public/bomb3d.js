@@ -6,7 +6,7 @@
  * event binding, rolling frame-budget monitoring, and tactile/audio feedback.
  */
 import * as THREE from 'three';
-import { prefersReducedMotion } from './modules/canvas-utils.js';
+import { applyAnisotropyToSubtree, prefersReducedMotion } from './modules/canvas-utils.js';
 import { BombInteractionController, INTERACTION_DEFAULTS } from './interaction-controller.js';
 import { normalizeWorldRole } from './camera-rig.js';
 import {
@@ -61,18 +61,25 @@ export class Bomb3DScene {
     this.animTimeoutId = null;
     this.resizeObserver = null;
     this.contextLost = false;
+    this.isDocumentHidden = false;
     this.isSoftwareGl = false;
     this.lowSpecMode = Boolean(options.lowSpecMode);
     this.sensitivity = 1.0;
     this.currentState = null;
 
-    // Rolling 30-frame timing monitor for automatic low-spec fallback
+    // Last applied drawing-buffer parameters to avoid redundant GPU framebuffer reallocations
+    this._lastAppliedWidth = 0;
+    this._lastAppliedHeight = 0;
+    this._lastAppliedPixelRatio = 0;
+
+    // Sustained 45-frame timing monitor with hysteresis for automatic low-spec fallback
     this._lastFrameTime = 0;
     this._frameDeltas = [];
     this._avgFrameMs = 16.6;
     this._keyboardReticleActive = false;
     this._penaltyFlashSeconds = 0;
     this._penaltyFlashUntilMs = 0;
+    this._diagnosticsRef = null;
 
     // Production Interaction State Machine
     this.interaction = new BombInteractionController({
@@ -148,6 +155,25 @@ export class Bomb3DScene {
     if (prefersReducedMotion()) this.cameraRig.snapToTargets();
   }
 
+  probeSoftwareRendererBeforeInit() {
+    try {
+      if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+        return false;
+      }
+      const probeCanvas = document.createElement('canvas');
+      const gl = probeCanvas.getContext('webgl2') || probeCanvas.getContext('webgl');
+      if (!gl) return false;
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const rendererStr = String(
+        dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)
+      ).toLowerCase();
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+      return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(rendererStr);
+    } catch (e) {
+      return false;
+    }
+  }
+
   detectSoftwareRenderer(renderer) {
     try {
       const gl = renderer.getContext();
@@ -156,12 +182,7 @@ export class Bomb3DScene {
       const rendererStr = String(
         dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)
       ).toLowerCase();
-      return (
-        rendererStr.includes('swiftshader') ||
-        rendererStr.includes('llvmpipe') ||
-        rendererStr.includes('software') ||
-        rendererStr.includes('basic render driver')
-      );
+      return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(rendererStr);
     } catch (e) {
       return false;
     }
@@ -173,9 +194,22 @@ export class Bomb3DScene {
     return Math.min(dpr, 1.75);
   }
 
+  applySceneTextureAnisotropy() {
+    if (!this.renderer || !this.scene) return;
+    const maxAniso = this.renderer.capabilities?.getMaxAnisotropy?.() || 1;
+    applyAnisotropyToSubtree(this.scene, maxAniso);
+  }
+
   init() {
     const width = Math.max(120, this.container.clientWidth || 360);
     const height = Math.max(120, this.container.clientHeight || 420);
+
+    // Pre-probe software WebGL before context creation so antialias attribute is configured accurately
+    const preDetectedSoftwareGl = this.probeSoftwareRendererBeforeInit();
+    if (preDetectedSoftwareGl) {
+      this.isSoftwareGl = true;
+      this.lowSpecMode = true;
+    }
 
     // 1. Build Shared 3D Van World Graph
     this.world = buildSharedWorldGraph({
@@ -197,33 +231,40 @@ export class Bomb3DScene {
 
     // 2. Initialize WebGLRenderer with Mobile & Software-GL Protections
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !this.lowSpecMode,
+      antialias: !this.lowSpecMode && !this.isSoftwareGl,
       powerPreference: 'high-performance'
     });
-    this.isSoftwareGl = this.detectSoftwareRenderer(this.renderer);
-    if (this.isSoftwareGl) {
+    this.isSoftwareGl = this.isSoftwareGl || this.detectSoftwareRenderer(this.renderer);
+    if (this.isSoftwareGl && !this.lowSpecMode) {
       this.lowSpecMode = true;
       this.world.setLowSpecMode(true);
     }
 
-    this.renderer.setPixelRatio(this.computeTargetPixelRatio());
+    const initialDpr = this.computeTargetPixelRatio();
+    this.renderer.setPixelRatio(initialDpr);
     this.renderer.setSize(width, height);
+    this._lastAppliedWidth = width;
+    this._lastAppliedHeight = height;
+    this._lastAppliedPixelRatio = initialDpr;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = false;
 
-    const maxAniso = this.renderer.capabilities?.getMaxAnisotropy?.() || 1;
-    if (this.briefcaseRig) {
-      for (const tex of [
-        this.briefcaseRig.lidTimerTexture,
-        this.briefcaseRig.serialTexture,
-        this.briefcaseRig.morseLampTexture
-      ]) {
-        if (tex) tex.anisotropy = maxAniso;
-      }
-    }
+    this.applySceneTextureAnisotropy();
 
     this.container.innerHTML = '';
     this.container.appendChild(this.renderer.domElement);
+
+    // Expose read-only runtime diagnostics hook for automated profiling/inspection
+    if (typeof window !== 'undefined') {
+      const self = this;
+      this._diagnosticsRef = {
+        renderer: this.renderer.info,
+        get state() {
+          return self.getPerformanceMetrics();
+        }
+      };
+      window.__THREE_GAME_DIAGNOSTICS__ = this._diagnosticsRef;
+    }
 
     // 3. Bind Pointer / Touch / Context-Loss Lifecycle Events
     this.setupTouchControls();
@@ -233,8 +274,11 @@ export class Bomb3DScene {
 
     // 5. Start Render Loop (scheduled afterDraw)
     this.animate = this.animate.bind(this);
+    this.isDocumentHidden = typeof document !== 'undefined' ? Boolean(document.hidden) : false;
     this._lastFrameTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    this.animate();
+    if (!this.isDocumentHidden) {
+      this.animate();
+    }
   }
 
   setupResizeObserver() {
@@ -253,17 +297,41 @@ export class Bomb3DScene {
 
   handleResize(width, height) {
     if (!this.container || !this.renderer || !this.cameraRig) return;
-    const w = width || this.container.clientWidth;
-    const h = height || this.container.clientHeight;
+    const w = Math.floor(width || this.container.clientWidth);
+    const h = Math.floor(height || this.container.clientHeight);
     if (w <= 0 || h <= 0) return;
 
+    const targetDpr = this.computeTargetPixelRatio();
+    if (
+      w === this._lastAppliedWidth &&
+      h === this._lastAppliedHeight &&
+      targetDpr === this._lastAppliedPixelRatio
+    ) {
+      return;
+    }
+
+    this._lastAppliedWidth = w;
+    this._lastAppliedHeight = h;
+    this._lastAppliedPixelRatio = targetDpr;
+
     this.cameraRig.handleViewportResize(w, h, { immediate: prefersReducedMotion() });
-    this.renderer.setPixelRatio(this.computeTargetPixelRatio());
+    this.renderer.setPixelRatio(targetDpr);
     this.renderer.setSize(w, h);
   }
 
   resize() {
     this.handleResize();
+  }
+
+  pauseRenderLoop() {
+    if (this.animFrameId) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    if (this.animTimeoutId) {
+      clearTimeout(this.animTimeoutId);
+      this.animTimeoutId = null;
+    }
   }
 
   setupTouchControls() {
@@ -306,7 +374,16 @@ export class Bomb3DScene {
     };
 
     this.boundVisibilityChange = () => {
-      this.interaction.onVisibilityChange(Boolean(document.hidden));
+      const hidden = Boolean(document.hidden);
+      this.isDocumentHidden = hidden;
+      this.interaction.onVisibilityChange(hidden);
+      if (hidden) {
+        this.pauseRenderLoop();
+      } else if (!this.contextLost && !this.animFrameId && !this.animTimeoutId) {
+        this._frameDeltas.length = 0;
+        this._lastFrameTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        this.animate();
+      }
     };
 
     this.boundOrientationChange = () => {
@@ -339,25 +416,20 @@ export class Bomb3DScene {
       e.preventDefault();
       this.contextLost = true;
       this.interaction.cancelActiveGesture('webgl_context_lost');
-      if (this.animFrameId) {
-        cancelAnimationFrame(this.animFrameId);
-        this.animFrameId = null;
-      }
-      if (this.animTimeoutId) {
-        clearTimeout(this.animTimeoutId);
-        this.animTimeoutId = null;
-      }
+      this.pauseRenderLoop();
     };
 
     this.boundWebglContextRestored = () => {
       this.contextLost = false;
+      this._frameDeltas.length = 0;
       if (this.world) {
         this.world.setRole(this.role, { immediate: true });
+        this.applySceneTextureAnisotropy();
         if (this.currentState) {
           this.world.updateState(this.currentState);
         }
       }
-      if (!this.animFrameId) {
+      if (!this.isDocumentHidden && !this.animFrameId && !this.animTimeoutId) {
         this._lastFrameTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
         this.animate();
       }
@@ -496,7 +568,11 @@ export class Bomb3DScene {
       this.world.setLowSpecMode(this.lowSpecMode);
     }
     if (this.renderer) {
-      this.renderer.setPixelRatio(this.computeTargetPixelRatio());
+      const targetDpr = this.computeTargetPixelRatio();
+      if (targetDpr !== this._lastAppliedPixelRatio) {
+        this._lastAppliedPixelRatio = targetDpr;
+        this.renderer.setPixelRatio(targetDpr);
+      }
     }
   }
 
@@ -510,6 +586,8 @@ export class Bomb3DScene {
       lines: renderInfo.lines ?? 0,
       geometries: memoryInfo.geometries ?? 0,
       textures: memoryInfo.textures ?? 0,
+      programs: this.renderer?.info?.programs?.length ?? 0,
+      pixelRatio: this.renderer?.getPixelRatio?.() ?? this._lastAppliedPixelRatio ?? 1,
       lowSpecMode: this.lowSpecMode,
       isSoftwareGl: this.isSoftwareGl,
       avgFrameMs: Math.round(this._avgFrameMs * 10) / 10
@@ -561,6 +639,7 @@ export class Bomb3DScene {
       this.role = newRole;
       if (this.world) {
         this.world.setRole(newRole, { immediate: true });
+        this.applySceneTextureAnisotropy();
       }
       if (this.currentState) {
         this.updateState(this.currentState);
@@ -588,19 +667,24 @@ export class Bomb3DScene {
   }
 
   animate() {
-    if (!this.renderer || !this.scene || !this.camera || this.contextLost) return;
+    if (!this.renderer || !this.scene || !this.camera || this.contextLost || this.isDocumentHidden) {
+      return;
+    }
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const dt = now - (this._lastFrameTime || now);
     this._lastFrameTime = now;
 
-    if (dt > 2 && dt < 250) {
+    // Filter out micro-jitter (<2ms) and background tab spikes (>100ms); require 45-frame sustained window
+    if (dt > 2 && dt < 100) {
       this._frameDeltas.push(dt);
-      if (this._frameDeltas.length > 30) this._frameDeltas.shift();
-      if (this._frameDeltas.length === 30) {
-        const sum = this._frameDeltas.reduce((a, b) => a + b, 0);
-        this._avgFrameMs = sum / 30;
+      if (this._frameDeltas.length > 45) this._frameDeltas.shift();
+      if (this._frameDeltas.length === 45) {
+        let sum = 0;
+        for (let i = 0; i < 45; i++) sum += this._frameDeltas[i];
+        this._avgFrameMs = sum / 45;
         if (!this.lowSpecMode && !this.isSoftwareGl && this._avgFrameMs > 28) {
+          this._frameDeltas.length = 0;
           this.setLowSpecMode(true);
         }
       }
@@ -616,8 +700,9 @@ export class Bomb3DScene {
     }
 
     const damping = prefersReducedMotion() ? 1.0 : 0.18;
+    const dtSeconds = dt > 0 ? Math.min(dt / 1000, 0.1) : 1 / 60;
     if (this.cameraRig) {
-      this.cameraRig.update(damping);
+      this.cameraRig.update(damping, dtSeconds);
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -652,19 +737,18 @@ export class Bomb3DScene {
   dispose() {
     this._keyboardReticleActive = false;
     this.interaction.cancelActiveGesture('dispose');
-
-    if (this.animFrameId) {
-      cancelAnimationFrame(this.animFrameId);
-      this.animFrameId = null;
-    }
-    if (this.animTimeoutId) {
-      clearTimeout(this.animTimeoutId);
-      this.animTimeoutId = null;
-    }
+    this.pauseRenderLoop();
 
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
+    }
+
+    if (typeof window !== 'undefined' && this._diagnosticsRef) {
+      if (window.__THREE_GAME_DIAGNOSTICS__ === this._diagnosticsRef) {
+        delete window.__THREE_GAME_DIAGNOSTICS__;
+      }
+      this._diagnosticsRef = null;
     }
 
     if (this.renderer) {

@@ -424,7 +424,13 @@ export class WorldVisualStyleManager {
     this.clearModuleEdgeDisposables();
     for (const item of this.disposables) {
       try {
-        if (item.map) item.map.dispose();
+        if (item && typeof item === 'object') {
+          for (const val of Object.values(item)) {
+            if (val && typeof val === 'object' && val.isTexture) {
+              val.dispose();
+            }
+          }
+        }
         item.dispose();
       } catch (e) {}
     }
@@ -432,3 +438,4 @@ export class WorldVisualStyleManager {
     this.registeredEntries.length = 0;
   }
 }
+

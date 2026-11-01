@@ -4,7 +4,11 @@
  * before cutting, large non-overlapping hitboxes, monochrome 1–4 slot tags for Operator,
  * curved tactile cylinder outlines, and Observer-only color gating.
  */
-import { createCanvas2D } from './canvas-utils.js';
+import {
+  createCanvas2D,
+  createColorCanvasTexture,
+  createTouchHitboxMaterial
+} from './canvas-utils.js';
 import { createHorizontalWireOutlineGeometry, TACTILE_PALETTE } from '../tactile-styler.js';
 
 const NOOP_RAYCAST = () => {};
@@ -104,17 +108,45 @@ export const wiresClientModule = {
         })
       : null;
 
+    // Shared immutable geometries & materials across all 4 wire slots
+    const termGeo = new THREE.CylinderGeometry(0.042, 0.042, 0.06, 12);
+    termGeo.rotateX(Math.PI / 2);
+    const termMat = new THREE.MeshLambertMaterial({
+      color: isOperator ? 0x09090b : 0x94a3b8
+    });
+
+    const wireRadius = 0.036;
+    const intactGeo = new THREE.CylinderGeometry(wireRadius, wireRadius, wireSpan, 14);
+    intactGeo.rotateZ(Math.PI / 2);
+
+    const halfSpan = wireSpan * 0.37;
+    const leftCutGeo = new THREE.CylinderGeometry(wireRadius, wireRadius, halfSpan, 12);
+    leftCutGeo.rotateZ(Math.PI / 2 + 0.16);
+    const rightCutGeo = new THREE.CylinderGeometry(wireRadius, wireRadius, halfSpan, 12);
+    rightCutGeo.rotateZ(Math.PI / 2 - 0.16);
+
+    const wireOutlineGeo = isOperator
+      ? createHorizontalWireOutlineGeometry(wireRadius, wireSpan, 4)
+      : null;
+    const halfOutlineGeoL = isOperator
+      ? createHorizontalWireOutlineGeometry(wireRadius, halfSpan, 4)
+      : null;
+    if (halfOutlineGeoL) halfOutlineGeoL.rotateZ(0.16);
+    const halfOutlineGeoR = isOperator
+      ? createHorizontalWireOutlineGeometry(wireRadius, halfSpan, 4)
+      : null;
+    if (halfOutlineGeoR) halfOutlineGeoR.rotateZ(-0.16);
+
+    const lblGeo = new THREE.PlaneGeometry(0.13, 0.13);
+    const progGeo = new THREE.PlaneGeometry(0.22, 0.22);
+    const hitBoxGeo = new THREE.BoxGeometry(wireSpan * 1.04, 0.152, 0.15);
+    const hitBoxMat = createTouchHitboxMaterial(THREE);
+
     wireYPositions.forEach((y, idx) => {
       const wireGroup = new THREE.Group();
       wireGroup.position.set(0.03, y, 0.07);
 
       // Left & Right Terminal Blocks
-      const termGeo = new THREE.CylinderGeometry(0.042, 0.042, 0.06, 12);
-      termGeo.rotateX(Math.PI / 2);
-      const termMat = new THREE.MeshLambertMaterial({
-        color: isOperator ? 0x09090b : 0x94a3b8
-      });
-
       const leftTerm = new THREE.Mesh(termGeo, termMat);
       leftTerm.position.x = -wireSpan / 2;
       wireGroup.add(leftTerm);
@@ -123,10 +155,7 @@ export const wiresClientModule = {
       rightTerm.position.x = wireSpan / 2;
       wireGroup.add(rightTerm);
 
-      // Intact Wire
-      const wireRadius = 0.036;
-      const intactGeo = new THREE.CylinderGeometry(wireRadius, wireRadius, wireSpan, 14);
-      intactGeo.rotateZ(Math.PI / 2);
+      // Intact Wire (per-wire material so Observer clue colors update independently)
       const wireMat = new THREE.MeshLambertMaterial({
         color: isOperator ? 0x09090b : (isObserver ? 0xdc2626 : 0x475569)
       });
@@ -139,8 +168,7 @@ export const wiresClientModule = {
       };
       wireGroup.add(intactMesh);
 
-      if (isOperator && tactileWireLineMat) {
-        const wireOutlineGeo = createHorizontalWireOutlineGeometry(wireRadius, wireSpan, 4);
+      if (isOperator && tactileWireLineMat && wireOutlineGeo) {
         const wireOutline = new THREE.LineSegments(wireOutlineGeo, tactileWireLineMat);
         wireOutline.renderOrder = 1;
         wireOutline.raycast = NOOP_RAYCAST;
@@ -149,34 +177,25 @@ export const wiresClientModule = {
       }
 
       // Cut Wire Halves (Initially hidden)
-      const halfSpan = wireSpan * 0.37;
-      const leftCutGeo = new THREE.CylinderGeometry(wireRadius, wireRadius, halfSpan, 12);
-      leftCutGeo.rotateZ(Math.PI / 2 + 0.16);
       const leftCutMesh = new THREE.Mesh(leftCutGeo, wireMat);
       leftCutMesh.position.set(-wireSpan * 0.28, -0.02, 0);
       leftCutMesh.visible = false;
       leftCutMesh.userData = { clueId: `wire_cut_l_${idx}` };
       wireGroup.add(leftCutMesh);
 
-      const rightCutGeo = new THREE.CylinderGeometry(wireRadius, wireRadius, halfSpan, 12);
-      rightCutGeo.rotateZ(Math.PI / 2 - 0.16);
       const rightCutMesh = new THREE.Mesh(rightCutGeo, wireMat);
       rightCutMesh.position.set(wireSpan * 0.28, -0.02, 0);
       rightCutMesh.visible = false;
       rightCutMesh.userData = { clueId: `wire_cut_r_${idx}` };
       wireGroup.add(rightCutMesh);
 
-      if (isOperator && tactileWireLineMat) {
-        const halfOutlineGeoL = createHorizontalWireOutlineGeometry(wireRadius, halfSpan, 4);
-        halfOutlineGeoL.rotateZ(0.16);
+      if (isOperator && tactileWireLineMat && halfOutlineGeoL && halfOutlineGeoR) {
         const halfOutlineL = new THREE.LineSegments(halfOutlineGeoL, tactileWireLineMat);
         halfOutlineL.renderOrder = 1;
         halfOutlineL.raycast = NOOP_RAYCAST;
         halfOutlineL.userData = { isTactileOutline: true };
         leftCutMesh.add(halfOutlineL);
 
-        const halfOutlineGeoR = createHorizontalWireOutlineGeometry(wireRadius, halfSpan, 4);
-        halfOutlineGeoR.rotateZ(-0.16);
         const halfOutlineR = new THREE.LineSegments(halfOutlineGeoR, tactileWireLineMat);
         halfOutlineR.renderOrder = 1;
         halfOutlineR.raycast = NOOP_RAYCAST;
@@ -186,14 +205,13 @@ export const wiresClientModule = {
 
       // Non-color spatial slot badge (1..4)
       const badgeCanvas = createWireBadgeCanvas(idx + 1, isOperator);
-      const badgeTex = new THREE.CanvasTexture(badgeCanvas);
+      const badgeTex = createColorCanvasTexture(THREE, badgeCanvas, { dynamic: false });
       const lblMat = new THREE.MeshBasicMaterial({
         map: badgeTex,
         transparent: true,
         depthWrite: false,
         toneMapped: false
       });
-      const lblGeo = new THREE.PlaneGeometry(0.13, 0.13);
       const labelMesh = new THREE.Mesh(lblGeo, lblMat);
       labelMesh.position.set(-wireSpan / 2 - 0.085, 0, 0.048);
       labelMesh.renderOrder = 2;
@@ -208,8 +226,7 @@ export const wiresClientModule = {
 
       // 3D Hold-to-Cut Progress Ring centered on the wire
       const progCanvas = createCanvas2D(128, 128);
-      const progTex = new THREE.CanvasTexture(progCanvas);
-      const progGeo = new THREE.PlaneGeometry(0.22, 0.22);
+      const progTex = createColorCanvasTexture(THREE, progCanvas, { dynamic: true });
       const progMat = new THREE.MeshBasicMaterial({
         map: progTex,
         transparent: true,
@@ -225,8 +242,6 @@ export const wiresClientModule = {
       wireGroup.add(progressMesh);
 
       // Generous non-overlapping touch hitbox (height 0.152 inside 0.165 pitch)
-      const hitBoxGeo = new THREE.BoxGeometry(wireSpan * 1.04, 0.152, 0.15);
-      const hitBoxMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
       const hitBoxMesh = new THREE.Mesh(hitBoxGeo, hitBoxMat);
       hitBoxMesh.userData = {
         wireIndex: idx,

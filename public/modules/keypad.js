@@ -4,7 +4,11 @@
  * non-color checkmarks on entered keys, double-submission protection,
  * strict Operator monochrome canvas/LED rendering, and Observer-only symbol gating.
  */
-import { createCanvas2D } from './canvas-utils.js';
+import {
+  createCanvas2D,
+  createColorCanvasTexture,
+  createTouchHitboxMaterial
+} from './canvas-utils.js';
 
 const NOOP_RAYCAST = () => {};
 
@@ -104,11 +108,17 @@ export const keypadClientModule = {
       { x: 0.225, y: -0.225 }
     ];
 
+    // Shared immutable geometries & materials across all 4 keypad slots
+    const keyBoxGeo = new THREE.BoxGeometry(0.39, 0.31, 0.075);
+    const keyBoxMat = new THREE.MeshLambertMaterial({
+      color: isOperator ? 0x09090b : 0x1e293b
+    });
+    const faceGeo = new THREE.PlaneGeometry(0.365, 0.285);
+    const hitGeo = new THREE.BoxGeometry(0.42, 0.335, 0.12);
+    const hitMat = createTouchHitboxMaterial(THREE);
+    const glowGeo = new THREE.PlaneGeometry(0.42, 0.34);
+
     positions.forEach((pos, idx) => {
-      const keyBoxGeo = new THREE.BoxGeometry(0.39, 0.31, 0.075);
-      const keyBoxMat = new THREE.MeshLambertMaterial({
-        color: isOperator ? 0x09090b : 0x1e293b
-      });
       const keyMesh = new THREE.Mesh(keyBoxGeo, keyBoxMat);
       keyMesh.position.set(pos.x, pos.y, 0.072);
       keyMesh.userData = {
@@ -122,9 +132,8 @@ export const keypadClientModule = {
       const defaultText = isOperator ? `${idx + 1}` : '■';
       const labelCanvas = createCanvas2D(128, 128);
       drawKeyLabelCanvas(labelCanvas, defaultText, false, isOperator, false);
-      const labelTexture = new THREE.CanvasTexture(labelCanvas);
+      const labelTexture = createColorCanvasTexture(THREE, labelCanvas, { dynamic: false });
 
-      const faceGeo = new THREE.PlaneGeometry(0.365, 0.285);
       const faceMat = new THREE.MeshBasicMaterial({
         map: labelTexture,
         transparent: true,
@@ -145,8 +154,6 @@ export const keypadClientModule = {
       keyMesh.add(faceMesh);
 
       // Dedicated non-overlapping touch hitbox per key (0.42 x 0.335 inside 0.45 x 0.36 grid)
-      const hitGeo = new THREE.BoxGeometry(0.42, 0.335, 0.12);
-      const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
       const hitMesh = new THREE.Mesh(hitGeo, hitMat);
       hitMesh.position.set(pos.x, pos.y, 0.08);
       hitMesh.userData = {
@@ -160,7 +167,6 @@ export const keypadClientModule = {
       group.add(hitMesh);
 
       // Tactile Glow frame around key (strictly monochrome for Operator)
-      const glowGeo = new THREE.PlaneGeometry(0.42, 0.34);
       const glowMat = new THREE.MeshBasicMaterial({
         color: isOperator ? 0xf8fafc : 0x38bdf8,
         transparent: true,

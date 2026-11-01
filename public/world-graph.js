@@ -120,12 +120,12 @@ function computeSurfaceSamplePointsWorld(targetMesh, eyeWorldPos) {
     );
   } else if (clueId.startsWith('wire_') && !clueId.includes('cut')) {
     // Horizontal cylindrical wire along local X: sample 5 points along the outer skin facing the eye
-    const invWorld = new THREE.Matrix4().copy(targetMesh.matrixWorld).invert();
-    const localEye = eyeWorldPos.clone().applyMatrix4(invWorld);
-    const yzLen = Math.hypot(localEye.y, localEye.z) || 1;
+    _invWorldMat.copy(targetMesh.matrixWorld).invert();
+    _localEyeVec.copy(eyeWorldPos).applyMatrix4(_invWorldMat);
+    const yzLen = Math.hypot(_localEyeVec.y, _localEyeVec.z) || 1;
     const r = Math.max(dy, dz) * 0.49;
-    const ny = (localEye.y / yzLen) * r;
-    const nz = (localEye.z / yzLen) * r;
+    const ny = (_localEyeVec.y / yzLen) * r;
+    const nz = (_localEyeVec.z / yzLen) * r;
 
     for (const frac of [-0.36, -0.18, 0.0, 0.18, 0.36]) {
       localPts.push(new THREE.Vector3(cx + dx * frac, ny, nz));
@@ -169,10 +169,39 @@ function computeSurfaceSamplePointsWorld(targetMesh, eyeWorldPos) {
   return localPts.map((p) => p.applyMatrix4(targetMesh.matrixWorld));
 }
 
-function disposeObjectSubtree(rootObj) {
+const _invWorldMat = new THREE.Matrix4();
+const _localEyeVec = new THREE.Vector3();
+
+function disposeMaterialInstance(material, protectedResources = null, disposedSet = new Set()) {
+  if (!material || disposedSet.has(material) || (protectedResources && protectedResources.has(material))) {
+    return;
+  }
+  disposedSet.add(material);
+  for (const val of Object.values(material)) {
+    if (val && typeof val === 'object' && val.isTexture && !disposedSet.has(val)) {
+      if (!protectedResources || !protectedResources.has(val)) {
+        disposedSet.add(val);
+        try {
+          val.dispose();
+        } catch (e) {}
+      }
+    }
+  }
+  try {
+    material.dispose();
+  } catch (e) {}
+}
+
+export function disposeObjectSubtree(rootObj, protectedResources = null) {
   if (!rootObj) return;
+  const disposedSet = new Set();
   rootObj.traverse((obj) => {
-    if (obj.geometry) {
+    if (
+      obj.geometry &&
+      !disposedSet.has(obj.geometry) &&
+      (!protectedResources || !protectedResources.has(obj.geometry))
+    ) {
+      disposedSet.add(obj.geometry);
       try {
         obj.geometry.dispose();
       } catch (e) {}
@@ -180,10 +209,7 @@ function disposeObjectSubtree(rootObj) {
     if (obj.material) {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       for (const m of mats) {
-        try {
-          if (m.map) m.map.dispose();
-          m.dispose();
-        } catch (e) {}
+        disposeMaterialInstance(m, protectedResources, disposedSet);
       }
     }
   });
@@ -287,7 +313,8 @@ export function buildSharedWorldGraph({
     for (const modInfo of moduleViews.values()) {
       if (modInfo.group) {
         briefcaseRig.moduleBayRoot.remove(modInfo.group);
-        disposeObjectSubtree(modInfo.group);
+        // Protect shared materials (e.g. styleManager.linePrimaryMat) attached to Operator module edges
+        disposeObjectSubtree(modInfo.group, styleManager.disposables);
       }
     }
     moduleViews.clear();
@@ -575,8 +602,8 @@ export function buildSharedWorldGraph({
 
   function dispose() {
     clearModules();
+    disposeObjectSubtree(scene, styleManager.disposables);
     styleManager.dispose();
-    disposeObjectSubtree(scene);
   }
 
   // Initialize initial role profile & modules
